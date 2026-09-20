@@ -45,18 +45,17 @@ SYMBOLS = [
     r'IsInSpaceAtmosphere\s*\(',
     # Wrappers the first pass found: members that hand a sampled atmosphere on to other code. Added until a
     # pass finds no new wrapper (closure).
-    r'ReadonlyGlobalAtmosphere',
+    r'ReadonlyGlobalAtmosphere\b',
     r'SetWorldAtmosphere\s*\(',
-    r'BreathingAtmosphere|SoilingAtmosphere',
+    r'\bBreathingAtmosphere\b|\bSoilingAtmosphere\b',
     r'GetBurningAtmosphere\s*\(',
-    r'ScannedAtmosphere|GetScannedAtmosphere\s*\(',
-    r'GasSensor.*FindAtmosphere|FindAtmosphere\s*\(',
+    r'\bScannedAtmosphere\b|GetScannedAtmosphere\s*\(',
+    r'\bFindAtmosphere\s*\(',
     r'GetInputAtmos\s*\(',
-    r'_worldAtmosphere',
-    r'_mixingAtmos',
-    r'AtmosphericsController.*HasAtmosphere\s*\(',
-    r'Smelt\s*\(',
-    r'CentrifugeProcessUnit\s*\(',
+    r'\b_worldAtmosphere\b',
+    r'\b_mixingAtmos\b',
+    r'AtmosphericsController\b.*\bHasAtmosphere\s*\(',
+    r'\bSmelt\s*\(',
 ]
 PATTERN = re.compile('|'.join('(?:%s)' % s for s in SYMBOLS))
 METHOD = re.compile(r'^\t(?:\t)?(?:public|private|protected|internal|static|override|virtual|async|sealed|abstract|new|extern|unsafe|readonly|\s)+[\w<>\[\],.? ]+?\s+(\w+)\s*(?:<[^>]*>)?\s*\(')
@@ -83,7 +82,7 @@ def sites(root):
                     if not line.startswith('\t\t'):
                         kind = t.group(1) if not line.startswith('\t') else kind + '+' + t.group(1)
                 m = METHOD.match(line) or PROPERTY.match(line)
-                if m and not line.strip().startswith(('return', 'if', 'else', 'new ', 'throw', 'await')):
+                if m and not line.strip().startswith(('return', 'if', 'else', 'new ', 'throw', 'await')) and m.group(1) not in ('get', 'set', 'add', 'remove'):
                     member = m.group(1)
                 if PATTERN.search(line) and not line.strip().startswith(('using ', '//', '[')):
                     key = '%s::%s' % (rel, member)

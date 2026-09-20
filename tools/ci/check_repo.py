@@ -115,6 +115,28 @@ for f in tracked:
             leaks.append(f)
 need(not leaks, 'no personal email address in tracked files %s' % (leaks or ''))
 
+# ---- the census can only be trusted if its patterns really match ----------------------------------------
+# A shell once turned every \b in a pattern into a backspace character; the patterns then matched
+# nothing and a closure pass reported "no new sites" that was simply false.
+sys.path.insert(0, os.path.join('tools', 'census'))
+import census                                                     # noqa: E402
+need(not any(ord(c) < 32 for pattern in census.SYMBOLS for c in pattern), 'census patterns hold no control characters')
+SAMPLES = (
+    'PlanetaryAtmosphereSimulation.GiveToGlobal(mix);', 'GlobalGasMix tank', 'x.SampleGlobalAtmosphere(grid)',
+    'PAS.ReadOnlyGlobal(grid)', 'c.CloneGlobalAtmosphere(grid, 0L)', 'if (a.IsGlobalAtmosphere)',
+    'Mode == AtmosphereHelper.AtmosphereMode.Global', 'base.WorldAtmosphere.Add(m)', 'GlobalAtmosphereLiquid.IsRendered',
+    'TerraForming.GetGhgIndex(t)', 'GlobalAtmosphereData data', 'e.TemperatureOffset.GetOffset(angle)',
+    'GlobalTemperatureCurveOffset o', 'ExternalInputEnergyOffset += e', 'LatentEnergyOffset += e',
+    'IsInSpaceAtmosphere(grid)', 'AtmosphericsController.ReadonlyGlobalAtmosphere(g)', 'SetWorldAtmosphere();',
+    'if (BreathingAtmosphere == null)', 'SoilingAtmosphere.Add(m)', 'GetBurningAtmosphere()', 'ScannedAtmosphere.Pressure',
+    'FindAtmosphere(grid)', 'GetInputAtmos()', '_worldAtmosphere.GasMixture', '_mixingAtmos[i]', 'thing.Smelt(atmosphere)',
+    'base.GridController.AtmosphericsController.HasAtmosphere(grid)',
+)
+missed = [text for text in SAMPLES if not census.PATTERN.search(text)]
+need(not missed, 'every census symbol matches its sample %s' % (missed or ''))
+unused = [p_ for p_ in census.SYMBOLS if not any(re.search(p_, text) for text in SAMPLES)]
+need(not unused, 'every census pattern is exercised by a sample %s' % (unused or ''))
+
 print()
 print('%d problem(s)' % len(problems) if problems else 'all checks passed')
 sys.exit(1 if problems else 0)
