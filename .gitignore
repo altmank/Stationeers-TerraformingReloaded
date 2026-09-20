@@ -1,0 +1,16 @@
+# build output
+bin/
+obj/
+package/
+
+# editor / tooling
+.vs/
+*.user
+*.suo
+
+# decompiled reference material, kept outside the repo
+reference/
+
+# written by the game (tools/LiveCheck/run.ps1 -Dump); game data stays out of the repo
+tools/Balance/gamedata.json
+__pycache__/

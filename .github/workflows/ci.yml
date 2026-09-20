@@ -1,0 +1,32 @@
+name: checks
+
+# The mod itself cannot be compiled here: it references the game's assemblies, which are not ours to
+# publish, and no public reference package exists for Stationeers. What can run without the game does:
+# repository checks, and the temperature rule's invariants against a synthetic fixture. The build,
+# tools/PatchCheck and tools/LiveCheck run on a machine with the game (build.ps1, docs/VERIFICATION.md).
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy scipy
+      - name: Repository checks
+        run: python tools/ci/check_repo.py
+      - name: Python compiles
+        run: python -m py_compile tools/Balance/*.py tools/ci/*.py
+      - name: Temperature rule invariants (synthetic fixture)
+        run: |
+          python tools/ci/make_fixture.py "$RUNNER_TEMP/fixture.json"
+          TR_GAMEDATA="$RUNNER_TEMP/fixture.json" python tools/ci/test_model.py

@@ -1,0 +1,49 @@
+# Assumptions register
+
+Rule: nothing the game does is left out of a model or a design because it is inconvenient. A
+mechanic is either modelled from the game's code and checked against a live run, or it is listed
+here with why it is unresolved, why the current treatment is defensible, what breaks if it is wrong,
+and how to settle it. "Not modelled" with no entry here is a defect.
+
+Status: **RESOLVED** (measured, entry kept for the record), **BOUNDED** (unresolved but the error has
+a known ceiling), **OPEN** (unresolved, could change a conclusion).
+
+## The simulator (`tools/Balance`)
+
+| # | Assumption or simplification | Status | Justification | If wrong | How to settle |
+| --- | --- | --- | --- | --- | --- |
+| S1 | Tables dumped from the game are interpolated linearly, and `planet.py` is the same arithmetic as `Climate.cs` | RESOLVED | The game evaluated every table. Live: Mars day 281.29 K vs 281.5 model, night 226.24 vs 226.31; Europa 133.05 vs 133.07 and 124.0 vs 124.0; with the mod's rule active, Venus 322.17 vs 322.3 and Vulcan within 0.19 K at six sun angles through a day | Under 0.3 K, times the anchor gain on hot worlds | `run.ps1 -Observe` on any world |
+| S2 | A mix is judged in its settled state: weather offset, latent heat and external heat are zero | BOUNDED | Weather is an event. External heat decays by design. Latent heat returns to zero when what froze has melted back; while material sits in the ice caps it does not (**MEASURED**: 20 mol per cell of CO2 frozen on Europa left +1.9 K) | A finished planet with gas still in the caps reads a few kelvin warmer than the model | Observe the end state of each recipe live |
+| S3 | Hottest and coldest are taken over every sun angle 0-180 and both ends of the orbit | BOUNDED | A base is at one latitude and sees a narrower range (**MEASURED** Mars 38-166 degrees). Taking the full range makes a recipe that passes habitable anywhere, any season | Recipes cost slightly more than a given base site needs | Dump the per-site angle range if tighter numbers are ever wanted |
+| S4 | Phase change is a settled-state rule: a gas below freezing point + 2 K at the coldest hour is not in the air; a gas below its boiling point + 2 K at the planet's total pressure (once that pressure reaches the gas's minimum liquid pressure) rains out | BOUNDED | **CODE**: `FreezeGlobalGasToIceClouds` passes `MoleQuantity.MaxValue`, the whole gas in one tick. **MEASURED**: 20 mol per cell of CO2 added to Europa at 134 K was out of the air within five ticks, snow was scheduled, and it moved to the ice caps at the game's 3000 mol per tick. Condensation moves 10 % per tick (**CODE**, `StateChangeGas(..., 0.1)`), not yet watched live | A gas near a threshold could linger or oscillate day to night rather than leave cleanly | Observe a mix sitting on a threshold through a full day |
+| S5 | Gas that froze or rained out returns when the planet is warm enough (`path.py`, `_comes_back`) | RESOLVED | **MEASURED**: CO2 frozen out on Europa came straight back from tank liquid when the planet was warmed early, and from the ice caps at the game's own 1,000 mol per tick when warmed late (TEMPERATURE.md). It needed a fix: the game evaluates the caps' temperature on the caps, which hold no gas | Return from the caps is slow: 20 mol per cell takes about 40 minutes at Standard size and 14 hours at Shipped | - |
+| S6 | Liquid toxins lying outdoors do not poison through breathing | RESOLVED | **CODE**: `Atmosphere.PartialPressureHumanToxins` (`Atmosphere.cs:812-823`) sums the gas species only (pollutant, volatiles, hydrazine, silanol, HCl). `GasMixture.TotalToxins`, which includes liquids, is read only by water bottle fillers and fountains. Whether standing in a liquid hurts some other way was not traced | A rained-out toxin that is still harmful on contact | Stand a test character in it |
+| S7 | The planet is one well-mixed box; gas in outdoor cells in transit is ignored | BOUNDED | **MEASURED**: 100,000 mol injected spreads and drains into the planet in about 70 ticks | None at planet scale | - |
+| S8 | Fuel and an oxidiser are never outdoors together in a recommended path | RESOLVED | **CODE** (`Atmosphere.TryCombust`): a sparked cell burns any fuel beside any oxidiser, with no minimum ratio or temperature, and sparks its neighbours; above 573 K no spark is needed. `path.py` forbids the combination outright (`SAFE = True`) and has to take Europa's oxygen out of the way before using volatiles | A player who accepts the fire risk has a cheaper route; `SAFE = False` prices it | - |
+| S9 | Work is moles moved, added plus removed; removal through vents is dilution | BOUNDED | `removal.py` integrates dn/dt = -intake x n/N with the game's vent rule: Venus needs 1.5 times its removed moles drawn through the filters, Vulcan 4.2 times, and 20 large powered vents do either in under 35 h at Standard size. Intake is not the bottleneck | Removal worlds are limited by S12, not by this | - |
+| S12 | Somewhere to put what is removed | BOUNDED | Filtration is not a limit (**CODE**): a filter wears by ticks in use, not by moles (`GasFilter`: a large filter lasts 40 hours of use whatever flows), and a Filtration unit outruns the vents. Storage is a build cost, not a rate: a big tank (50,000 L, **MEASURED**) holds about 1.2 M mol of gas at the 60.8 MPa pipe limit, or as liquid 1.25 M mol of CO2 (0.04 L/mol) or 1.8 M mol of HCl (0.028 L/mol, **CODE** `Chemistry.MOLAR_VOLUME_*`). Venus at Standard size is about 47 big tanks, at Short about 10. There is no sink: gas released above the 1,000 m space line is given to the planet, not destroyed (`Atmosphere.LerpToGlobalAtmosphere`). Selling to traders is unpriced | Tank count is the real cost of a removal world; unplayed | Play it; price trader sales |
+| S10 | Base tiers (small 13k, medium 93k, mega 378k mol/h) | OPEN | Built from measured machine rates but assumed duty cycles; omit composters, combustion tripling, in-place CO2 to O2 | The hour labels on the presets move; the presets themselves are fractions of a planet and do not | ROADMAP item 2 |
+| S11 | `path.py` is a greedy planner | BOUNDED | "No path found" is not proof of none; a found path's cost is an upper bound | Costs overstated | Replay found paths live at their waypoints |
+
+## The mod's temperature rule (`src/Patching/Climate.cs`)
+
+These are design choices, not facts about the game. Each is the same for every world.
+
+| # | Choice | Status | Justification | If wrong | Tunable by a player? |
+| --- | --- | --- | --- | --- | --- |
+| M1 | The default greenhouse and density curves are Mars's | chosen | The one world the developers tuned | Response too strong or weak elsewhere | Yes: curves file, and a strength setting each |
+| M2 | A hot world's shipped mean is bare-rock equilibrium plus warming from its starting air, and the positive part of the greenhouse response is scaled to match | chosen | Without it Venus holds about 440 K the player can never remove. Physically: that is what a greenhouse is | Hot worlds too easy or too hard | Through the curves file, which reshapes the route. `GhgResponseScale` is divided out of the gain so that no value of it can make a hot world impossible |
+| M3 | Anchoring blends in from a starting greenhouse index of 5 to 10, gain capped at 10 | chosen | No shipped world sits between 5 and 10 (Venus 33, Vulcan 18.5, Europa -8); the blend removes a cliff for custom worlds, the cap bounds a curve with g(start) near zero | A custom world in the band behaves between the two rules | No |
+| M4 | Anchor albedo fixed at 0.3, separate from the `AirlessAlbedo` setting | chosen | The setting is for airless worlds; letting it move a touched Venus by 30 K mid-save would be a trap | Equilibrium off by about 10 K per 0.1 albedo | No |
+| M5 | Swing damping is the density curve's day-night gap relative to the gap at the starting air, clamped 0 to 1 | chosen | Same physics as the game's Mars density curve, made proportional so it works on a world with a 766 K swing. Clamped because thinning the air past the start would otherwise multiply the swing (Vulcan vacuum: x3.9, nights to 0 K) | Thinning a world's air never makes nights colder than shipped | `DensityResponseScale`, an exponent: 0 off, more bites sooner, end point unchanged |
+| M6 | Cooling (negative greenhouse response) is never amplified by the anchor gain | chosen | Otherwise flooding Vulcan with nitrogen fixes it with no removal at all | - | No |
+| M7 | An airless world with no base curve gets grey-body equilibrium, albedo 0.3, +50 / -60 K day and night | chosen | The shipped game reads 0 K there. 278.6 K at 1367 W/m2 is textbook | Moon and Mimas start points shift | `AirlessAlbedo` |
+| M8 | External heat fades with a 60 minute half-life and is capped at 50 K | chosen, untuned | The game never drains it (defect D3) | Heating the planet with machines is too weak or too strong a tool | Both are settings |
+| M9 | The postfix recomputes the greenhouse index the game just computed | BOUNDED | Exact and simple; about ten curve evaluations per call on top of the game's own | Frame time in a base with thousands of open outdoor cells | Measure in ROADMAP item 3 |
+| M10 | Harmony keeps the patched temperature method from being inlined | RESOLVED if `-Observe` shows the adjustment applied | The method is long (not an inlining candidate) and is patched at load | The response silently does nothing | `terraform` shows "adding N K now"; LiveCheck compares game to model |
+
+## Known consequences of the game's own constants at small planet sizes
+
+Not assumptions, but easy to forget: the phase-change rates are absolute (1000 mol per tick melt, 3000
+freeze, cloud buckets of 100,000 L), so per outdoor cell they run 20 times faster at Standard size
+and 100 times at Short. Rain and snow will be more frequent on a small planet. Unplayed.
