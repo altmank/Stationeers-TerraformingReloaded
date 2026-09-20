@@ -1,0 +1,62 @@
+site,kind,mutates,guard,note
+CONSTANT::Atmosphere.ReactWithCell_radiation,none,no,,"Literals RatioOneAtmosphereUnclamped x 10 and 0.1 x NewAtmosSupressionMultiplier in GetRadiatedHeat toward the planet; per cell, feeds ExternalInputEnergyOffset whose effect is divided by tank heat capacity (20x stronger at 0.05 volume)."
+CONSTANT::AtmosphereHelper.GlobalAtmosphereNeighbourThreshold,none,no,,"100 (scaled by planet pressure ratio clamped 0.04..1 and NewAtmosSupressionMultiplier): decides sample-vs-clone of neighbours in PrepareDataMixInWorld, i.e. how far a plume spreads as real cells."
+CONSTANT::AtmosphereHelper.LerpRate,none,no,,0.2..1 per tick relaxation of open cells toward planet air.
+CONSTANT::AtmosphericAudioHandler.MinimumLocalAtmosPressure,none,no,,1 kPa absolute for wind audio; GameAudioSource.AtmosAudioVolumeThreshold 3 kPa likewise (display only).
+CONSTANT::AtmosphericScatteringBlend.FallbackMoles,none,no,,"40 mol per cell reference when world XML has no gas (per-cell, volume-invariant)."
+CONSTANT::AtmosphericsManager.WorldAtmospheresCount_20000,none,no,,Literal 20000 in Atmosphere.PrepareDataMixInWorld (forces read-only neighbours) and AtmosphereHelper.LerpRate denominator.
+CONSTANT::Chemistry.ArmstrongLimit,none,no,,"6.3 kPa absolute: gates device waste heat (Device.OnAtmosphericTick), portable AC, scrubber heat, road flare, furnace explode."
+CONSTANT::Chemistry.GridVolume,none,no,,"8000 L outdoor cell; read-only copy volume; tank/cell scaling ratio in CloneGlobalGasMix, GetGlobalMoles, TakeGlobalGasMix."
+CONSTANT::Chemistry.MINIMUM_WORLD_VALID_TOTAL_MOLES,none,no,,0.1 mol per cell: IsActive() / HasAtmosphere threshold for outdoor air.
+CONSTANT::Chemistry.MinimumGasVolume,none,no,,x100 for World/Global in Atmosphere.GetMinimumGasVolume.
+CONSTANT::Chemistry.OneAtmosphere,none,no,,"101.325 kPa absolute: ActiveVent default external target, Pipe.LeakMix mode switch, PipeLeak emit threshold, IndustrialBurner chimney rate map."
+CONSTANT::Chemistry.PressureFullyApplyVelocity,none,no,,90 kPa absolute: wind push on dynamic things.
+CONSTANT::ContactSlotData+PlaneCondition.MinPressure,none,no,,1 kPa planet pressure for plane traders (intensive).
+CONSTANT::DynamicAirConditioner.MINCoolingTemp,none,no,,263.15 K absolute outdoor limit; MAXHeatingTemp 323.15 K likewise.
+CONSTANT::Dynamite.EnergyReleasedPerTick,none,no,,100 J/tick.
+CONSTANT::FridgePowered.HeatTransferJoulesPerTick,none,no,,1000 J/tick heat dumped outdoors (lost on the read-only copy).
+CONSTANT::GlobalAtmosphereData.Volume,none,no,,"Default 4e10 L tank volume (5,000,000 cells); saved per tank and restored by Load."
+CONSTANT::GlobalAtmosphereLiquid.MAX_WATER_HEIGHT,none,no,,Sea height lerp 2..10 m by liquid/tank volume ratio (relative).
+CONSTANT::GlobalAtmosphereLiquid.RenderThreshold,none,no,,"1.5e6 L of tank liquid before the global sea renders; absolute, and its multiplier is evaluated once at static init."
+CONSTANT::GlobalGasMix.GlobalTemperatureStateChangeOffset,none,no,,2 K hysteresis on all planet phase change.
+CONSTANT::GlobalTemperatureCurveOffset.DayNightAngles,none,no,,70/110 degree day-night blend hardcoded in both offset types.
+CONSTANT::OrganPipe._pressurePerTick,none,no,,20 kPa/tick (gated).
+CONSTANT::PlanetaryAtmosphereSimulation.CLOUD_VOLUME,none,no,,"100000 L liquid and ice cloud buckets; absolute, does not scale with tank volume."
+CONSTANT::PlanetaryAtmosphereSimulation.FREEZE_RATIO,none,no,,"4.1667e-5 per tick (a ratio, scales)."
+CONSTANT::PlanetaryAtmosphereSimulation.ICE_CAP_VOLUME,none,no,,1e7 L; absolute.
+CONSTANT::PlanetaryAtmosphereSimulation.MELT_RATIO,none,no,,"1.3889e-5 per tick (a ratio, scales)."
+CONSTANT::PlanetaryAtmosphereSimulation.MINLiquidFreezeQuantity,none,no,,3000 mol/tick floor; absolute.
+CONSTANT::PlanetaryAtmosphereSimulation.MINMeltQuantity,none,no,,1000 mol/tick floor; absolute.
+CONSTANT::PlanetaryAtmosphereSimulation.SpaceHeight,none,no,,"1000 m; above it samples return the empty _readOnlySpace and clones are empty, but gives still credit the tank."
+CONSTANT::PlanetaryAtmosphereSimulation.UPDATE_TO_VULCAN_VENUS_ATMO,none,no,,26973: saves older than this reset the planet on load.
+CONSTANT::RoboticArmDockAtmos.PressurePerTick,none,no,,1 atm per tick pump rate against sampled outdoor air.
+CONSTANT::TerraForming.DAYS_TO_GERMINATE,none,no,,"30 days, global vegetation (GlobalPlants) germination."
+CONSTANT::Thing.MinimumIgnitionPressurePropane,none,no,,1.5 kPa absolute minimum outdoor gas pressure for things to burn.
+CONSTANT::VendingMachineRefrigerated.HeatTransferJoulesPerTick,none,no,,1000 J/tick.
+CONSTANT::WallCooler.HeatTransferJoulesPerTick,none,no,,1000 J/tick.
+CONSTANT::WaterDevice.MinimumWorldPressure,none,no,,30 kPa outdoor pressure for water devices (intensive).
+WRAPPER::AtmosAnalyser.GetScannedAtmosphere,none,no,,Returns WorldAtmosphere of the human or itself.
+WRAPPER::AtmosAnalyser.ScannedAtmosphere,none,no,,Public property holding the GetScannedAtmosphere result (may be the copy).
+WRAPPER::Atmosphere.PrepareDataMixInWorld,none,no,,"Stores the read-only copy in _mixingAtmos, _lowerNeighbour, _flatNeighbours, _verticalNeighbours; consumed by MixLiquids (unguarded), GiveLiquids / EqualizeLiquidsToNeighbours (guarded by CanGiveLiquidTo), SpawnLiquidSolverParticles (guarded), Take/Give (switched)."
+WRAPPER::AtmosphericsController.HasAtmosphere,none,no,,"Bool only, built on the sample (IsActive)."
+WRAPPER::AtmosphericsController.ReadonlyGlobalAtmosphere,none,no,,Static; returns PAS.ReadOnlyGlobal(grid) directly (always the copy).
+WRAPPER::AtmosphericsController.SampleGlobalAtmosphere,none,no,,The sampler itself: GetAtmosphereLocal(grid) ?? PAS.ReadOnlyGlobal(grid).
+WRAPPER::DynamicScrubber.GetFromCell,none,no,,"Stores a sampled neighbour atmosphere into WorldAtmosphere (lines 199, 207), later written to by ReleaseToAtmos."
+WRAPPER::DynamicThing.SetWorldAtmosphere,none,no,,Stores SampleGlobalAtmosphere / crew module / parent internal into WorldAtmosphere.
+WRAPPER::DynamicThing.Smelt,none,no,,"Not a return but a hand-off: ArcFurnace.WaitThenSmelt and GasCanister.Recycle pass a sampled atmosphere into the virtual Smelt(Atmosphere, ReagentMixture) chain; every override must keep its IsGlobalAtmosphere guard."
+WRAPPER::DynamicThing.WorldAtmosphere,none,no,,Cached sample; slot children inherit the parent's WorldAtmosphere.
+WRAPPER::Entity.BreathingAtmosphere,none,no,,Getter returns base.WorldAtmosphere; setter stores into it.
+WRAPPER::Entity.SoilingAtmosphere,none,no,,"Protected; => base.WorldAtmosphere (Human overrides: suit internal, else base)."
+WRAPPER::FridgePowered._worldAtmosphere,none,no,,Field storing the sample; only used in FridgePowered.OnAtmosphericTick.
+WRAPPER::GasSensor.FindAtmosphere,none,no,,Stores the sample in the public field.
+WRAPPER::GasSensor.WorldAtmosphere,none,no,,Public field filled by FindAtmosphere with the sample.
+WRAPPER::Human.BreathingAtmosphere,none,no,,Forwards Entity.BreathingAtmosphere unless helmet internals are on.
+WRAPPER::Ore.CentrifugeProcessUnit,none,no,,"Hands the sample to the virtual Smelt(localAtmosphere, ...); every Smelt override is a consumer. Same for Ice.Recycle, GasCanister.Recycle, Ice.HandleIceMelting."
+WRAPPER::PlanetaryAtmosphereSimulation.GetGlobalGasMix,none,no,,"Returns the live tank object, mutable outside the lock."
+WRAPPER::PlanetaryAtmosphereSimulation.GetGlobalGasMixCopy,none,no,,"Returns a GasMixture copy of the WHOLE tank (not per cell); a copy, but callers may treat it as a source."
+WRAPPER::PlanetaryAtmosphereSimulation.ReadOnlyGlobal,none,no,,"Returns _readOnlyGlobal, or _readOnlySpace above SpaceHeight."
+WRAPPER::Plant.BreathingAtmosphere,none,no,,Forwards tray atmosphere or base.WorldAtmosphere.
+WRAPPER::RoadFlare.GetBurningAtmosphere,none,no,,"Returns parent internal or WorldAtmosphere, which can still be the read-only copy below Armstrong."
+WRAPPER::RoboticArmDockAtmos.GetInputAtmos,none,no,,Private; docked vent pipe atmosphere or the sample; callers are logic reads only.
+WRAPPER::SuitBase.BreathingAtmosphere,none,no,,Private; forwards ParentEntity.BreathingAtmosphere.
+WRAPPER::VendingMachineRefrigerated._worldAtmosphere,none,no,,Private field holding the sample; only used in OnAtmosphericTick.
