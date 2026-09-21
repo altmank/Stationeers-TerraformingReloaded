@@ -232,7 +232,9 @@ The clouds and ice caps keep the game's fixed volumes, so on a small planet they
 **The Mimas heat kick**, sized: the game banks (T_gas - T_planet) x heat capacity for everything
 vented; the mod fades it (half-life 60 min) and caps it at 50 K. Holding +28 K on a Standard-size
 Mimas with 10 mol per cell of helium takes gas vented about 130 K warmer than the planet at 378,000
-mol/h: ordinary room-temperature gas is 200 K warmer than Mimas. It gets harder as the air thickens
+mol/h of gas reaching the air: ordinary room-temperature gas is 200 K warmer than Mimas. A mega base
+on Mimas runs a little above that, about 450,000 mol/h once the burn has multiplied its ice, so the
+figure is on the safe side. It gets harder as the air thickens
 (+8 K at 280 mol per cell needs gas 1,000 K warmer), so the volatiles have to go in early.
 `ExternalHeatHalfLifeMinutes` is the knob: at 240 min every figure drops four-fold. **Checked live**, with
 the test driver holding the heat: at +25 K nights read 86.5 K and the volatiles stayed a gas. Not shown:

@@ -41,18 +41,19 @@ namespace TerraformingReloaded
     }
 
     /// <summary>
-    /// Named planet sizes. Hours are for reaching shirt-sleeve air on Mars, from tools/Balance, for a
-    /// mega base making about 380,000 mol an hour; a base with one ice rocket is about four times slower.
+    /// Named planet sizes. Hours are for reaching air you can breathe without a suit on Mars, from
+    /// tools/Balance, for a mega base of four ice rockets mining 60 % of the time; a base with one ice
+    /// rocket is about five times slower.
     /// </summary>
     public enum PlanetSizePreset
     {
-        /// <summary>1/100 of shipped. About 17 hours for a mega base, 70 for a one-rocket base.</summary>
+        /// <summary>1/100 of shipped. About 15 hours for a mega base, 72 for a one-rocket base.</summary>
         Short,
-        /// <summary>1/20 of shipped. About 85 hours for a mega base, near the original mod's stated aim of 100.</summary>
+        /// <summary>1/20 of shipped. About 75 hours for a mega base, near the original mod's stated aim of 100.</summary>
         Standard,
-        /// <summary>1/4 of shipped. About 410 hours for a mega base.</summary>
+        /// <summary>1/4 of shipped. About 375 hours for a mega base.</summary>
         Long,
-        /// <summary>As the game ships it. About 1,650 hours for a mega base.</summary>
+        /// <summary>As the game ships it. About 1,500 hours for a mega base.</summary>
         UnmoddedBaseline,
         /// <summary>Use CustomPlanetSize.</summary>
         Custom,
