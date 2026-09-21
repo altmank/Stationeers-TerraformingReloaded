@@ -35,19 +35,19 @@ Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they 
 
 [hr][/hr]
 [h2]How long it takes[/h2]
-One setting, [b]Planet size[/b], decides the pace. At [b]Standard[/b], to the point where you can stand outside with your helmet off:
+One setting, [b]Planet size[/b], decides the pace. Hours to reach air you can stand in with your helmet off:
 [table]
-[tr][th]World[/th][th]Roughly[/th][/tr]
-[tr][td]The Moon[/td][td]80 hours[/td][/tr]
-[tr][td]Mars[/td][td]83 hours[/td][/tr]
-[tr][td]Venus[/td][td]208 hours[/td][/tr]
-[tr][td]Vulcan[/td][td]225 hours[/td][/tr]
-[tr][td]Mimas[/td][td]516 hours[/td][/tr]
-[tr][td]Europa[/td][td]748 hours[/td][/tr]
+[tr][th]World[/th][th]Short[/th][th]Standard[/th][th]Long[/th][th]Shipped[/th][/tr]
+[tr][td]The Moon[/td][td]16[/td][td]80[/td][td]399[/td][td]1,597[/td][/tr]
+[tr][td]Mars[/td][td]17[/td][td]83[/td][td]414[/td][td]1,655[/td][/tr]
+[tr][td]Venus[/td][td]42[/td][td]208[/td][td]1,038[/td][td]4,153[/td][/tr]
+[tr][td]Vulcan[/td][td]45[/td][td]225[/td][td]1,127[/td][td]4,506[/td][/tr]
+[tr][td]Mimas[/td][td]103[/td][td]516[/td][td]2,582[/td][td]10,328[/td][/tr]
+[tr][td]Europa[/td][td]150[/td][td]748[/td][td]3,739[/td][td]14,956[/td][/tr]
 [/table]
-[b]Short[/b] is a fifth of those. [b]Long[/b] is five times. [b]Shipped[/b], the game's real planet, is twenty times.
+[b]Shipped[/b] is the planet at the size the game itself uses.
 
-[b]Treat these as rough scale, not a promise.[/b] They are calculated from how much gas a large, heavily automated base can move in an hour, not measured from a real playthrough, because nobody has finished one yet. A smaller or more hands-on base will take considerably longer.
+[b]Treat these as rough scale, not a promise.[/b] They assume a large base: four ice rockets flying, traders buying gas, and combustion making it, moving somewhere near 378,000 moles an hour between them. That rate is worked out from what each of those can produce, not measured from a finished playthrough, because nobody has finished one yet. Run half that and every number above doubles.
 
 Size changes nothing else about the world: the air, pressure and temperature you start with are the same at every size. A save made before you installed the mod carries the full-size planet until you rescale it.
 
