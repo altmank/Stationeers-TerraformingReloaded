@@ -23,6 +23,18 @@
     -WallVent  The wall vent fix, called directly: a headless run cannot build a vent, so the driver
                hands the hook body two grids, one with a cell and one without, and checks that a cell
                is built and that tank plus cells does not move.
+    -BuildOver Building into an occupied outdoor cell (D2). The driver makes two neighbouring cells,
+               waits for the simulation to link them, tops the first one up so the gas at stake is
+               unmistakable, and calls what a structure calls when it fills a grid. Tank plus cells
+               must not move. Add -Unguarded to run it again with the mod's guard taken off, which
+               must show the duplicate: that is what says the check can fail. -Vanilla is no control
+               here, because unmodded the planet throws away whatever it is handed, so the defect
+               costs nothing until the mod switches the planet simulation on.
+    -Weather   A cloud bucket filling while other weather is already running (D6). The driver starts
+               snow, fills the liquid clouds, and checks that the bucket went back into the air and
+               snow is still the running event. With -Vanilla snow must be replaced by rain instead.
+               -WeatherEvent picks what is running when the bucket fills; snow is the case that
+               reaches the defect, because the game's own guard only steps aside for storm and rain.
     -MenuPressure  The mix the new-game menu builds to describe a world must be the shipped planet,
                not the resized one it is playing.
     -Rescale   'terraform size <share> confirm' on the planet being played, with the ice caps, the
@@ -72,6 +84,10 @@ param(
     [switch]$WallVent,
     [switch]$MenuPressure,
     [switch]$Rescale,
+    [switch]$BuildOver,
+    [switch]$Unguarded,
+    [switch]$Weather,
+    [string]$WeatherEvent = 'Snow',
     [double]$RescaleTo = 0,
     [double]$RescaleBy = 2.5,
     [string]$Storm = '',
@@ -94,10 +110,12 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
-if (@(($Vanilla -and -not ($Observe -or $Model)), $SaveLoad, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Reset, -Dump, -WallVent, -MenuPressure and -Rescale.' }
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver and -Weather.' }
 if ($Rescale -and -not (($RescaleTo -gt 0) -or ($RescaleBy -gt 0))) { throw 'Give -RescaleBy, how many times its present size the planet should end up, or -RescaleTo, an absolute share of the shipped planet.' }
 if ($Rescale -and ($RescaleTo -le 0) -and ([math]::Abs($RescaleBy - 1) -lt 1e-9)) { throw '-RescaleBy 1 is not a rescale.' }
 if ($Storm -and -not ($Observe -or $Model)) { throw '-Storm only applies to -Observe and -Model.' }
+if ($Unguarded -and -not $BuildOver) { throw '-Unguarded only applies to -BuildOver.' }
+if ($Unguarded -and $Vanilla) { throw 'There is no guard to take off without the mod.' }
 if ($Storm -and $StormTick -le 0) { throw '-Storm needs -StormTick, the tick to force the event on at.' }
 
 dotnet build (Join-Path $root 'src\TerraformingReloaded.csproj') -c Release -p:GameDir="$GameDir" --nologo -v quiet
@@ -124,7 +142,8 @@ $envKeys = @(
     'TR_LIVECHECK_OBSERVE', 'TR_LIVECHECK_DAYSPEED', 'TR_LIVECHECK_SETAIR', 'TR_LIVECHECK_HEATK',
     'TR_LIVECHECK_SETAIR2', 'TR_LIVECHECK_SETAIR2_TICK', 'TR_LIVECHECK_STORM', 'TR_LIVECHECK_STORM_TICK',
     'TR_LIVECHECK_WALLVENT_TICK', 'TR_LIVECHECK_MENUMIX', 'TR_LIVECHECK_RESCALE', 'TR_LIVECHECK_RESCALE_BY',
-    'TR_LIVECHECK_RESCALE_TICK')
+    'TR_LIVECHECK_RESCALE_TICK', 'TR_LIVECHECK_BUILDOVER_TICK', 'TR_LIVECHECK_BUILDOVER_UNGUARD',
+    'TR_LIVECHECK_WEATHER_TICK', 'TR_LIVECHECK_WEATHER_EVENT')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -248,6 +267,69 @@ try {
         Write-Host $line
         if ($line -notmatch '^wallvent PASS') { throw "LiveCheck FAILED: $line" }
         Write-Host 'LiveCheck OK: the wall vent fix builds a cell and the planet total is unchanged.'
+        return
+    }
+
+    if ($BuildOver) {
+        # D2. A structure filling an occupied outdoor cell: the game copies the cell's gas to its open
+        # neighbours and then removes the cell, and removing a world cell gives the still-full mixture
+        # to the planet as well. Unmodded, the planet gains a whole extra copy of that cell.
+        $environment = @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_BUILDOVER_TICK = '30' }
+        if ($Unguarded) { $environment.TR_LIVECHECK_BUILDOVER_UNGUARD = '1' }
+        $log = Invoke-Game @('-new', $World) $environment `
+            { param($l) @($l -match 'LiveCheck: buildover (PASS|FAIL)').Count -gt 0 } 'the build-over check'
+        if (-not $Vanilla) { Assert-ModLive $log }
+        $line = @($log -match 'LiveCheck: buildover (PASS|FAIL)')[0] -replace '.*LiveCheck: ', ''
+        Write-Host $line
+        if ($line -notmatch 'held ([\d.]+) mol with (\d+) open neighbour') {
+            throw "LiveCheck FAILED: the check never reached a cell it could build over: $line"
+        }
+        $held = [double]$Matches[1]
+        if ($line -notmatch 'tank plus cells [\d.]+ -> [\d.]+ mol \(([+-][\d.]+)\)') {
+            throw "LiveCheck FAILED: could not read the totals: $line"
+        }
+        $moved = [double]$Matches[1]
+        if ($Unguarded) {
+            # Far short of what the cell held, and that is expected: the event is queued, and the cell
+            # goes on draining into the planet the ordinary way until the atmospherics pass applies it.
+            # What lands in the planet twice is whatever is left in the cell at that moment. The bar is
+            # only that it is unmistakably more than the tolerance the guarded run is held to.
+            if ($moved -lt 100) {
+                throw "LiveCheck FAILED: with the guard off, building over a cell holding $held mol should have duplicated what was left of it, but the total moved only $moved mol. The check is not reaching the defect."
+            }
+            Write-Host ("LiveCheck OK: with the guard off, building over the cell put {0:N3} mol into the planet twice, from a cell that held {1:N3} mol when it was built over. That is what the guard is worth." -f $moved, $held)
+            return
+        }
+        if ($line -notmatch '^buildover PASS') { throw "LiveCheck FAILED: $line" }
+        Write-Host ("LiveCheck OK: building over a cell holding {0:N3} mol left the planet total unchanged." -f $held)
+        return
+    }
+
+    if ($Weather) {
+        # D6. When a cloud bucket fills, the planet tick gives it back to the air and then schedules
+        # rain without asking what the weather is doing. Snow is the case that reaches it: the tick's
+        # own guard only steps aside for a storm or for rain.
+        $log = Invoke-Game @('-new', $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_WEATHER_TICK = '30'; TR_LIVECHECK_WEATHER_EVENT = $WeatherEvent } `
+            { param($l) @($l -match 'LiveCheck: weather (PASS|FAIL)').Count -gt 0 } 'the cloud against weather check'
+        if (-not $Vanilla) { Assert-ModLive $log }
+        $line = @($log -match 'LiveCheck: weather (PASS|FAIL)')[0] -replace '.*LiveCheck: ', ''
+        Write-Host $line
+        if ($line -notmatch 'bucket emptied (True|False) .* event (\S+) -> (\S+), running (True|False)') {
+            throw "LiveCheck FAILED: the check never reached a full bucket: $line"
+        }
+        $emptied = $Matches[1] -eq 'True'; $was = $Matches[2]; $now = $Matches[3]
+        if (-not $emptied) {
+            throw "LiveCheck FAILED: the bucket was not emptied, so the tick never reached the code this is about: $line"
+        }
+        if ($Vanilla) {
+            if ($now -eq $was) {
+                throw "LiveCheck FAILED: unmodded, a full cloud bucket should have scheduled rain over the running $was, but the event is still $was. The check is not reaching the defect."
+            }
+            Write-Host ("LiveCheck OK: unmodded, a full cloud bucket replaced the running {0} with {1}. That is the defect." -f $was, $now)
+            return
+        }
+        if ($line -notmatch '^weather PASS') { throw "LiveCheck FAILED: $line" }
+        Write-Host ("LiveCheck OK: a full cloud bucket gave its gas back to the air and left {0} running." -f $was)
         return
     }
 

@@ -29,6 +29,7 @@ namespace TerraformingReloaded.LiveCheck
     public class LiveCheck : BaseUnityPlugin
     {
         private const double InjectMoles = 100000.0;
+        private const double BuildOverMoles = 5000.0;
         private const float SettleSeconds = 20f;
         private const uint ReportEveryTicks = 5;
 
@@ -66,6 +67,35 @@ namespace TerraformingReloaded.LiveCheck
         // The wall vent fix, tested by calling the hook body itself: LiveCheck cannot build a vent.
         private static readonly uint WallVentTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_WALLVENT_TICK"), out uint w) ? w : 0u;
         private bool _wallVentDone;
+
+        // Building into an occupied outdoor cell (D2). Staged over several ticks: make two cells,
+        // wait for the simulation to link them as open neighbours, hand the grid to the game's own
+        // entry point for a structure filling it, then read the total once the event has been applied.
+        private static readonly uint BuildOverTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_BUILDOVER_TICK"), out uint bo) ? bo : 0u;
+        // The counterfactual: the same run with the mod's guard taken off, which must show the
+        // duplicate. Unmodded is no control here, because unmodded the planet discards what it is
+        // given, so the defect costs nothing until the mod switches the planet simulation on.
+        private static readonly bool BuildOverUnguard = Environment.GetEnvironmentVariable("TR_LIVECHECK_BUILDOVER_UNGUARD") == "1";
+        private int _buildOverStage;
+        private uint _buildOverAt;
+        private WorldGrid _buildOverTarget;
+        private WorldGrid _buildOverNeighbour;
+        private int _buildOverOpen;
+        private double _buildOverCellMoles;
+        private double _buildOverBefore;
+        private int _buildOverCellsBefore;
+
+        // A cloud bucket filling while other weather is already running (D6). Main thread: forcing a
+        // weather event on is a main thread call, and what this reads is weather state, not moles.
+        // WEATHER_EVENT is the event to have running when the bucket fills; snow is the case that
+        // reaches the defect, because the tick's own guard only steps aside for a storm or for rain.
+        private static readonly uint WeatherTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_WEATHER_TICK"), out uint wt) ? wt : 0u;
+        private static readonly string WeatherEventId = Environment.GetEnvironmentVariable("TR_LIVECHECK_WEATHER_EVENT");
+        private int _weatherStage;
+        private uint _weatherAt;
+        private string _weatherIdBefore;
+        private float _weatherLengthBefore;
+        private double _weatherCloudsVolume;
 
         // The mix the new-game menu builds to describe a world, which must not carry the planet size.
         private static readonly bool MenuMix = Environment.GetEnvironmentVariable("TR_LIVECHECK_MENUMIX") == "1";
@@ -131,6 +161,10 @@ namespace TerraformingReloaded.LiveCheck
                 _instance._wallVentDone = true;
                 _instance.CheckWallVent();
             }
+            if (_instance != null && BuildOverTick > 0 && _instance._buildOverStage < 3 && GameManager.GameTickCount >= BuildOverTick)
+            {
+                _instance.CheckBuildOver();
+            }
             if (_instance != null && !_instance._menuMixDone && MenuMix && GameManager.GameTickCount >= 20)
             {
                 _instance._menuMixDone = true;
@@ -195,6 +229,10 @@ namespace TerraformingReloaded.LiveCheck
             {
                 _stormStarted = true;
                 StartStorm();
+            }
+            if (WeatherTick > 0 && _weatherStage < 2 && GameManager.GameTickCount >= WeatherTick)
+            {
+                CheckWeather();
             }
             // From Update, which is the main thread: a console command reaches the planet from there,
             // and the planet tick runs on another thread, so this is the only arrangement in which a
@@ -407,6 +445,199 @@ namespace TerraformingReloaded.LiveCheck
             catch (Exception e)
             {
                 Logger.LogInfo("LiveCheck: wallvent FAIL " + e);
+            }
+        }
+
+        /// <summary>
+        /// Building into an occupied outdoor cell (DEFECTS D2). The game copies the cell's gas into
+        /// its open neighbours and then removes the cell, and removing a world cell hands its mixture
+        /// to the planet as well, so the same gas is counted twice. A headless run cannot build a
+        /// structure, but what a structure calls is public: AtmosphericEventInstance.StructureBlockingGrid.
+        /// Three passes, because the simulation has to link the cells and the event is queued.
+        /// Simulation thread, at the top of the planet tick, so the tank and the cells are read at rest.
+        /// </summary>
+        private void CheckBuildOver()
+        {
+            try
+            {
+                if (_buildOverStage == 0)
+                {
+                    // Open sky, well above the terrain and below the height the game treats as space.
+                    _buildOverTarget = new WorldGrid(new Vector3(0f, 300f, 0f));
+                    _buildOverNeighbour = new WorldGrid(_buildOverTarget.Value.x + 1, _buildOverTarget.Value.y, _buildOverTarget.Value.z);
+                    Atmosphere target = AtmosphericsManager.CloneGlobalAtmosphereThreadSafe(_buildOverTarget);
+                    Atmosphere neighbour = AtmosphericsManager.CloneGlobalAtmosphereThreadSafe(_buildOverNeighbour);
+                    if (target == null || neighbour == null)
+                    {
+                        Logger.LogInfo("LiveCheck: buildover FAIL no pair of cells could be made at " + Where(_buildOverTarget));
+                        _buildOverStage = 3;
+                        return;
+                    }
+                    // A world cell holding what the planet holds is culled on the next tick
+                    // (Atmosphere.IsLive), so both cells are given gas to hold them open. That gas is
+                    // also what makes a duplicated cell stand out against the planet total.
+                    AddCarbonDioxide(target, BuildOverMoles);
+                    AddCarbonDioxide(neighbour, BuildOverMoles);
+                    _buildOverAt = GameManager.GameTickCount;
+                    _buildOverStage = 1;
+                    Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                        "LiveCheck: buildover cells made at {0} and {1} with {2:0} mol CO2 each, waiting for the simulation to link them",
+                        Where(_buildOverTarget), Where(_buildOverNeighbour), BuildOverMoles));
+                    return;
+                }
+
+                if (_buildOverStage == 1)
+                {
+                    if (GameManager.GameTickCount < _buildOverAt + 15)
+                    {
+                        return;
+                    }
+                    Atmosphere target = AtmosphericsManager.Find(_buildOverTarget);
+                    if (target == null)
+                    {
+                        Logger.LogInfo("LiveCheck: buildover FAIL the cell at " + Where(_buildOverTarget) + " went away before anything was built over it");
+                        _buildOverStage = 3;
+                        return;
+                    }
+                    lock (target.OpenNeighbors)
+                    {
+                        _buildOverOpen = target.OpenNeighbors.Count;
+                    }
+                    // Most of what was put in has spread to the neighbours and drained to the planet
+                    // by now, which would leave only a few moles to duplicate. Top the cell up so the
+                    // gas a defect would copy is far larger than anything rounding can account for.
+                    AddCarbonDioxide(target, BuildOverMoles);
+                    _buildOverCellMoles = target.GasMixture.GetTotalMolesGassesAndLiquids.ToDouble();
+                    if (_buildOverOpen == 0)
+                    {
+                        Logger.LogInfo("LiveCheck: buildover FAIL the cell at " + Where(_buildOverTarget)
+                            + " has no open neighbour, and an open neighbour is what the defect needs");
+                        _buildOverStage = 3;
+                        return;
+                    }
+                    if (_buildOverCellMoles < BuildOverMoles * 0.5)
+                    {
+                        Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                            "LiveCheck: buildover FAIL the cell holds {0:0.000} mol, too little to tell a duplicate from rounding", _buildOverCellMoles));
+                        _buildOverStage = 3;
+                        return;
+                    }
+                    if (BuildOverUnguard && !TakeOffDeregisterGuard())
+                    {
+                        _buildOverStage = 3;
+                        return;
+                    }
+                    _buildOverBefore = TankPlusCells(out _buildOverCellsBefore);
+                    AtmosphericEventInstance.StructureBlockingGrid(_buildOverTarget);
+                    _buildOverAt = GameManager.GameTickCount;
+                    _buildOverStage = 2;
+                    return;
+                }
+
+                if (GameManager.GameTickCount < _buildOverAt + 15)
+                {
+                    return;
+                }
+                _buildOverStage = 3;
+                // Whether a cell is at that grid afterwards says nothing: the neighbours the divide
+                // filled push gas straight back, and the game rebuilds a cell there. Conservation is
+                // the judgement, and the unguarded run is what proves the event ran at all.
+                bool removed = AtmosphericsManager.Find(_buildOverTarget) == null;
+                double after = TankPlusCells(out int cellsAfter);
+                double moved = after - _buildOverBefore;
+                bool conserved = Math.Abs(moved) <= 1.0;
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                    "LiveCheck: buildover {0} cell at {1} held {2:0.000} mol with {3} open neighbour(s), guard {4}, gone afterwards {5}: cells {6} -> {7}, tank plus cells {8:0.000} -> {9:0.000} mol ({10:+0.000;-0.000})",
+                    conserved ? "PASS" : "FAIL", Where(_buildOverTarget), _buildOverCellMoles, _buildOverOpen,
+                    BuildOverUnguard ? "off" : "on", removed,
+                    _buildOverCellsBefore, cellsAfter, _buildOverBefore, after, moved));
+            }
+            catch (Exception e)
+            {
+                _buildOverStage = 3;
+                Logger.LogInfo("LiveCheck: buildover FAIL " + e);
+            }
+        }
+
+        /// <summary>
+        /// A cloud bucket filling while other weather is already running (DEFECTS D6). When the liquid
+        /// clouds fill, the planet tick gives them back to the air and then schedules rain without
+        /// asking what the weather is doing, and ScheduleWeatherEvent overwrites the running event,
+        /// its start time and its length. Snow is the case that reaches it: the tick's own guard only
+        /// steps aside for a storm or for rain, which leaves its snow branch unreachable.
+        /// Main thread, which is where a weather event can be forced on.
+        /// </summary>
+        private void CheckWeather()
+        {
+            try
+            {
+                GlobalGasMix clouds = (GlobalGasMix)AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), "_liquidClouds").GetValue(null);
+                if (_weatherStage == 0)
+                {
+                    string wanted = string.IsNullOrEmpty(WeatherEventId) ? "Snow" : WeatherEventId;
+                    Weather.WeatherManager.ImmediatelyActivateWeatherEvent(wanted);
+                    WeatherEvent running = Weather.WeatherManager.CurrentWeatherEvent;
+                    if (running == null || !Weather.WeatherManager.IsWeatherEventRunning)
+                    {
+                        Logger.LogInfo("LiveCheck: weather FAIL " + wanted + " would not start, so there is no running event for a cloud to overwrite");
+                        _weatherStage = 2;
+                        return;
+                    }
+                    _weatherIdBefore = running.Id;
+                    _weatherLengthBefore = Weather.WeatherManager.WeatherEventLength;
+
+                    double filled;
+                    object gate = AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), "GlobalInteraction").GetValue(null);
+                    lock (gate)
+                    {
+                        _weatherCloudsVolume = clouds.Volume.ToDouble();
+                        clouds.ClearQuantities(AtmosphereHelper.MatterState.All);
+                        // Measure what a mole of it takes up rather than assuming, then overfill.
+                        clouds.Set(new MoleQuantity(1000.0), Chemistry.GasType.LiquidNitrogen);
+                        double litresPerMole = clouds.VolumeOfLiquid().ToDouble() / 1000.0;
+                        if (litresPerMole > 0.0)
+                        {
+                            clouds.Set(new MoleQuantity(_weatherCloudsVolume / litresPerMole * 1.2), Chemistry.GasType.LiquidNitrogen);
+                        }
+                        filled = clouds.VolumeOfLiquid().ToDouble();
+                    }
+                    if (filled < _weatherCloudsVolume)
+                    {
+                        Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                            "LiveCheck: weather FAIL the liquid cloud bucket would not fill: {0:0} of {1:0} L", filled, _weatherCloudsVolume));
+                        _weatherStage = 2;
+                        return;
+                    }
+                    Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                        "LiveCheck: weather {0} running at tick {1}, length {2:0.##}, world has weather {3}, liquid clouds filled to {4:0} of {5:0} L",
+                        _weatherIdBefore, GameManager.GameTickCount, _weatherLengthBefore, Weather.WeatherManager.WorldHasWeather, filled, _weatherCloudsVolume));
+                    _weatherAt = GameManager.GameTickCount;
+                    _weatherStage = 1;
+                    return;
+                }
+
+                if (GameManager.GameTickCount < _weatherAt + 4)
+                {
+                    return;
+                }
+                _weatherStage = 2;
+                WeatherEvent now = Weather.WeatherManager.CurrentWeatherEvent;
+                string nowId = now == null ? "(none)" : now.Id;
+                bool stillRunning = Weather.WeatherManager.IsWeatherEventRunning;
+                double left = clouds.VolumeOfLiquid().ToDouble();
+                // The tick empties the bucket into the air before it schedules anything, so an empty
+                // bucket is what proves the branch ran at all and the check is not vacuous.
+                bool emptied = left < _weatherCloudsVolume * 0.5;
+                bool kept = nowId == _weatherIdBefore && stillRunning;
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                    "LiveCheck: weather {0} bucket emptied {1} ({2:0} L left of {3:0}), event {4} -> {5}, running {6}, length {7:0.##} -> {8:0.##}",
+                    emptied && kept ? "PASS" : "FAIL", emptied, left, _weatherCloudsVolume, _weatherIdBefore, nowId, stillRunning,
+                    _weatherLengthBefore, Weather.WeatherManager.WeatherEventLength));
+            }
+            catch (Exception e)
+            {
+                _weatherStage = 2;
+                Logger.LogInfo("LiveCheck: weather FAIL " + e);
             }
         }
 
@@ -765,6 +996,36 @@ namespace TerraformingReloaded.LiveCheck
                 answer = "THREW " + e;
             }
             Logger.LogInfo("LiveCheck: cmd " + string.Join(" ", args) + " -> " + answer.Replace("\r", "").Replace("\n", " / "));
+        }
+
+        /// <summary>
+        /// Takes the mod's Deregister guard off, so the next removal of a world cell hands the planet
+        /// a cell the game has already copied elsewhere. Only for the counterfactual run: what it
+        /// measures is how much gas the guard is worth.
+        /// </summary>
+        private bool TakeOffDeregisterGuard()
+        {
+            Type guards = AccessTools.TypeByName("TerraformingReloaded.Patching.Guards");
+            System.Reflection.MethodInfo body = guards == null ? null : AccessTools.DeclaredMethod(guards, "DeregisterPrefix");
+            System.Reflection.MethodInfo deregister = AccessTools.DeclaredMethod(typeof(AtmosphericsManager), "Deregister", new[] { typeof(Atmosphere) });
+            if (body == null || deregister == null)
+            {
+                Logger.LogInfo("LiveCheck: buildover FAIL the mod's Deregister guard could not be found to take it off");
+                return false;
+            }
+            new Harmony("xceled.stationeers.terraformingreloaded.livecheck").Unpatch(deregister, body);
+            Logger.LogInfo("LiveCheck: buildover the mod's Deregister guard is off for this event");
+            return true;
+        }
+
+        /// <summary>Warm carbon dioxide into one outdoor cell, the same way the injection scenario does.</summary>
+        private static void AddCarbonDioxide(Atmosphere cell, double moles)
+        {
+            MoleQuantity quantity = new MoleQuantity(moles);
+            GasMixture mix = GasMixtureHelper.Create();
+            mix.CarbonDioxide = new Mole(Chemistry.GasType.CarbonDioxide, quantity,
+                IdealGas.Energy(new TemperatureKelvin(293.15), Mole.SpecificHeat(Chemistry.GasType.CarbonDioxide), quantity));
+            cell.Add(mix);
         }
 
         private void Inject()
