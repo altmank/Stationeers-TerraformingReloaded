@@ -47,7 +47,7 @@ One setting, [b]Planet size[/b], decides the pace. Hours to reach air you can st
 [/table]
 [b]Shipped[/b] is the planet at the size the game itself uses.
 
-[b]Treat these as rough scale, not a promise.[/b] They assume a large base: four ice rockets flying, traders buying gas, and combustion making it, moving somewhere near 378,000 moles an hour between them. That rate is worked out from what each of those can produce, not measured from a finished playthrough. Run half that and every number above doubles.
+[b]Treat these as rough scale, not a promise.[/b] They assume a large base: four ice mining rockets, each actually mining about 60% of the time, plus a large gas trader bought out every other hour. Near 378,000 moles an hour between them. That rate is worked out from what each of those can produce, not measured from a finished playthrough. Run half that and every number above doubles.
 
 Size changes nothing else about the world: the air, pressure and temperature you start with are the same at every size. A save made before you installed the mod carries the full-size planet until you rescale it.
 
