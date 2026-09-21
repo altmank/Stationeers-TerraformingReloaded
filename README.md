@@ -44,7 +44,7 @@ the planet section of the save; the game reads that section with or without the 
   evens out Vulcan's day and night. They are removal projects. On Vulcan put bulk gas in **before** the
   fuel is more than half gone: its greenhouse is what keeps nights warm, and once nights fall under
   220 K the carbon dioxide freezes out, then everything else, and an atmosphere frozen into the ice
-  caps comes back very slowly.
+  caps comes back slowly.
 - **Cold worlds freeze what you vent.** The game freezes a gas out of the air, all of it, once the
   planet is colder than about 2 K above that gas's freezing point: carbon dioxide below 220 K, pollutant below
   175 K, volatiles below 84 K. It lands in the ice caps and comes back when the planet warms. On
@@ -56,11 +56,11 @@ the planet section of the save; the game reads that section with or without the 
   swinging from 195 to 305 K between night and day until the air thickens).
 - **Storms** still come. On a world you have cooled, a storm's temperature swing shrinks in the same
   proportion as the planet has, so a finished Vulcan survives its ash storms; they are still dangerous.
-- **Seas.** Enough liquid on the planet (rain that stays liquid) and the game raises a sea, 2 to 10 m
-  above its datum, and everything outdoors below that level counts as under water. The amount of liquid that takes
+- **Seas.** Enough liquid on the planet (rain that stays liquid) and the game raises a sea 2 to 10 m
+  deep, and everything outdoors below it counts as under water. The amount of liquid that takes
   is fixed by the game and does not shrink with planet size.
 - **Heat.** Heat your base sheds outdoors warms the planet slightly and fades over time.
-- **Wind turbines** pay for thick air: the game clamps the pressure they see to between 5 and
+- **Wind turbines** reward thick air: the game clamps the pressure they see to between 5 and
   25 kPa, so a thickened planet runs them up to five times harder, and under 1 kPa they give nothing.
 - **Tutorials** are left as shipped.
 - **First session on an existing save.** Outdoor cells that already exist were never drawn from
@@ -84,8 +84,8 @@ changes. Pick it in the StationeersLaunchPad config editor.
 | Shipped | 1 | about 1,650 hours | about 6,700 hours |
 | Custom | `CustomPlanetSize` | in proportion | in proportion |
 
-Hours are to reach shirt-sleeve air on Mars: 16 kPa of oxygen, no toxins, no pressure or temperature
-warnings day or night, at any point in Mars's orbit. That takes about 125 mol per outdoor cell,
+Hours are to reach air you can breathe outside without a suit on Mars: 16 kPa of oxygen, no toxins,
+no pressure or temperature warnings day or night, at any point in Mars's orbit. That takes about 125 mol per outdoor cell,
 roughly 57 of oxygen and 67 of carbon dioxide, because Mars nights start 50 K too cold and oxygen
 itself cools the planet a little. A mega base here means about 380,000 mol an hour sustained (four
 ice-mining rockets and gas traders); a one-rocket base about 93,000.
@@ -203,7 +203,7 @@ Needs the .NET SDK and a Stationeers install with StationeersLaunchPad.
 ```
 
 This builds the DLL, runs `tools/PatchCheck` (which applies the patches to the installed game's
-code outside the game and fails the build if the planet methods no longer convert), stages
+code outside the game and fails the build if the planet methods can no longer be patched), stages
 `package/`, and copies it to `Documents\My Games\Stationeers\mods\TerraformingReloaded`.
 
 After a game update, also run the live tests. They start a headless throwaway Mars world, never
@@ -240,7 +240,7 @@ Set `STATIONEERS_DIR` or pass `-GameDir` if the game is not in the default Steam
 | `src/Sync.cs` | Host to client planet state |
 | `tools/PatchCheck` | Fast pre-flight: do the patches still fit this game build |
 | `tools/LiveCheck` | Headless in-game tests: conservation, save and load, reset, and the simulator against the game |
-| `docs/` | Design corpus: goals, how the game works underneath, defects found, architecture, verification, balance, temperature design, roadmap |
+| `docs/` | Design notes: goals, how the game works underneath, defects found, architecture, verification, balance, temperature design, roadmap |
 | `tools/Balance` | The simulator: cheapest habitable air per world, whether it can be reached step by step, hours per base size |
 | `tools/ci` | Checks that need no game; GitHub runs them on every push |
 
