@@ -203,8 +203,8 @@ namespace TerraformingReloaded.Patching
             {
                 try
                 {
-                    started = true;
                     SetVolume.Invoke(tank, new object[] { tank.Volume * factor });
+                    started = true;             // the volume has moved; a failure now leaves it part way
                     tank.Scale(factor);
                     foreach (AccessTools.FieldRef<GlobalGasMix> reservoir in ReservoirRefs)
                     {

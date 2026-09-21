@@ -13,6 +13,7 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 .\tools\LiveCheck\run.ps1 -WallVent         # the wall vent fix: a cell appears, the planet total does not move
 .\tools\LiveCheck\run.ps1 -MenuPressure     # the new-game menu sees the shipped planet, not the resized one
 .\tools\LiveCheck\run.ps1 -Rescale          # terraform size: the planet scales whole and its air does not move
+.\tools\LiveCheck\run.ps1 -Rescale -RescaleBy 0.37             # the same, shrinking rather than growing
 .\tools\LiveCheck\run.ps1 -Dump tools\Balance\gamedata.json   # game data for tools/Balance
 .\tools\LiveCheck\run.ps1 -Model -World Venus -SetAir "CarbonDioxide=23;Oxygen=48"     # judged: the game's temperature against the simulator's
 .\tools\LiveCheck\run.ps1 -Observe -World Venus -SetAir "CarbonDioxide=23;Oxygen=48"   # the same, printed and not judged
@@ -22,19 +23,52 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 | Tool | Proves | Cannot prove |
 | --- | --- | --- |
 | `tools/PatchCheck` (run by `build.ps1`) | Required targets exist, each tank method asks the question exactly once, the rewritten IL runs (it calls the rewritten `AddEnergy` and `RemoveEnergy`) | Anything reaching Unity native code: outside Unity the CLR refuses to compile it ("ECall methods must be packaged into a system module"). The save guard is one; it reports `bound` and the extras are then not attempted |
-| LiveCheck default | In a real headless Mars world: mod loads, the in-game self-test passes, every part compiles under Unity, the tick runs live, 100,000 mol injected outdoors spreads over about 4,300 cells and drains into the tank with tank plus cells level to 1 mol and the tank gaining what was injected; `terraform` status, `curves export`, `curves reload` answer correctly; the planet is exactly the set share of shipped Mars (45,594,999.269 mol) with 8.66 mol CO2 per cell | Play, building, other worlds, sky, weather, multiplayer |
+| LiveCheck default | In a real headless Mars world: mod loads, the in-game self-test passes, every part compiles under Unity, the tick runs live, 100,000 mol injected outdoors spreads over about 4,300 cells and drains into the tank with tank plus cells level to 1 mol and gaining exactly what was injected, almost all of it as the gas injected; `terraform` status, `curves export`, `curves reload` answer correctly; the planet is exactly the set share of shipped Mars (45,594,999.269 mol) with 8.66 mol CO2 per cell | Play, building, other worlds, sky, weather, multiplayer |
 | `-SaveLoad` | A save taken with about 4,300 cells in flight loads back with the total unchanged (D1, D12) | |
-| `-Reset` | After terraform, dirtying ice caps, clouds and both heat stores, `terraform reset confirm`, save: the **unmodded** game loads a planet within 1 mol and 0.01 K of stock | |
+| `-Reset` | After terraform, dirtying ice caps, clouds and both heat stores, `terraform reset confirm`, save: the **unmodded** game loads a planet at stock, plus at most what the outdoor cells still standing could hand back afterwards (what they held times how much denser than stock the planet was), and within 0.01 K | |
 | `-Vanilla` | The control: the default scenario fails without the mod, so its pass means something | |
 | `-MenuPressure` | The new-game menu's mix (D16). While a resized planet is being played, `GlobalGasMix.Create` on the same world data has to give the shipped planet at the shipped volume, because the menu divides one by the other to show a pressure | That the menu screen itself reads it; only that what it reads is built right |
-| `-Rescale` | **Written, not run yet.** `terraform size <share> confirm` on a live planet, with the ice caps, the clouds and both heat stores loaded first so they are not zero. The planet is read either side of the command inside one planet tick, so only the command can have moved anything: the air per outdoor cell, the pressure and both heat offsets in kelvin must not move at all, while volume, moles, cells, cap and cloud contents and the cap volume all move by the same factor. The refusals are asked for too (zero, not a number, out of range, and no `confirm`), and status must still report that the setting and the planet disagree | That the new size survives a save and a load (the tank's volume is in the save data the `-SaveLoad` path already exercises), and multiplayer |
+| `-Rescale` | `terraform size <share> confirm` on a live planet, with the ice caps, the clouds and both heat stores loaded first so they are not zero. The command runs from the main thread while the planet ticks on its own, which is how a console command reaches it, and the figures either side are read under the tank lock: the air per outdoor cell, the pressure and both heat offsets in kelvin must not move at all, while volume, moles, cells, cap and cloud contents and the cap volume all move by the same factor. Then forty more rescales from the main thread holding nothing, which is where a rescale that did not take the lock would tear a tick in half: every one must answer, the planet must still be ticking, and it must end back at the share asked for. That share is `-RescaleBy` times the planet's present size, measured in the game, so it can never be the share the planet already is. The refusals are asked for too (zero, not a number, out of range, and no `confirm`), and status must still report that the setting and the planet disagree | That the new size survives a save and a load (the tank's volume is in the save data the `-SaveLoad` path already exercises), and multiplayer. A run that does not hit the unlocked window proves nothing about it |
 | `-WallVent` | The wall vent fix (D15). A headless run cannot build a vent, so the driver hands the hook body the two grids a wall vent would, one with a cell and one without, from the planet tick where every mole reads live. A cell must appear at the empty side and tank plus cells must not move | That a real vent's two grids are these two, or what the vent then does with the cell |
 | `-Model` | **Judged.** `-Observe`, then `tools/Balance/compare.py` rebuilds the simulator from what the game reported at every sample (air, sun angle, place in the orbit, latent and external heat) and fails the run if the game's temperature and the model's differ by more than `-Tolerance` (0.5 K). `-HeatK n` holds the planet's banked outside heat at n kelvin; `-SetAir2 ... -SetAir2Tick n` sets a second air later without touching clouds or ice caps; `-Storm <id> -StormTick n` forces a weather event on at tick n, because the game schedules one only after a cooldown of days. Passing: Venus, Vulcan, Europa mid-route, the Moon, Mimas with heat, ice caps melting back on Europa, and an ash storm on Vulcan both cooled and untouched, all within 0.35 K (TEMPERATURE.md) | Anything about how a player gets there |
 | `-Observe` | Not judged. Prints the planet every five ticks through a fast day (`-DaySpeed`, default 10x) on any `-World`, with or without the mod (`-Vanilla`), optionally after setting the planet's air per outdoor cell (`-SetAir "Gas=mol;Gas=mol"`, unnamed gases emptied): sun angle, place in the orbit, the temperature outdoor cells get, the readout, pressure, gas, liquid, both clouds, ice caps, latent heat, weather, composition. This is how `tools/Balance` is held to the game: set the air a recipe or a path waypoint calls for and compare | Anything about how a player gets there |
 
-Latest results (planet size 0.05): sum varies 0.000 mol before and 0.005 mol after injection; the
-planet's CO2 up 99,998.6 of 100,000 with the rest still in the last cells; save-load change 0.000 mol;
-after reset and mod removal +0.18 mol and 8e3 J (about 1e-4 K).
+Latest results, 2026-09-21, mod 0.9.0, every run at planet size 0.01. **The suite no longer depends
+on the size it is run at.** It had been calibrated at 0.05, and at 0.01 two scenarios failed; neither
+failure was the mod (see below).
+
+- Default: tank plus cells varies 0.000 mol before the injection and 0.005 mol after it, across up to
+  4,280 outdoor cells. The planet and its cells gained 99,999.970 mol of the 100,000 injected, of
+  which 99,995.066 is carbon dioxide. Planet exactly 0.01 of shipped Mars, 8.6599 mol CO2 per cell.
+- `-SaveLoad`: 0.000 mol across the save and load of 4,309 outdoor cells.
+- `-Reset`: the unmodded game loads the planet 1.304 mol above stock, against the 2.575 mol the
+  7.178 mol still standing in outdoor cells could hand back to a planet 21.95 % denser than stock.
+  Ice caps, clouds and latent heat zero; external heat 2.0e4 J, about 2e-5 K.
+- `-Rescale`, three runs, each from 0.01: to 0.025, to 0.137 and to 0.0037. Volume, moles, outdoor
+  cells, ice caps, clouds and the ice cap volume all moved by exactly the factor; pressure
+  (2.5614 kPa) and both heat offsets in kelvin did not move at all, and the air per outdoor cell was
+  unchanged gas by gas. In each run 41 rescales crossed from the main thread into a ticking planet,
+  every one answered, and the planet was still ticking and back at the share asked for afterwards.
+- `-Model` on Venus at `CarbonDioxide=23;Nitrogen=22;Oxygen=48`: largest gap 0.178 K over 50 samples,
+  against a 0.5 K tolerance, with the planet at 322.18 K and its air steady (93.0 mol per cell, no
+  liquid, clouds or ice caps).
+
+**The planet trades species, and that is not a leak.** While thousands of outdoor cells hold nearly
+pure carbon dioxide and the planet's own mix has shifted under them, the game's mixing moves totals
+and takes the composition from whichever side it draws from, so the planet ends a little short of
+carbon dioxide and a little over on everything else. Measured at size 0.01: carbon dioxide 4.9 mol
+under the 100,000 injected, while oxygen, nitrogen and pollutant each ended 0.021 % over, which is
+the same 4.9 mol, with the total exact to 0.005 mol. The trade is as large as the injection shifts
+the planet's own composition, so it is about five times bigger at size 0.01 than at 0.05 (5.7 mol
+against 1.3 mol on the tank alone). That is why an assertion on one gas within 5 mol only passed at
+the size it was measured at. The suite now judges the total, which is what the scenario is about, and
+then that what arrived is overwhelmingly the gas injected. The driver logs the planet gas by gas,
+which is what told a trade from a leak.
+
+`-Reset` had the same shape of problem: the cells still standing hand back what they hold over the
+ticks between the reset and the save, and they were resting at the terraformed planet's density,
+which is a larger share of a smaller planet. Its bound now comes from the run's own figures rather
+than from a number measured once.
 
 ## The first played session
 

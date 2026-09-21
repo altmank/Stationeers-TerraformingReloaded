@@ -101,6 +101,8 @@ reads only. `Gate.Describe()` says which condition is false, for the status read
 | The planet size **setting** applies at creation only | The save stores the tank's volume, so a setting that applied live would rescale every save a player loads, including one 40 hours in |
 | A live planet is rescaled only by `terraform size <share> confirm`, and it leaves the setting alone | A player picks the size before they have any feel for what it means, and the only other way to change it was `reset confirm`, which throws the progress away. Deliberate, on this planet, once |
 | A rescale moves the clouds, the ice caps and both heat stores with the tank | What is frozen out is part of what is left to terraform, so a shrunk planet that kept its ice would melt the old share back into a smaller atmosphere; and the heat stores are energies divided by a heat capacity that has just moved, so leaving them would move the temperature |
+| A rescale is refused unless the gate is on and this world's reservoirs were measured at its start | The tick upkeep is what holds the cloud and ice cap volumes and the phase rates in proportion to the planet, against sizes recorded at world start. With the mod stood down the contents would scale while the volumes did not, which is the disproportion the refusal exists to prevent, and the game's melt and freeze rates would be written by a mod that is meant to be leaving the game alone |
+| A rescale says when it would raise or drain the global sea, and then goes ahead | `GlobalAtmosphereLiquid.RenderThreshold` is an absolute litre figure, the one planet-scale constant the game does not let follow planet size, so scaling the tank's liquid can cross it and flood or clear the outdoors. A player may want either side of that line, and rescaling back undoes it, so it is said in the prompt rather than refused |
 | Pressure ceiling off by default | It was the old mod's behaviour, not the game's |
 | `terraform reset` needs `confirm` | It cannot be undone except by loading an earlier save |
 | Status logging runs from `Update`, not the tick | It must still report when the simulation is paused or the planet is off, which is when it is needed |
@@ -110,7 +112,8 @@ reads only. `Gate.Describe()` says which condition is false, for the status read
 `terraform` (status), `terraform size <share> confirm`, `terraform reset confirm`,
 `terraform curves export`, `terraform curves reload`. Status totals are read off the simulation
 thread and so lag a tick while gas is moving. The rescale takes the tank lock, so it cannot
-interleave with a planet tick, and it prints size, cells, moles and pressure either side of itself;
+interleave with a planet tick, and it reads its own before and after figures under that same hold;
+it prints size, cells, moles and pressure either side of itself;
 the pressure there is computed from the tank, not read from the game's per-tick planet readout,
 which inside one command would be the same reading twice.
 
