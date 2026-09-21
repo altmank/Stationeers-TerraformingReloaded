@@ -152,6 +152,87 @@ namespace TerraformingReloaded.Patching
         }
 
         /// <summary>
+        /// Rescales the planet being played by <paramref name="factor"/>: the tank's volume and every
+        /// gas and liquid in it, the clouds and the ice caps with their contents, and both stored
+        /// heats, all by the same factor. Everything measured per litre is therefore exactly where it
+        /// was - pressure, the mix, the greenhouse index, the density term - and the only thing that
+        /// moves is how much air a base has to make to change the planet.
+        ///
+        /// The reservoirs' contents scale with the rest on purpose. Their volumes and the melt and
+        /// freeze rates already follow the planet every tick (KeepPhaseChangeInProportion), but what
+        /// is in them does not, so a planet shrunk tenfold would keep ten times its share of ice in
+        /// the caps and then melt that back into a tenth of the air. What is frozen out is part of
+        /// what is left to terraform, so it moves with the planet like the rest of it.
+        ///
+        /// The two heat stores are energies, not temperatures: the kelvin each applies is the energy
+        /// divided by the heat capacity of the planet and its reservoirs, which has just moved by the
+        /// factor. Scaling them is what keeps the temperature where it was.
+        ///
+        /// The game's one-cell read-only copy of the planet's air is rebuilt from the tank every tick
+        /// and holds air per litre, which has not changed, so it is already right.
+        ///
+        /// Returns null on success, or what stopped it.
+        /// </summary>
+        public static string Rescale(double factor)
+        {
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            if (tank == null)
+            {
+                return "No planet loaded.";
+            }
+            if (double.IsNaN(factor) || double.IsInfinity(factor) || !(factor > 0.0))
+            {
+                return "That is not a size a planet can be; nothing was changed.";
+            }
+            if (SetVolume == null)
+            {
+                return "This game build's planet volume cannot be set; nothing was changed.";
+            }
+            // Resolved before anything is changed: scaling the tank without its clouds and ice caps
+            // would leave them out of proportion, which is worse than refusing.
+            if (!ReservoirsKnown)
+            {
+                return "This game build's cloud and ice cap fields were not found, so a rescale would leave them out of proportion; nothing was changed.";
+            }
+
+            // The planet tick and every take and give hold this lock, so nothing sees half a rescale.
+            object tankLock = Guards.TankLock;
+            bool locked = false;
+            try
+            {
+                if (tankLock != null)
+                {
+                    Monitor.Enter(tankLock, ref locked);
+                }
+                SetVolume.Invoke(tank, new object[] { tank.Volume * factor });
+                tank.Scale(factor);
+                foreach (AccessTools.FieldRef<GlobalGasMix> reservoir in ReservoirRefs)
+                {
+                    reservoir?.Invoke()?.Scale(factor);
+                }
+                PlanetaryAtmosphereSimulation.LatentEnergyOffset =
+                    new MoleEnergy(PlanetaryAtmosphereSimulation.LatentEnergyOffset.ToDouble() * factor);
+                PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset =
+                    new MoleEnergy(PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset.ToDouble() * factor);
+                // Cloud and ice cap volumes and the phase rates, now rather than a tick later.
+                KeepPhaseChangeInProportion();
+            }
+            catch (Exception e)
+            {
+                Log.Error("Rescaling the planet failed. " + e);
+                return "The planet could not be rescaled: " + e.Message;
+            }
+            finally
+            {
+                if (locked)
+                {
+                    Monitor.Exit(tankLock);
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Puts the planet back exactly as the world ships: starting air, empty clouds, empty ice caps,
         /// no stored heat. This is the way out of the mod. The game saves and loads the planet with or
         /// without the mod installed, so removing the mod alone leaves the changed planet in the save,
