@@ -162,3 +162,21 @@ removes what it created. It refuses to start if any of that already exists or th
   interpolated, were 5 K out where Vulcan's curve bends at dusk, and a storm's scaling turned that
   into 1.2 K. Only `compare.py` reads the curve off the knots; everything else in `tools/Balance`
   evaluates on them, so the finer grid changes no recipe.
+- **A forced weather event need not be the one you named.** `-Storm <id>` and the game's own
+  `storm start <id>` both end in `WeatherManager.ImmediatelyActivateWeatherEvent(string)`, which
+  looks the id up with `DataCollection.Get<WeatherEvent>` and, when that returns null, silently
+  falls back to `GetNextWeatherEvent()`: a random pick from the world's own list. The console
+  prints "Started weather event." before the lookup, so the only sign of a miss is a separate
+  `error getting WeatherEvent Id:` line. **Seen in play**: `storm start MarsDustStorm` printed
+  that error and started an event anyway. Why the lookup misses is **unresolved**. Everything the
+  code says should make it work: `WorldManager.LoadDataFiles` loads every xml under `S/Data`,
+  `MarsDustStorm` is a `<WeatherEvent>` at game-data level in `S/Data/weather.xml` and has every
+  field `WeatherEvent.IsValid` asks for, `Initialize` then registers it under
+  `Animator.StringToHash(Id)`, the console passes the id with its case intact, and the lookup
+  hashes it the same way. Nothing clears the registry.
+  This does not touch the runs already recorded, because `LiveCheck.StartStorm` prints
+  `WeatherManager.CurrentWeatherEvent.Id` and the event's day and night offsets **after**
+  activating, so the driver reports what really ran. Read that line, not the id asked for. The
+  Vulcan runs report -275 K and +150 K, which in `S/Data/weather.xml` is `VulcanAshStorm` and
+  nothing else (the world's other event, `VulcanSolarStorm`, is +500 and +100). Mars2 ships one
+  event, so a fallback there can only pick `MarsDustStorm`.
