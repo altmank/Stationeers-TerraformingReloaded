@@ -279,11 +279,88 @@ namespace TerraformingReloaded
                     text.AppendLine(string.Format(c, "    {0,-24} {1:0.######}", type, moles / cells));
                 }
             }
+            Reservoirs(text, c);
             if (Guards.RejectedGives > 0)
             {
                 text.AppendLine("  bad mixtures refused: " + Guards.RejectedGives);
             }
             return text.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// The three reservoirs in the order <see cref="Planet.ReservoirMixes"/> returns them, with
+        /// what to call each and whether the game ever compares what it holds against its own volume.
+        /// </summary>
+        private static readonly string[] ReservoirNames = { "liquid clouds", "ice clouds", "ice caps" };
+
+        private static readonly bool[] ReservoirEmptiesWhenFull = { true, true, false };
+
+        /// <summary>
+        /// The three stores the game keeps beside the planet's own air: what has condensed into the
+        /// liquid clouds, what has frozen into the ice clouds, and what has frozen down into the ice
+        /// caps. A gas that freezes out of the sky parks in the caps and melts back as the planet
+        /// warms, so it is not gone; with a finite planet that cycle is something a player manages on
+        /// a cold world, and the only other place to see it is a developer window that throws part way
+        /// through drawing.
+        ///
+        /// A cloud empties itself into the planet and starts rain or snow when it fills, and what the
+        /// game compares is that cloud's VolumeOfLiquid() against its own Volume
+        /// (PlanetaryAtmosphereSimulation.TickPlanetarySimulation), so those are the two litre figures
+        /// printed. Everything that reaches a reservoir arrives as a liquid, so that volume is all of
+        /// what it holds. The ice caps are compared against nothing, ever: they carry a volume the mod
+        /// keeps in proportion with the planet, but no game code reads it, so printing it would show a
+        /// limit that does not exist.
+        ///
+        /// Read-only and off the simulation thread, like the rest of the readout, so the figures lag a
+        /// tick while gas is moving. It prints one line rather than throwing when this game build's
+        /// fields did not resolve.
+        /// </summary>
+        private static void Reservoirs(StringBuilder text, CultureInfo c)
+        {
+            if (!Planet.ReservoirsKnown)
+            {
+                text.AppendLine("  reservoirs: this game build's clouds and ice caps could not be read");
+                return;
+            }
+            GlobalGasMix[] mixes = Planet.ReservoirMixes();
+            text.AppendLine("  reservoirs (gas that has left the air; a cloud empties into the planet as rain or snow when it fills):");
+            for (int i = 0; i < mixes.Length && i < ReservoirNames.Length; i++)
+            {
+                if (mixes[i] == null)
+                {
+                    text.AppendLine(string.Format(c, "    {0,-14} not loaded", ReservoirNames[i]));
+                    continue;
+                }
+                text.AppendLine(string.Format(c, "    {0,-14} {1,14:N3} mol   {2,-28}", ReservoirNames[i],
+                    mixes[i].TotalQuantity().ToDouble(), GasList(mixes[i], c))
+                    + (ReservoirEmptiesWhenFull[i]
+                        ? string.Format(c, " {0,11:N0} of {1:N0} L", mixes[i].VolumeOfLiquid().ToDouble(), mixes[i].Volume.ToDouble())
+                        : " no limit"));
+            }
+        }
+
+        /// <summary>
+        /// What one reservoir holds, gas by gas, in the order and style of the per outdoor cell list
+        /// above. Only what is there is listed. Air and Fuel are named in the gas enum but are
+        /// mixtures rather than gases, and GlobalGasMix.Get throws on them, which is what breaks the
+        /// game's own World Setting Tools window; the matter state check is what steps over them.
+        /// </summary>
+        private static string GasList(GlobalGasMix mix, CultureInfo c)
+        {
+            StringBuilder list = new StringBuilder();
+            foreach (Chemistry.GasType type in (Chemistry.GasType[])Enum.GetValues(typeof(Chemistry.GasType)))
+            {
+                if (Mole.MatterState(type) == AtmosphereHelper.MatterState.None)
+                {
+                    continue;
+                }
+                double moles = mix.Get(type).ToDouble();
+                if (moles != 0.0)
+                {
+                    list.Append(list.Length > 0 ? ", " : "").Append(string.Format(c, "{0} {1:N3}", type, moles));
+                }
+            }
+            return list.Length > 0 ? list.ToString() : "empty";
         }
 
         /// <summary>

@@ -103,6 +103,22 @@ namespace TerraformingReloaded.Patching
         public static bool ReservoirsKnown => ReservoirRefs[0] != null && ReservoirRefs[1] != null && ReservoirRefs[2] != null;
 
         /// <summary>
+        /// The planet's clouds and ice caps, in the order of <see cref="Reservoirs"/>: liquid clouds,
+        /// ice clouds, ice caps. Through the same field refs the tick upkeep uses, so a readout needs no
+        /// second way into the game's fields. An entry is null where that field did not resolve, or
+        /// before a world has been loaded. Read-only: nothing here changes the planet.
+        /// </summary>
+        public static GlobalGasMix[] ReservoirMixes()
+        {
+            GlobalGasMix[] mixes = new GlobalGasMix[ReservoirRefs.Length];
+            for (int i = 0; i < ReservoirRefs.Length; i++)
+            {
+                mixes[i] = ReservoirRefs[i]?.Invoke();
+            }
+            return mixes;
+        }
+
+        /// <summary>
         /// This world's clouds and ice caps were measured at its start, so their volumes can be put
         /// back in proportion whenever the planet's size changes. Implies ReservoirsKnown.
         /// </summary>
