@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- `terraform` status: the weather line no longer shows the offset of a storm that has already ended,
+  so the temperature parts add up to the temperature beside them again. The planet's own temperature
+  was always right; only the readout was stale, because the game keeps the last storm's figure until
+  the world is unloaded.
+
 ## 0.1.0
 
 First version. Alpha: checked by automated runs against the game, never played through.

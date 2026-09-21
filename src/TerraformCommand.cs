@@ -7,6 +7,7 @@ using Assets.Scripts.Atmospherics;
 using Assets.Scripts.Networking;
 using TerraformingReloaded.Patching;
 using Util.Commands;
+using Weather;
 
 namespace TerraformingReloaded
 {
@@ -134,7 +135,7 @@ namespace TerraformingReloaded
                 PlanetaryAtmosphereSimulation.SolarDistanceOffsetTemperature.ToDouble(),
                 PlanetaryAtmosphereSimulation.GhgIndexOffset.ToDouble(),
                 PlanetaryAtmosphereSimulation.DensityOffsetTemperature.ToDouble(),
-                PlanetaryAtmosphereSimulation.WeatherOffset.ToDouble(),
+                WeatherPart(),
                 PlanetaryAtmosphereSimulation.LatentOffset.ToDouble(),
                 PlanetaryAtmosphereSimulation.ExternalInputOffset.ToDouble()));
 
@@ -156,6 +157,21 @@ namespace TerraformingReloaded
                 text.AppendLine("  bad mixtures refused: " + Guards.RejectedGives);
             }
             return text.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// The weather term the temperature formula would use right now. The game assigns
+        /// PlanetaryAtmosphereSimulation.WeatherOffset only while a weather event is running, and clears
+        /// it only when the world unloads, so once a storm ends that static keeps the storm's value for
+        /// the rest of the session (DEFECTS.md D18). GetGlobalGasMixTemperature asks whether an event is
+        /// running every time it runs, so the readout asks it too and the parts keep summing to the
+        /// temperature above. Both members are plain static reads, so this cannot throw.
+        /// </summary>
+        private static double WeatherPart()
+        {
+            return WeatherManager.IsWeatherEventRunning && WeatherManager.CurrentWeatherEvent != null
+                ? PlanetaryAtmosphereSimulation.WeatherOffset.ToDouble()
+                : 0.0;
         }
     }
 }
