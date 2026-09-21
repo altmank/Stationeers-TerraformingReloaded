@@ -67,7 +67,7 @@ the planet section of the save; the game reads that section with or without the 
   the planet, so the planet gains their gas once as they are cleaned up. For a large base that is
   a few thousandths of the planet. The planet also keeps the size the game shipped it at, because
   a save owns its own size and the setting below only applies to a new world. On Mars that is
-  about 1,650 hours of work for a large base, so run `terraform size` to bring it down to
+  about 1,500 hours of work for a large base, so run `terraform size` to bring it down to
   something you will finish.
 
 ## Pace
@@ -78,23 +78,28 @@ changes. Pick it in the StationeersLaunchPad config editor.
 
 | Planet size | Share of the game's planet | Mega base | One-rocket base |
 | --- | --- | --- | --- |
-| Short | 1/100 | about 17 hours | about 70 hours |
-| **Standard** (default) | 1/20 | about 85 hours | about 340 hours |
-| Long | 1/4 | about 410 hours | about 1,700 hours |
-| Unmodded baseline | 1 | about 1,650 hours | about 6,700 hours |
+| Short | 1/100 | about 15 hours | about 72 hours |
+| **Standard** (default) | 1/20 | about 75 hours | about 360 hours |
+| Long | 1/4 | about 375 hours | about 1,800 hours |
+| Unmodded baseline | 1 | about 1,500 hours | about 7,200 hours |
 | Custom | `CustomPlanetSize` | in proportion | in proportion |
 
 Hours are to reach air you can breathe outside without a suit on Mars: 16 kPa of oxygen, no toxins,
 no pressure or temperature warnings day or night, at any point in Mars's orbit. That takes about
 125 mol per outdoor cell, roughly 57 of oxygen and 67 of carbon dioxide, because Mars nights start
-50 K too cold and oxygen itself cools the planet a little. A mega base here means about 380,000 mol
-an hour sustained (four ice-mining rockets and gas traders); a one-rocket base about 93,000.
+50 K too cold and oxygen and nitrogen both cool the planet a little. A mega base here means four ice
+rockets mining 60 % of the time, about 330,000 moles of ice an hour; a one-rocket base about 68,000.
 
-Every world can be made habitable. Roughly, against Mars: the Moon the same, Venus and Vulcan two
-and a half to three times the gas moved, Mimas six times and it needs the planet held warm with vented
-heat to get started, Europa nine times. Venus and Vulcan are mostly removal: vents and filters keep
-up easily, and the real cost is somewhere to put the gas (Venus at Standard size fills about 47 big
-tanks).
+**What sets the pace is ice arriving**, on every world. There is no oxygen tap: every mole you put
+outdoors was mined somewhere and melted, and carbon dioxide has to be burnt out of volatiles on top of
+that. Taking gas away is much faster than making it, because a vent draws in a share of the whole
+planet's air at once. So against Mars: the Moon the same, Venus about half, Vulcan and Europa three
+times, Mimas five times and it needs the planet held warm with vented heat to get started.
+
+Venus and Vulcan are still removal projects; it is just that the removal is not what takes the time.
+The cost of a removal world is somewhere to put the gas. Venus at Standard size fills about 48 big
+tanks, Europa 67. The one place a trader helps is Vulcan, where the gas trader buys volatiles in bulk
+and would take most of what you strip off the planet, and pay for it.
 
 Fuel and oxygen do not share the outdoors: the game burns volatiles or hydrogen beside oxygen at the
 first spark, at any temperature, and the fire spreads. Vulcan's fuel has to be gone before its oxygen
@@ -241,7 +246,7 @@ Set `STATIONEERS_DIR` or pass `-GameDir` if the game is not in the default Steam
 | `tools/PatchCheck` | Fast pre-flight: do the patches still fit this game build |
 | `tools/LiveCheck` | Headless in-game tests: conservation, save and load, reset, and the simulator against the game |
 | `docs/` | Design notes: goals, how the game works underneath, defects found, architecture, verification, balance, temperature design, roadmap |
-| `tools/Balance` | The simulator: cheapest habitable air per world, whether it can be reached step by step, hours per base size |
+| `tools/Balance` | The simulator: cheapest habitable air per world, whether it can be reached step by step, what each phase of getting there costs, hours per base size |
 | `tools/ci` | Checks that need no game; GitHub runs them on every push |
 
 ## License

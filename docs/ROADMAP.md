@@ -11,11 +11,14 @@
    gas: the mechanism works. Not shown: that a base venting warm gas reaches +25 K (BALANCE.md sizes
    it on paper). That is what decides whether 60 min and 50 K are the right defaults for
    `ExternalHeatHalfLifeMinutes` and `MaxExternalOffsetKelvin`; needs play.
-3. **Removal worlds in play.** Vent intake, filtration and storage are priced (BALANCE.md): the cost is
-   a tank farm, about 47 big tanks for Venus at Standard size. Unplayed; trader sales unpriced.
-4. **Tighten the base tiers** (S10). Combustion is priced in ices (BALANCE.md) and agrees with the
-   presets. Still unmeasured: farm-fed composters (6,000 mol/h each), quarry throughput on ice veins,
-   plants turning CO2 into oxygen in place.
+3. **Removal worlds in play.** Vent intake, filtration, storage and the game's own trader buy orders
+   are all priced (BALANCE.md). Removal turns out never to be the longer job; the cost of a removal
+   world is a tank farm, about 48 big tanks for Venus at Standard size. Unplayed, and nobody has
+   counted the vents a real base ends up with, which is what decides whether that holds (S10).
+4. **Tighten what a base runs** (S10). Still unmeasured: how fast a base actually burns volatiles for
+   its carbon dioxide (S15, the one gap that would move the hours on every world but Venus),
+   farm-fed composters (6,000 mol/h each), quarry throughput on ice veins, plants turning CO2 into
+   oxygen in place.
 5. **Improve `path.py`.** It is greedy: on Vulcan it strips fuel before adding the bulk gas that would
    have kept nights above CO2's freezing point, then pays for helpers. A search over orderings would
    give honest costs rather than upper bounds.
