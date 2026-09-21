@@ -17,7 +17,7 @@ The air outside is no longer bottomless. What you vent stays. What your base dra
 [tr][td][b]Sheds heat[/b][/td][td]nitrous oxide (strongest), hydrogen, nitrogen, oxygen[/td][/tr]
 [tr][td][b]Does neither[/b][/td][td]helium, hydrazine, hydrochloric acid, ozone, silanol[/td][/tr]
 [/table]
-Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they get, which is why a breathable mix still wants carbon dioxide alongside it.
+Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they get, so air you can breathe is cold air. You make up for it with carbon dioxide: a breathable Mars holds more carbon dioxide than oxygen, about 75 moles per outdoor cell against 57.
 
 [b]How much of it there is.[/b] Thick air narrows the gap between day and night whatever it is made of. Helium is the clean example: it neither traps nor sheds, so it is pure thickening.
 
@@ -37,17 +37,19 @@ Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they 
 [h2]How long it takes[/h2]
 One setting, [b]Planet size[/b], decides the pace. Hours to reach air you can stand in with your helmet off:
 [table]
-[tr][th]World[/th][th]Short (1/100)[/th][th]Standard (1/20)[/th][th]Long (1/4)[/th][th]Unmodded Baseline (1/1)[/th][/tr]
-[tr][td]The Moon[/td][td]16[/td][td]80[/td][td]399[/td][td]1,597[/td][/tr]
-[tr][td]Mars[/td][td]17[/td][td]83[/td][td]414[/td][td]1,655[/td][/tr]
-[tr][td]Venus[/td][td]42[/td][td]208[/td][td]1,038[/td][td]4,153[/td][/tr]
-[tr][td]Vulcan[/td][td]45[/td][td]225[/td][td]1,127[/td][td]4,506[/td][/tr]
-[tr][td]Mimas[/td][td]103[/td][td]516[/td][td]2,582[/td][td]10,328[/td][/tr]
-[tr][td]Europa[/td][td]150[/td][td]748[/td][td]3,739[/td][td]14,956[/td][/tr]
+[tr][th]World[/th][th]Terraforming strategy[/th][th]Short 1/100[/th][th]Standard 1/20[/th][th]Long 1/4[/th][th]Unmodded 1/1[/th][/tr]
+[tr][td]Venus[/td][td]Strip the air, tank what you take[/td][td]8[/td][td]40[/td][td]201[/td][td]806[/td][/tr]
+[tr][td]The Moon[/td][td]Add gas, nothing to remove[/td][td]15[/td][td]73[/td][td]367[/td][td]1,467[/td][/tr]
+[tr][td]Mars[/td][td]Add gas, nothing to remove[/td][td]15[/td][td]75[/td][td]376[/td][td]1,503[/td][/tr]
+[tr][td]Europa[/td][td]Tank the oxygen, warm, put it back[/td][td]44[/td][td]220[/td][td]1,101[/td][td]4,402[/td][/tr]
+[tr][td]Vulcan[/td][td]Strip the fuel first, then fill[/td][td]44[/td][td]222[/td][td]1,108[/td][td]4,431[/td][/tr]
+[tr][td]Mimas[/td][td]Warm it in stages, from nothing[/td][td]72[/td][td]360[/td][td]1,802[/td][td]7,208[/td][/tr]
 [/table]
-[b]Unmodded Baseline[/b] is the planet at the size the game itself uses. The others shrink it, so there is less air behind every outdoor cell and less of it to move.
+[b]Unmodded[/b] is the planet at the size the game itself uses. The others shrink it, so there is less air behind every outdoor cell and less of it to move.
 
-[b]Treat these as rough scale, not a promise.[/b] They assume a large base: four ice mining rockets, each actually mining about 60% of the time, plus a large gas trader bought out every other hour. Near 378,000 moles an hour between them. That rate is worked out from what each of those can produce, not measured from a finished playthrough. Run half that and every number above doubles.
+[b]The hours are time spent moving gas, and the strategy is the rest of the story.[/b] What sets the pace on every world is ice arriving: there is no oxygen tap, and the carbon dioxide a cold world needs has to be burnt out of volatiles on top of that. Taking gas away is much faster, because a vent draws in a share of the whole planet's air at once. So Venus is quick in hours and still a big project: what it really costs is somewhere to put what you take out, about 48 large tanks at Standard size.
+
+[b]Treat these as rough scale, not a promise.[/b] They assume a large base: four ice mining rockets, each actually mining about 60% of the time, near 330,000 moles of ice an hour, and twenty large powered vents drawing air in. That is worked out from what each of those can do, not measured from a finished playthrough. Run half the rockets and every number above doubles.
 
 Size changes nothing else about the world: the air, pressure and temperature you start with are the same at every size. A save made before you installed the mod carries the full-size planet until you rescale it.
 
