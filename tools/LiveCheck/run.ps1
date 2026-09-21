@@ -20,6 +20,16 @@
                file, which tools/Balance models from.
     -Vanilla   The default scenario without the mod, as a control. Not judged: in the unmodded
                game the tank never moves and the injected gas disappears.
+    -WallVent  The wall vent fix, called directly: a headless run cannot build a vent, so the driver
+               hands the hook body two grids, one with a cell and one without, and checks that a cell
+               is built and that tank plus cells does not move.
+    -MenuPressure  The mix the new-game menu builds to describe a world must be the shipped planet,
+               not the resized one it is playing.
+
+  -Storm <id> -StormTick <n> force a weather event on at tick n during -Observe or -Model, because
+  the game only schedules one after a cooldown of days. Ids are in the game's weather data:
+  MarsDustStorm, EuropaSnowStorm, VulcanAshStorm, VulcanFireStorm, VenusStorm, Rain, Snow,
+  SolarStorm, VulcanSolarStorm.
 
   A headless instance uses the game's install folder as its save root, not Documents\My Games,
   so no real save, mod list or setting is read or written. Everything this script creates there
@@ -50,6 +60,10 @@ param(
     [string]$Dump,
     [switch]$Observe,
     [switch]$Model,
+    [switch]$WallVent,
+    [switch]$MenuPressure,
+    [string]$Storm = '',
+    [int]$StormTick = 0,
     [double]$HeatK = 0,
     [double]$Tolerance = 0.5,
     [string]$World = 'Mars2',
@@ -68,7 +82,9 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
-if (@(($Vanilla -and -not ($Observe -or $Model)), $SaveLoad, $Reset, [bool]$Dump | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Reset and -Dump.' }
+if (@(($Vanilla -and -not ($Observe -or $Model)), $SaveLoad, $Reset, [bool]$Dump, $WallVent, $MenuPressure | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Reset, -Dump, -WallVent and -MenuPressure.' }
+if ($Storm -and -not ($Observe -or $Model)) { throw '-Storm only applies to -Observe and -Model.' }
+if ($Storm -and $StormTick -le 0) { throw '-Storm needs -StormTick, the tick to force the event on at.' }
 
 dotnet build (Join-Path $root 'src\TerraformingReloaded.csproj') -c Release -p:GameDir="$GameDir" --nologo -v quiet
 if ($LASTEXITCODE -ne 0) { throw 'Mod build failed.' }
@@ -87,6 +103,13 @@ $curvesFile = Join-Path $GameDir 'BepInEx\config\TerraformingReloaded.curves.xml
 $curvesExisted = Test-Path $curvesFile
 $unityLog = Join-Path $env:TEMP 'tr-livecheck-unity.log'
 $script:game = $null
+# Every variable the driver reads, cleared before each launch and again at the end, so one scenario
+# cannot inherit another's settings.
+$envKeys = @(
+    'TR_LIVECHECK_INJECT', 'TR_LIVECHECK_SAVE_AFTER_TICKS', 'TR_LIVECHECK_RESET', 'TR_LIVECHECK_DUMP',
+    'TR_LIVECHECK_OBSERVE', 'TR_LIVECHECK_DAYSPEED', 'TR_LIVECHECK_SETAIR', 'TR_LIVECHECK_HEATK',
+    'TR_LIVECHECK_SETAIR2', 'TR_LIVECHECK_SETAIR2_TICK', 'TR_LIVECHECK_STORM', 'TR_LIVECHECK_STORM_TICK',
+    'TR_LIVECHECK_WALLVENT_TICK', 'TR_LIVECHECK_MENUMIX')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -99,7 +122,7 @@ function Stop-Game {
 # Starts an instance and returns the log once $until is true of it, or throws at the timeout.
 function Invoke-Game([string[]]$arguments, [hashtable]$environment, [scriptblock]$until, [string]$what) {
     Remove-Item $bepLog, $unityLog -ErrorAction SilentlyContinue
-    foreach ($key in 'TR_LIVECHECK_INJECT', 'TR_LIVECHECK_SAVE_AFTER_TICKS', 'TR_LIVECHECK_RESET', 'TR_LIVECHECK_DUMP', 'TR_LIVECHECK_OBSERVE', 'TR_LIVECHECK_DAYSPEED', 'TR_LIVECHECK_SETAIR', 'TR_LIVECHECK_HEATK', 'TR_LIVECHECK_SETAIR2', 'TR_LIVECHECK_SETAIR2_TICK') { Remove-Item "Env:$key" -ErrorAction SilentlyContinue }
+    foreach ($key in $envKeys) { Remove-Item "Env:$key" -ErrorAction SilentlyContinue }
     foreach ($key in $environment.Keys) { Set-Item "Env:$key" $environment[$key] }
     $script:game = Start-Process $exe -WorkingDirectory $GameDir -PassThru -ArgumentList (@('-batchmode', '-nographics', '-logFile', "`"$unityLog`"") + $arguments)
     Write-Host "Started headless instance, PID $($script:game.Id): waiting for $what"
@@ -162,9 +185,18 @@ try {
         if ($SetAir) { $environment.TR_LIVECHECK_SETAIR = $SetAir }
         if ($SetAir2) { $environment.TR_LIVECHECK_SETAIR2 = $SetAir2; $environment.TR_LIVECHECK_SETAIR2_TICK = "$SetAir2Tick" }
         if ($HeatK -ne 0) { $environment.TR_LIVECHECK_HEATK = $HeatK.ToString([cultureinfo]::InvariantCulture) }
+        if ($Storm) { $environment.TR_LIVECHECK_STORM = $Storm; $environment.TR_LIVECHECK_STORM_TICK = "$StormTick" }
         $log = Invoke-Game @('-new', $World) $environment `
             { param($l) $o = @($l -match 'LiveCheck: obs tick (\d+)'); $o.Count -gt 0 -and [int](($o[-1] -replace '.*obs tick (\d+).*', '$1')) -ge $Ticks } "a fast day on $World"
         if (-not $Vanilla) { Assert-ModLive $log }
+        if ($Storm) {
+            # A started event is not a running one: check the driver's line and the samples.
+            @($log -match 'LiveCheck: storm ') | ForEach-Object { $_ -replace '^\[[^\]]*\]\s*', '' } | Write-Host
+            if (-not ($log -match "LiveCheck: storm $Storm asked for.*event $Storm, running True")) { throw "The storm $Storm never started." }
+            $stormy = @(@($log -match 'LiveCheck: obs tick') | Where-Object { $_ -notmatch 'stormK 0\s*$' })
+            Write-Host ("{0} samples were taken with the storm's offset applied" -f $stormy.Count)
+            if ($stormy.Count -lt 5) { throw 'The storm was over before enough samples were taken.' }
+        }
         if ($Model) {
             # Judged: the simulator rebuilt from what the game reported has to give the game's temperature.
             # Samples before tick 15 are skipped: the air is set at tick 6 and the readings settle after it.
@@ -174,7 +206,47 @@ try {
             Write-Host 'LiveCheck OK: the simulator matches the game.'
             return
         }
-        @($log -match 'LiveCheck: (obs tick|planet air|sky running)|Self-test|temperature response') | ForEach-Object { ($_ -replace '^\[[^\]]*\]\s*', '') -replace 'LiveCheck: obs ', '' } | Write-Host
+        @($log -match 'LiveCheck: (obs tick|planet air|sky running|storm )|Self-test|temperature response') | ForEach-Object { ($_ -replace '^\[[^\]]*\]\s*', '') -replace 'LiveCheck: obs ', '' } | Write-Host
+        return
+    }
+
+    if ($WallVent) {
+        # D15. LiveCheck cannot build a wall vent, so the driver calls the hook body with two grids.
+        $log = Invoke-Game @('-new', 'Mars2') @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_WALLVENT_TICK = '30' } `
+            { param($l) @($l -match 'LiveCheck: wallvent ').Count -gt 0 } 'the wall vent check'
+        Assert-ModLive $log
+        $line = @($log -match 'LiveCheck: wallvent ')[0] -replace '.*LiveCheck: ', ''
+        Write-Host $line
+        if ($line -notmatch '^wallvent PASS') { throw "LiveCheck FAILED: $line" }
+        Write-Host 'LiveCheck OK: the wall vent fix builds a cell and the planet total is unchanged.'
+        return
+    }
+
+    if ($MenuPressure) {
+        # D16. The new-game menu divides a world's moles by its unscaled volume, so the mix it builds
+        # must be the shipped planet even while a resized one is being played.
+        $log = Invoke-Game @('-new', 'Mars2') @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_MENUMIX = '1' } `
+            { param($l) @($l -match 'LiveCheck: menumix ').Count -gt 0 -and @($l -match 'LiveCheck: cmd status').Count -gt 0 } 'the new-game menu mix'
+        Assert-ModLive $log
+        $line = @($log -match 'LiveCheck: menumix ')[0] -replace '.*LiveCheck: ', ''
+        Write-Host $line
+        if ($line -notmatch 'menu ([\d.]+) mol in ([\d.]+) L \| live ([\d.]+) mol in ([\d.]+) L \| shipped volume ([\d.]+) L') {
+            throw "LiveCheck FAILED: the driver could not build the menu's mix: $line"
+        }
+        $menuMoles = [double]$Matches[1]; $menuLitres = [double]$Matches[2]
+        $liveMoles = [double]$Matches[3]; $liveLitres = [double]$Matches[4]; $shippedLitres = [double]$Matches[5]
+        $answers = @($log -match 'LiveCheck: cmd ') | ForEach-Object { $_ -replace '.*LiveCheck: cmd ', '' }
+        $sizeLine = @($answers -match 'planet size: ([\d.]+) of shipped')
+        if ($sizeLine.Count -eq 0) { throw 'LiveCheck FAILED: status did not report the planet size.' }
+        $size = [double]($sizeLine[0] -replace '.*planet size: ([\d.]+) of shipped.*', '$1')
+        Write-Host ("planet size {0}: menu {1:N3} mol in {2:N0} L, live {3:N3} mol in {4:N0} L" -f $size, $menuMoles, $menuLitres, $liveMoles, $liveLitres)
+        $problems = @()
+        if ([math]::Abs($menuMoles - 45594999.269) -gt 1.0) { $problems += 'the menu mix is not the shipped planet' }
+        if ([math]::Abs($menuLitres - $shippedLitres) -gt 1.0) { $problems += 'the menu mix is not the shipped volume' }
+        if ([math]::Abs($liveMoles - 45594999.269 * $size) -gt [math]::Max(1.0, 45594999.269 * $size * 1e-6)) { $problems += 'the planet being played is not the size the setting says' }
+        if ([math]::Abs($liveLitres - $shippedLitres * $size) -gt [math]::Max(1.0, $shippedLitres * $size * 1e-6)) { $problems += 'the played planet is not the volume the setting says' }
+        if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: ' + ($problems -join '; ')) }
+        Write-Host 'LiveCheck OK: the menu sees the shipped planet while a resized one is played.'
         return
     }
 
@@ -318,7 +390,7 @@ try {
 }
 finally {
     Stop-Game
-    foreach ($key in 'TR_LIVECHECK_INJECT', 'TR_LIVECHECK_SAVE_AFTER_TICKS', 'TR_LIVECHECK_RESET', 'TR_LIVECHECK_DUMP', 'TR_LIVECHECK_OBSERVE', 'TR_LIVECHECK_DAYSPEED', 'TR_LIVECHECK_SETAIR', 'TR_LIVECHECK_HEATK', 'TR_LIVECHECK_SETAIR2', 'TR_LIVECHECK_SETAIR2_TICK') { Remove-Item "Env:$key" -ErrorAction SilentlyContinue }
+    foreach ($key in $envKeys) { Remove-Item "Env:$key" -ErrorAction SilentlyContinue }
     # BepInEx\config is the real one, shared with normal play. Only remove a curves file this run made.
     if (-not $curvesExisted -and (Test-Path $curvesFile)) { Remove-Item $curvesFile -Force }
     if ($Keep) {

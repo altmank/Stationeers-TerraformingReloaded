@@ -57,6 +57,20 @@ namespace TerraformingReloaded.LiveCheck
         // without pause would: written every planet tick, so the mod's fade and cap still act on it.
         private static readonly double HeatK = double.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_HEATK"), NumberStyles.Float, CultureInfo.InvariantCulture, out double h) ? h : 0.0;
 
+        // A weather event forced on at a chosen tick, so a storm can be watched without waiting days
+        // for the game to schedule one. STORM is an Id from the game's weather data.
+        private static readonly string Storm = Environment.GetEnvironmentVariable("TR_LIVECHECK_STORM");
+        private static readonly uint StormTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_STORM_TICK"), out uint s) ? s : 0u;
+        private bool _stormStarted;
+
+        // The wall vent fix, tested by calling the hook body itself: LiveCheck cannot build a vent.
+        private static readonly uint WallVentTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_WALLVENT_TICK"), out uint w) ? w : 0u;
+        private bool _wallVentDone;
+
+        // The mix the new-game menu builds to describe a world, which must not carry the planet size.
+        private static readonly bool MenuMix = Environment.GetEnvironmentVariable("TR_LIVECHECK_MENUMIX") == "1";
+        private bool _menuMixDone;
+
         private bool _dumped;
         private bool _commandsRun;
         private uint _dirtiedAtTick;
@@ -89,6 +103,13 @@ namespace TerraformingReloaded.LiveCheck
             {
                 PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset =
                     new MoleEnergy(HeatK * PlanetaryAtmosphereSimulation.GetHeatCapacity().ToDouble());
+            }
+            // On this thread and at this point a mole reports its live quantity and the tick's workers
+            // are joined, so tank and cells can be summed either side of the call and compared.
+            if (_instance != null && !_instance._wallVentDone && WallVentTick > 0 && GameManager.GameTickCount >= WallVentTick)
+            {
+                _instance._wallVentDone = true;
+                _instance.CheckWallVent();
             }
             if (_instance == null || _instance._failed || GameManager.GameTickCount % ReportEveryTicks != 0)
             {
@@ -144,6 +165,16 @@ namespace TerraformingReloaded.LiveCheck
             {
                 _air2Set = true;
                 SetPlanetAir(SetAir2, keepOthers: true);
+            }
+            if (!_stormStarted && !string.IsNullOrEmpty(Storm) && StormTick > 0 && GameManager.GameTickCount >= StormTick)
+            {
+                _stormStarted = true;
+                StartStorm();
+            }
+            if (!_menuMixDone && MenuMix && GameManager.GameTickCount > 5)
+            {
+                _menuMixDone = true;
+                ReportMenuMix();
             }
             if (!_injected && Inject_ && now - _worldSeenAt > SettleSeconds && GameManager.GameTickCount > 10)
             {
@@ -242,6 +273,115 @@ namespace TerraformingReloaded.LiveCheck
             }
         }
 
+        /// <summary>
+        /// Forces a weather event on by Id. The game only schedules one after a cooldown measured in
+        /// days, which no headless run is long enough to reach, so a storm is otherwise untestable.
+        /// </summary>
+        private void StartStorm()
+        {
+            Weather.WeatherManager.ImmediatelyActivateWeatherEvent(Storm);
+            WeatherEvent running = Weather.WeatherManager.CurrentWeatherEvent;
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: storm {0} asked for at tick {1}: event {2}, running {3}, day offset {4:0.##} K, night offset {5:0.##} K",
+                Storm, GameManager.GameTickCount, running?.Id ?? "(none)", Weather.WeatherManager.IsWeatherEventRunning,
+                running?.TemperatureOffset?.GetOffset(0f) ?? 0f, running?.TemperatureOffset?.GetOffset(180f) ?? 0f));
+        }
+
+        /// <summary>
+        /// The mix the new-game menu builds to describe a world. It is not the planet being played, so
+        /// the planet size must not apply to it: the menu divides its moles by the world's unscaled
+        /// volume to show a pressure (DEFECTS D16). Called from Update, well outside planet building.
+        /// </summary>
+        private void ReportMenuMix()
+        {
+            GlobalAtmosphereData data = WorldSetting.Current?.Data?.GlobalAtmosphereData;
+            GlobalGasMix live = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            if (data == null || live == null)
+            {
+                Logger.LogInfo("LiveCheck: menumix no world loaded");
+                return;
+            }
+            GlobalGasMix menu = GlobalGasMix.Create(data);
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: menumix world {0} | menu {1:0.000} mol in {2:0.000} L | live {3:0.000} mol in {4:0.000} L | shipped volume {5:0.000} L",
+                WorldSetting.Current.Id, menu.TotalQuantity().ToDouble(), menu.Volume.ToDouble(),
+                live.TotalQuantity().ToDouble(), live.Volume.ToDouble(), data.GetVolume().ToDouble()));
+        }
+
+        /// <summary>
+        /// The wall vent fix (DEFECTS D15), tested by calling the hook body itself: a headless run has
+        /// no way to build a vent. A wall vent hands its two grids to the prefix; with a real cell on
+        /// one side and none on the other the prefix must build one, and building it draws its air from
+        /// the planet, so tank plus cells must not move.
+        /// </summary>
+        private void CheckWallVent()
+        {
+            try
+            {
+                Type guards = AccessTools.TypeByName("TerraformingReloaded.Patching.Guards");
+                System.Reflection.MethodInfo prefix = guards == null ? null : AccessTools.DeclaredMethod(guards, "WallVentPrefix");
+                if (prefix == null)
+                {
+                    Logger.LogInfo("LiveCheck: wallvent FAIL the mod's Guards.WallVentPrefix was not found");
+                    return;
+                }
+
+                // Open sky, well above the terrain and below the height the game treats as space.
+                WorldGrid roomSide = new WorldGrid(new Vector3(0f, 300f, 0f));
+                if (AtmosphericsManager.CloneGlobalAtmosphereThreadSafe(roomSide) == null)
+                {
+                    Logger.LogInfo("LiveCheck: wallvent FAIL no cell could be made at " + roomSide);
+                    return;
+                }
+                WorldGrid outSide = WorldGrid.INVALID;
+                foreach (Vector3 step in new[] { Vector3.right, Vector3.left, Vector3.forward, Vector3.back, Vector3.up })
+                {
+                    WorldGrid candidate = new WorldGrid(roomSide.Value.x + (int)step.x, roomSide.Value.y + (int)step.y, roomSide.Value.z + (int)step.z);
+                    if (AtmosphericsManager.Find(candidate) == null)
+                    {
+                        outSide = candidate;
+                        break;
+                    }
+                }
+                if (outSide == WorldGrid.INVALID)
+                {
+                    Logger.LogInfo("LiveCheck: wallvent FAIL every grid next to " + roomSide + " already has a cell");
+                    return;
+                }
+
+                double before = TankPlusCells(out int cellsBefore);
+                prefix.Invoke(null, new object[] { roomSide, outSide });
+                bool built = AtmosphericsManager.Find(outSide) != null;
+                double after = TankPlusCells(out int cellsAfter);
+                bool conserved = Math.Abs(after - before) <= 1.0;
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                    "LiveCheck: wallvent {0} built a cell at {1} next to {2}: cells {3} -> {4}, tank plus cells {5:0.000} -> {6:0.000} mol ({7:+0.000;-0.000})",
+                    built && conserved ? "PASS" : "FAIL", outSide, roomSide, cellsBefore, cellsAfter, before, after, after - before));
+            }
+            catch (Exception e)
+            {
+                Logger.LogInfo("LiveCheck: wallvent FAIL " + e);
+            }
+        }
+
+        /// <summary>The planet plus every outdoor cell, read on the simulation thread and at rest.</summary>
+        private static double TankPlusCells(out int cells)
+        {
+            double total = PlanetaryAtmosphereSimulation.GetGlobalGasMix()?.TotalQuantity().ToDouble() ?? 0.0;
+            double inCells = 0.0;
+            int count = 0;
+            AtmosphericsManager.AllAtmospheres.ForEach((Action<Atmosphere>)(a =>
+            {
+                if (a != null && a.Mode == AtmosphereHelper.AtmosphereMode.World)
+                {
+                    inCells += a.GasMixture.GetTotalMolesGassesAndLiquids.ToDouble();
+                    count++;
+                }
+            }));
+            cells = count;
+            return total + inCells;
+        }
+
         private static void Dirty()
         {
             Type sim = typeof(PlanetaryAtmosphereSimulation);
@@ -274,7 +414,10 @@ namespace TerraformingReloaded.LiveCheck
 
             double[] density = Grid(0.0, 0.02, 0.2, 0.05, 2.0, 0.25, 10.0, 1.0, 60.0, 5.0, 300.0);
             double[] index = Grid(-300.0, 5.0, -20.0, 1.0, 20.0, 5.0, 400.0);
-            double[] angle = Grid(0.0, 5.0, 180.0);
+            // Every degree, not every five: a base curve can drop 11 K per degree around dusk, where
+            // interpolating between five-degree samples was 5 K out, and a storm's share term turns
+            // that into a kelvin of apparent disagreement with the game (tools/Balance/compare.py).
+            double[] angle = Grid(0.0, 1.0, 180.0);
             double[] percent = Grid(0.0, 5.0, 100.0);
             double[] pressure = Grid(0.0, 0.5, 10.0, 2.0, 60.0, 10.0, 400.0, 100.0, 7000.0);
 
@@ -535,16 +678,24 @@ namespace TerraformingReloaded.LiveCheck
                 }
             }
             // The temperature asked of the game the way outdoor cells ask it, not the debug readout.
-            double kelvin = tank.GetGlobalGasMixTemperature(WorldSetting.Current.Data.GlobalAtmosphereData).ToDouble();
+            // The sun moves between reads, so the angle and the point in the orbit are taken first and
+            // handed to the overload the one-argument call makes: the sample then reports the exact
+            // inputs its own temperature was computed from. They are printed to four decimals because
+            // a base curve can fall 15 K per degree, so a tenth of a degree is most of a kelvin.
+            float angle = Vector3.Angle(Vector3.up, OrbitalSimulation.WorldSunVector);
+            float percent = OrbitalSimulation.System.GetSolarEnergyPercentClamped(
+                OrbitalSimulation.System.GetSolarEnergy(), OrbitalSimulation.System.CalculateSolarIrradiance());
+            double kelvin = tank.GetGlobalGasMixTemperature(WorldSetting.Current.Data.GlobalAtmosphereData, angle, percent).ToDouble();
+            double stormK = Weather.WeatherManager.IsWeatherEventRunning
+                ? Weather.WeatherManager.CurrentWeatherEvent?.TemperatureOffset?.GetOffset(angle) ?? 0f : 0f;
             Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
-                "LiveCheck: obs tick {0} | angle {1:0.0} | orbit {13:0.0}% | T {2:0.00} | readout {3:0.00} | P {4:0.000} | gas/cell {5:0.####} | liquid/cell {6:0.####} | iceClouds/cell {7:0.####} | liquidClouds/cell {8:0.####} | caps/cell {9:0.####} | latentK {10:0.###} | weather {11} |{12} | extK {14:0.###}",
-                GameManager.GameTickCount, Vector3.Angle(Vector3.up, OrbitalSimulation.WorldSunVector), kelvin,
+                "LiveCheck: obs tick {0} | angle {1:0.0000} | orbit {13:0.000}% | T {2:0.00} | readout {3:0.00} | P {4:0.000} | gas/cell {5:0.####} | liquid/cell {6:0.####} | iceClouds/cell {7:0.####} | liquidClouds/cell {8:0.####} | caps/cell {9:0.####} | latentK {10:0.###} | weather {11} |{12} | extK {14:0.###} | stormK {15:0.###}",
+                GameManager.GameTickCount, angle, kelvin,
                 PlanetaryAtmosphereSimulation.AggregateTemperature.ToDouble(), PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble(),
                 tank.TotalQuantityGas().ToDouble() / cells, tank.TotalQuantityLiquid().ToDouble() / cells,
                 ice.TotalQuantity().ToDouble() / cells, liquid.TotalQuantity().ToDouble() / cells, caps.TotalQuantity().ToDouble() / cells,
                 PlanetaryAtmosphereSimulation.LatentOffset.ToDouble(), Weather.WeatherManager.WeatherState, gases,
-                OrbitalSimulation.System.GetSolarEnergyPercentClamped(OrbitalSimulation.System.GetSolarEnergy(), OrbitalSimulation.System.CalculateSolarIrradiance()),
-                PlanetaryAtmosphereSimulation.GetExternalInputEnergyOffset().ToDouble()));
+                percent, PlanetaryAtmosphereSimulation.GetExternalInputEnergyOffset().ToDouble(), stormK));
         }
 
         private void Report()

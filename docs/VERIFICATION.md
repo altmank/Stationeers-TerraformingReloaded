@@ -13,6 +13,7 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 .\tools\LiveCheck\run.ps1 -Dump tools\Balance\gamedata.json   # game data for tools/Balance
 .\tools\LiveCheck\run.ps1 -Model -World Venus -SetAir "CarbonDioxide=23;Oxygen=48"     # judged: the game's temperature against the simulator's
 .\tools\LiveCheck\run.ps1 -Observe -World Venus -SetAir "CarbonDioxide=23;Oxygen=48"   # the same, printed and not judged
+.\tools\LiveCheck\run.ps1 -Model -World Vulcan2 -Storm VulcanAshStorm -StormTick 40    # judged, with a storm forced on at tick 40
 ```
 
 | Tool | Proves | Cannot prove |
@@ -22,7 +23,7 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 | `-SaveLoad` | A save taken with about 4,300 cells in flight loads back with the total unchanged (D1, D12) | |
 | `-Reset` | After terraform, dirtying ice caps, clouds and both heat stores, `terraform reset confirm`, save: the **unmodded** game loads a planet within 1 mol and 0.01 K of stock | |
 | `-Vanilla` | The control: the default scenario fails without the mod, so its pass means something | |
-| `-Model` | **Judged.** `-Observe`, then `tools/Balance/compare.py` rebuilds the simulator from what the game reported at every sample (air, sun angle, place in the orbit, latent and external heat) and fails the run if the game's temperature and the model's differ by more than `-Tolerance` (0.5 K). `-HeatK n` holds the planet's banked outside heat at n kelvin; `-SetAir2 ... -SetAir2Tick n` sets a second air later without touching clouds or ice caps. Passing: Venus, Vulcan, Europa mid-route, the Moon, Mimas with heat, and ice caps melting back on Europa, all within 0.2 K (TEMPERATURE.md) | Anything about how a player gets there |
+| `-Model` | **Judged.** `-Observe`, then `tools/Balance/compare.py` rebuilds the simulator from what the game reported at every sample (air, sun angle, place in the orbit, latent and external heat) and fails the run if the game's temperature and the model's differ by more than `-Tolerance` (0.5 K). `-HeatK n` holds the planet's banked outside heat at n kelvin; `-SetAir2 ... -SetAir2Tick n` sets a second air later without touching clouds or ice caps; `-Storm <id> -StormTick n` forces a weather event on at tick n, because the game schedules one only after a cooldown of days. Passing: Venus, Vulcan, Europa mid-route, the Moon, Mimas with heat, ice caps melting back on Europa, and an ash storm on Vulcan both cooled and untouched, all within 0.35 K (TEMPERATURE.md) | Anything about how a player gets there |
 | `-Observe` | Not judged. Prints the planet every five ticks through a fast day (`-DaySpeed`, default 10x) on any `-World`, with or without the mod (`-Vanilla`), optionally after setting the planet's air per outdoor cell (`-SetAir "Gas=mol;Gas=mol"`, unnamed gases emptied): sun angle, place in the orbit, the temperature outdoor cells get, the readout, pressure, gas, liquid, both clouds, ice caps, latent heat, weather, composition. This is how `tools/Balance` is held to the game: set the air a recipe or a path waypoint calls for and compare | Anything about how a player gets there |
 
 Latest results (planet size 0.05): sum varies 0.000 mol before and 0.005 mol after injection; the
@@ -92,3 +93,11 @@ removes what it created. It refuses to start if any of that already exists or th
   own in batch mode.
 - Totals read from `Update` are a tick stale (the mole cache). The first harness read them there
   and reported a 6,000 mol swing that did not exist.
+- A judged sample has to report the exact inputs its own temperature was computed from. The sun
+  moves about 0.7 degrees a tick at `-DaySpeed 10` and a base curve can fall 15 K per degree, so
+  the driver takes the angle and the orbit position first and hands them to the game, and prints
+  them to four decimals. Printing them to one cost 0.7 K of apparent disagreement.
+- `-Dump` samples the base temperature curve every degree, not every five. Five-degree samples,
+  interpolated, were 5 K out where Vulcan's curve bends at dusk, and a storm's scaling turned that
+  into 1.2 K. Only `compare.py` reads the curve off the knots; everything else in `tools/Balance`
+  evaluates on them, so the finer grid changes no recipe.
