@@ -2,6 +2,14 @@
 
 ## 0.1.1
 
+- New `terraform size <share> confirm`: changes how big the planet you are playing is, and so how
+  long terraforming it takes, without touching its air. Pressure, mix and temperature come out
+  exactly where they were, because the planet, its clouds and its ice caps all move together; your
+  base and every outdoor cell are untouched. It prints the size, outdoor cells, moles and pressure
+  before and after. Planet size is a number you have to pick before you have any feel for it, and
+  until now the only way to change your mind was `terraform reset confirm`, which throws away
+  everything you have done. The planet size setting is left alone: it is still the default for a
+  new world, and a saved planet still keeps its own size.
 - `terraform` status: the weather line no longer shows the offset of a storm that has already ended,
   so the temperature parts add up to the temperature beside them again. The planet's own temperature
   was always right; only the readout was stale, because the game keeps the last storm's figure until

@@ -156,7 +156,7 @@ namespace TerraformingReloaded
                 "How big the planet is, which sets how long terraforming takes and nothing else: the air, pressure and temperature you start with are the same at any size. "
                 + "Hours are a mega base (about 380,000 mol an hour) reaching shirt-sleeve air on Mars; a base with one ice rocket is about four times slower. "
                 + "Short: about 17 hours. Standard: about 85 hours. Long: about 410 hours. Shipped: the game's own size, about 1,650 hours. Custom: use the number below. "
-                + "Applies when a planet is created: a new world, or after terraform reset confirm. A saved planet keeps its size.",
+                + "Applies when a planet is created: a new world, or after terraform reset confirm. A saved planet keeps its size; to change the one you are playing, without touching its air, use terraform size <share> confirm.",
                 _ => applySize(), null, "Planet size", 5);
             custom = Bind("Pace", "CustomPlanetSize", 0.05,
                 "Planet size as a share of the shipped planet, used when Planet size is Custom. 0.05 is one twentieth. Time to terraform scales in proportion.",

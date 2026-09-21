@@ -106,6 +106,12 @@ planet keeps the size it has, and `terraform` shows it. That includes a save fro
 it holds the game's full-size planet, so it plays at Shipped size until you reset it (which changes
 nothing on a planet you have not touched yet).
 
+If the size turns out wrong once you have a feel for it, `terraform size <share> confirm` rescales
+the planet you are playing without touching its air. The planet, its clouds and its ice caps all
+move together, so pressure, mix and temperature come out exactly where they were and the only thing
+that changes is how much is left to do. Your base and every outdoor cell are untouched. The setting
+is left alone: it stays the default for the next new world.
+
 At Short size one base is a real share of the planet. Mars's coldest nights sit only about 1.5 K above
 the point where carbon dioxide freezes out, and pulling a tenth of its air into tanks crosses it: the
 carbon dioxide then snows out every night and returns every morning until you put some back.
@@ -117,6 +123,7 @@ F3 opens the console.
 | Command | Does |
 | --- | --- |
 | `terraform` | Whether the mod is live and why not if it is not, the self-test result, planet pressure and temperature, how many kelvin the mod is adding, gases per outdoor cell |
+| `terraform size <share> confirm` | Rescales the planet you are playing to that share of the size the world ships at, which changes how long terraforming takes and nothing else. Prints the size, cells, moles and pressure before and after. Host only. `terraform size <share>` alone explains and asks |
 | `terraform reset confirm` | Puts the whole planet back exactly as the world ships: starting air, empty clouds and ice caps, no stored heat. Host only. `terraform reset` alone explains and asks |
 | `terraform curves export` | Writes the built-in temperature curves to `BepInEx\config\TerraformingReloaded.curves.xml`. Never overwrites |
 | `terraform curves reload` | Applies that file at once, no restart |

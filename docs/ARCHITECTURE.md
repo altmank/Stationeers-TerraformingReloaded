@@ -9,7 +9,7 @@
 | `src/Patching/Gate.cs` | `Enabled()` and the transpiler that swaps the game's eight `get_IsGlobalInteraction` calls for it |
 | `src/Patching/Guards.cs` | Patch bodies for the defects (DEFECTS.md) and the sky throttle |
 | `src/Patching/Climate.cs` | Temperature rule for worlds that ship without curves (anchored greenhouse, proportional swing damping, airless base); the curves file |
-| `src/Patching/Planet.cs` | Whole-planet operations: planet size at creation, reset to shipped |
+| `src/Patching/Planet.cs` | Whole-planet operations: planet size at creation, rescaling the planet being played, reset to shipped |
 | `src/Patching/SelfTest.cs` | Game-change alarms: is the game's own switch still off, does the temperature formula still use the parts the mod adjusts, and a once-per-world take-and-give round trip on the live planet |
 | `src/Patching/Patcher.cs` | Applies everything, in an order that cannot leave the game half converted |
 | `src/Sync.cs` | Host to client planet state through LaunchPadBooster |
@@ -98,15 +98,21 @@ reads only. `Gate.Describe()` says which condition is false, for the status read
 | Guards check `Gate.Enabled()`, not config | A guard acting while the gate is off would change the unmodded game. Exception: `Climate` runs on clients too, since they evaluate the same formula |
 | Sync is optional for clients | LaunchPadBooster sections are skipped by a client without the mod; cells themselves are synced by the game |
 | Sync payload walks the game's save object by reflection | A gas added in a later game build is carried without a change |
-| Planet size applies at creation only | The save stores the tank's volume; resizing a live planet would change what the player has done |
+| The planet size **setting** applies at creation only | The save stores the tank's volume, so a setting that applied live would rescale every save a player loads, including one 40 hours in |
+| A live planet is rescaled only by `terraform size <share> confirm`, and it leaves the setting alone | A player picks the size before they have any feel for what it means, and the only other way to change it was `reset confirm`, which throws the progress away. Deliberate, on this planet, once |
+| A rescale moves the clouds, the ice caps and both heat stores with the tank | What is frozen out is part of what is left to terraform, so a shrunk planet that kept its ice would melt the old share back into a smaller atmosphere; and the heat stores are energies divided by a heat capacity that has just moved, so leaving them would move the temperature |
 | Pressure ceiling off by default | It was the old mod's behaviour, not the game's |
 | `terraform reset` needs `confirm` | It cannot be undone except by loading an earlier save |
 | Status logging runs from `Update`, not the tick | It must still report when the simulation is paused or the planet is off, which is when it is needed |
 
 ## Console
 
-`terraform` (status), `terraform reset confirm`, `terraform curves export`, `terraform curves reload`.
-Status totals are read off the simulation thread and so lag a tick while gas is moving.
+`terraform` (status), `terraform size <share> confirm`, `terraform reset confirm`,
+`terraform curves export`, `terraform curves reload`. Status totals are read off the simulation
+thread and so lag a tick while gas is moving. The rescale takes the tank lock, so it cannot
+interleave with a planet tick, and it prints size, cells, moles and pressure either side of itself;
+the pressure there is computed from the tank, not read from the game's per-tick planet readout,
+which inside one command would be the same reading twice.
 
 ## Settings
 
