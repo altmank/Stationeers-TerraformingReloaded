@@ -2,136 +2,93 @@
 
     python tools/Balance/balance.py
 
-Three layers, kept apart so each can be argued with separately:
+Four layers, kept apart so each can be argued with separately:
 
 1. The planet (planet.py): the game's own curves and thresholds. Measured, not assumed.
-2. Machine rates (RATES below): computed from prefab values in gamedata.json and formulas cited from
-   the game code. Measured, except where marked.
-3. Base tiers (TIERS below): what a small, medium and mega base actually runs. ASSUMPTIONS. They are
-   the soft part of this model; change them here and everything downstream follows.
+2. The end state (solve.py) and the route to it (path.py): the cheapest habitable air, and whether it
+   can be reached step by step under the game's phase change and fire rules.
+3. What each phase of that route costs (cost.py): ice mined to put gas in, dilution through vents to
+   take gas out, tanks to hold what comes out. Prefab values in formulas read from the game.
+4. The base (cost.BASES): what a small, medium and mega base actually runs. ASSUMPTIONS. They are the
+   soft part; change them there and everything downstream follows.
 
-Work is counted in moles moved: moles added plus moles removed. A base that can make 100k mol/h of
-oxygen is assumed able to strip about as much of something else, because the big vents pull far
-faster than any source produces (see RATES).
+Adding a mole and removing a mole are different jobs with different limits, and they are not priced
+the same here. Layer 3 says which of the two binds on each world, because one blended number hides
+more than it tells.
 """
 
+from cost import BASES, RATES, STANDARD, estimate, ice_rate
 from path import plan
-from planet import DATA, Planet, R, CELL_LITRES
+from planet import Planet
 from solve import cheapest, describe
 
-TICKS_PER_HOUR = 3600.0 / DATA['tickSeconds']
-PREFAB = DATA['prefabs']
-
-
-def ice_moles(name):
-    return sum(g['moles'] for g in PREFAB[name]['SpawnContents'])
-
-
-def vent_out_per_hour(prefab, kelvin):
-    """ActiveVent.cs:386-432 / PoweredVent.cs:154-183: pressurePerTick worth of an 8000 L cell per tick."""
-    return PREFAB[prefab]['pressurePerTick'] * CELL_LITRES / (R * kelvin) * TICKS_PER_HOUR
-
-
-# ---- 2. machine rates, mol per hour ----------------------------------------------------------------
-RATES = {
-    # Moving gas outdoors. At 280 K. Not the bottleneck: compare with the sources below.
-    'active vent, outward': vent_out_per_hour('StructureActiveVent', 280.0),
-    'large powered vent, outward': vent_out_per_hour('StructurePoweredVentLarge', 280.0),
-
-    # Making new gas.
-    # Rocket ice mining: MineableDeposit.cs:109-145, site data rocketlocations.xml:550-554.
-    # 10-13 items per 8.4-9.2 s cycle at the richness floor, 24 mol per space-ice item, x1.2 ice head.
-    'rocket ice miner, while mining': 0.5 * (93900 + 133700) * PREFAB['ItemRocketMiningDrillHeadIce']['IceYieldMultiplier'],
-    # Rocket gas collector: MineableDeposit.cs:425-434. 19,500-186,000 by site richness; never depletes.
-    'rocket gas collector, while mining (mid site)': 80000.0,
-    # Large gas trader bought out: tradeables.xml:1003-1090, 72k-129k mol a visit. One visit an hour is
-    # an ASSUMPTION: trader type is a random pick per slot.
-    'large gas trader, one buy-out an hour': 100000.0,
-    # Hand mining: 7 items a minable at normal yield (VeinGenerationData.cs:100) x 25 mol. 150 minables
-    # an hour is an ASSUMPTION about a player who is also hauling and crushing. Veins are finite.
-    'one player hand-mining ice': 150 * 7 * ice_moles('ItemOxite'),
-    # Burning volatiles triples the moles and turns them into CO2 and pollutant (Combustion.cs:33-89).
-}
-
-# ---- 3. base tiers: ASSUMPTIONS --------------------------------------------------------------------
-# Duty is the share of wall-clock time the source is really producing: rockets travel, players sleep.
-TIERS = {
-    'small  (one player, hand-mined ice)': RATES['one player hand-mining ice'] * 0.5,
-    'medium (one ice rocket, a trader now and then)': RATES['rocket ice miner, while mining'] * 0.5 + RATES['large gas trader, one buy-out an hour'] * 0.25,
-    'mega   (four rockets, traders, combustion)': 4 * RATES['rocket ice miner, while mining'] * 0.6 + RATES['large gas trader, one buy-out an hour'] * 0.5,
-}
 TARGET_HOURS_MEGA = 100.0       # the original mod's stated aim: a mega base needs at least 100 hours
-
 LEVELS = ('helmet_off', 'shirt_sleeves')
-
-def ice_budget(added):
-    """Ices a recipe's additions cost when CO2 is made the way a base makes it: by burning volatiles.
-
-    Combustion.cs (ResultMethaneOxygen): 2 volatiles + 1 oxygen -> 6 CO2 + 3 pollutant. So a mole of
-    CO2 costs a third of a mole of volatiles and a sixth of oxygen, and leaves half a mole of pollutant
-    that has to be caught before it reaches the air (it is toxic above 0.5 kPa) and stored. The
-    hydrogen in volatiles ice burns to steam and is ignored. Ice contents are the game's prefab values.
-    """
-    oxite = {g['gas']: g['moles'] for g in PREFAB['ItemOxite']['SpawnContents']}
-    volatiles = {g['gas']: g['moles'] for g in PREFAB['ItemVolatiles']['SpawnContents']}
-    nitrice = {g['gas']: g['moles'] for g in PREFAB['ItemNitrice']['SpawnContents']}
-    co2 = added.get('CarbonDioxide', 0.0)
-    fuel_ice = (co2 / 3.0) / volatiles.get('Methane', 20.0)
-    oxygen = added.get('Oxygen', 0.0) + co2 / 6.0
-    oxite_ice = oxygen / oxite.get('Oxygen', 22.5)
-    nitrogen = max(0.0, added.get('Nitrogen', 0.0) - oxite_ice * oxite.get('Nitrogen', 0.0))
-    nitrice_ice = nitrogen / nitrice.get('Nitrogen', 22.5)
-    return {'oxite': oxite_ice, 'volatiles': fuel_ice, 'nitrice': nitrice_ice, 'pollutant to store': co2 / 2.0}
+SIZES = (('Short', 0.01), ('Standard', 0.05), ('Long', 0.25), ('Unmodded baseline', 1.0))
+WORLDS = ('Lunar', 'Mars2', 'Venus', 'Vulcan2', 'MimasHerschel', 'Europa3')
 
 
 def main():
     print('MACHINE RATES (mol per hour)')
     for name, rate in RATES.items():
         print('  %-48s %12s' % (name, format(round(rate), ',')))
-    print('\nBASE TIERS (assumptions, mol per hour sustained)')
-    for name, rate in TIERS.items():
-        print('  %-48s %12s' % (name, format(round(rate), ',')))
+    print('\nWHAT EACH BASE RUNS (assumptions)')
+    for name, b in BASES.items():
+        print('  %-8s %10s mol/h of ice gas, %2d inward vents   %s' % (
+            name, format(round(ice_rate(b)), ','), b['vents'], b['says']))
 
-    mega = list(TIERS.values())[-1]
-    print('\nWHAT IT TAKES, at the shipped planet size (5,000,000 outdoor cells)')
-    print('end state = cheapest habitable air (solve.py); path = reached step by step under phase change (path.py)')
-    sizes = {}
-    for world in DATA['worlds']:
-        if world == 'Vulcan':
-            continue                      # deprecated duplicate of Vulcan2
+    print('\nWHAT IT TAKES, per outdoor cell')
+    print('end state = cheapest habitable air (solve.py); route = reached step by step (path.py)')
+    found = {}
+    for world in WORLDS:
         p = Planet(world)
         r = p.report()
         print('\n%s   start: coldest %.0f K, hottest %.0f K, %.1f kPa, ppO2 %.2f, toxins %.2f kPa' %
               (world, r['T_cold'], r['T_hot'], r['P_kPa'], r['ppO2'], r['toxins_kPa']))
         for level in LEVELS:
-            found = cheapest(world, level)
-            if found is None:
-                print('  %-15s no habitable air found' % level)
-                continue
-            print('  %-15s end state %s' % (level, describe(world, found)))
-            if level == 'shirt_sleeves':
-                added = {g: m - p.air.get(g, 0.0) for g, m in found[1].items() if m > p.air.get(g, 0.0)}
-                ices = ice_budget(added)
-                total_ices = (ices['oxite'] + ices['volatiles'] + ices['nitrice']) * p.cells
-                per_hour = RATES['rocket ice miner, while mining'] / 24.0
-                print('  %-15s as ices per cell, CO2 made by burning volatiles: oxite %.2f, volatiles %.2f, nitrice %.2f; %.0f pollutant per cell to catch and store' % (
-                    '', ices['oxite'], ices['volatiles'], ices['nitrice'], ices['pollutant to store']))
-                print('  %-15s = %.0f M ices; one ice rocket mines about %.0f an hour while mining, so %s rocket-hours (additions only)' % (
-                    '', total_ices / 1e6, per_hour, format(round(total_ices / per_hour), ',')))
+            best = cheapest(world, level)
+            print('  %-15s end state %s' % (level, describe(world, best) if best else 'no habitable air found'))
         route = plan(world, 'shirt_sleeves')
-        if route and route['reached']:
-            total = route['work'] * p.cells
-            print('  %-15s path: %.0f mol/cell = %.0f M mol; hours: %s' % ('shirt_sleeves', route['work'], total / 1e6,
-                  '   '.join('%s %s' % (n.split('(')[0].strip(), format(round(total / rate), ',')) for n, rate in TIERS.items())))
-            for stage in route['stages']:
-                print('  %-15s   - %s' % ('', stage[:150]))
-            sizes[world] = TARGET_HOURS_MEGA * mega / total
-        else:
-            print('  %-15s NO PATH FOUND: %s' % ('shirt_sleeves', route and route.get('stuck')))
+        if not (route and route['reached']):
+            print('  %-15s NO ROUTE FOUND: %s' % ('shirt_sleeves', route and route.get('stuck')))
+            continue
+        e = estimate(world, STANDARD, route=route)
+        found[world] = e
+        print('  %-15s route: %s in, %s out, %.0f mol/cell moved' % (
+            'shirt_sleeves',
+            ', '.join('%s %.0f' % (g[:4], m) for g, m in sorted(e['added'].items()) if m >= 0.5) or 'nothing',
+            ', '.join('%s %.0f' % (g[:4], m) for g, m in sorted(e['removed'].items()) if m >= 0.5) or 'nothing',
+            route['work']))
+        print('  %-15s %.0f mol of ice mined per cell (%.0f if the CO2 were mined rather than burnt), '
+              '%.0f pollutant per cell to catch and store' % (
+                  '', e['ice per cell'], e['ice budget']['ice, mining the CO2 instead'],
+                  e['ice budget']['pollutant to store']))
+        if e['removed moles'] > 0.0:
+            d = e['disposal']
+            print('  %-15s %.0f M mol of outdoor air through the filters to take out %.0f M (x%.1f); '
+                  '%.0f big tanks to hold it' % (
+                      '', e['air through the filters'] / 1e6, e['removed moles'] / 1e6,
+                      e['air through the filters'] / e['removed moles'], d['big tanks']))
+
+    print('\nWHICH CONSTRAINT BINDS, at Standard size and the mega base')
+    print('  %-14s %7s %9s %9s %7s  %s' % ('world', 'hours', 'adding', 'removing', 'vents', 'why'))
+    for world, e in found.items():
+        print('  %-14s %7.0f %9.0f %9.0f %7.0f  %s-bound, %s' % (
+            world, e['hours'], e['addition hours'], e['removal hours'], e['vents to keep up'], e['bound by'],
+            ('one after the other: ' + e['staged']) if e['staged'] else 'the two run side by side'))
+    print('  "vents" is the inward vent count below which removal becomes the longer job.')
+
+    # Hours are exactly proportional to planet size: the ice bill and the air the filters have to
+    # pass both scale with the number of outdoor cells, and nothing else in the model does.
+    print('\nHOURS BY PLANET SIZE, mega base')
+    print('  %-14s%s' % ('world', ''.join('%20s' % ('%s (%g)' % (n, s)) for n, s in SIZES)))
+    for world, e in found.items():
+        print('  %-14s%s' % (world, ''.join('%20s' % format(round(e['hours'] * s / STANDARD), ',') for _, s in SIZES)))
 
     print('\nPLANET SIZE for a mega base to need %d hours to reach shirt sleeves' % TARGET_HOURS_MEGA)
-    for world, size in sizes.items():
-        print('  %-14s x%.3f of shipped  (about 1/%d)' % (world, size, round(1.0 / size)))
+    for world, e in found.items():
+        share = STANDARD * TARGET_HOURS_MEGA / e['hours']
+        print('  %-14s x%.3f of shipped  (about 1/%d)' % (world, share, round(1.0 / share)))
 
 
 if __name__ == '__main__':

@@ -82,7 +82,14 @@ data = {
         'Airless': world({}, sun=(1300.0, 1400.0)),
         'Band': world({'CarbonDioxide': 40.0}, base=[(0.0, 500.0), (180.0, 480.0)], sun=(1000.0, 1000.0)),   # index 7: half anchored
     },
-    'prefabs': {},
+    # Invented like the rest, but the right shape: cost.py reads a vent's kPa per tick, the ice drill
+    # head's yield multiplier and a big tank's volume.
+    'prefabs': {
+        'StructureActiveVent': {'pressurePerTick': 10.0, 'class': 'ActiveVent'},
+        'StructurePoweredVentLarge': {'pressurePerTick': 40.0, 'class': 'PoweredVentMultiGrid'},
+        'ItemRocketMiningDrillHeadIce': {'IceYieldMultiplier': 1.2, 'class': 'RocketMiningDrillHead'},
+        'StructureTankBig': {'volume': 50000.0, 'class': 'Tank'},
+    },
 }
 
 if __name__ == '__main__':

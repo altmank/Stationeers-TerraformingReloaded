@@ -170,6 +170,49 @@ hours, drawn = hours_to_remove('Hot', start, {'CarbonDioxide': 20.0, 'Hydrochlor
 removed = (start['CarbonDioxide'] - 20.0 + start['HydrochloricAcid'] - 1.0) * Planet('Hot', size=0.05).cells
 check('removal draws more air than it removes, and finishes', 0.0 < hours < 1e6 and drawn > removed, '%.0f h, x%.2f' % (hours, drawn / removed))
 
+# 14. Putting gas in and taking gas out are different jobs on different machines, and the model has to
+# keep them apart. That is the defect the old single rate had: it priced a mole removed as if a rocket
+# had to mine it, so a removal world's hours came out of a number about gas production.
+from cost import BASES, estimate, ice_budget
+hot = plan('Hot')                                          # a world whose own air is in the way
+plain = estimate('Hot', 0.05, route=hot)
+rockets = estimate('Hot', 0.05, route=hot, base=dict(BASES['mega'], rockets=2 * BASES['mega']['rockets']))
+vents = estimate('Hot', 0.05, route=hot, base=dict(BASES['mega'], vents=2 * BASES['mega']['vents']))
+check('twice the rockets halves the time to add gas and does not touch removal',
+      abs(rockets['addition hours'] - plain['addition hours'] / 2) < 1e-6
+      and abs(rockets['removal hours'] - plain['removal hours']) < 1e-9,
+      '%.1f / %.1f h' % (rockets['addition hours'], rockets['removal hours']))
+check('twice the vents halves the time to take gas out and does not touch addition',
+      abs(vents['removal hours'] - plain['removal hours'] / 2) < 1e-6
+      and abs(vents['addition hours'] - plain['addition hours']) < 1e-9,
+      '%.1f / %.1f h' % (vents['addition hours'], vents['removal hours']))
+check('dilution draws more air through the filters than it takes out',
+      plain['air through the filters'] > plain['removed moles'] > 0.0)
+check('hours are proportional to planet size',
+      abs(estimate('Hot', 0.10, route=hot)['hours'] - 2 * plain['hours']) < 1e-6)
+check('the phases run side by side when nothing forces an order',
+      not plain['staged'] and abs(plain['hours'] - max(plain['addition hours'], plain['removal hours'])) < 1e-9)
+
+# A gas put in as a temporary warming blanket and taken back out is two jobs, not zero.
+cold = plan('Cold')
+frozen = estimate('Cold', 0.05, route=cold)
+check('a temporary gas counts as both added and removed',
+      frozen['added'].get('Methane', 0.0) > 1.0
+      and abs(frozen['removed'].get('Methane', 0.0) - frozen['added']['Methane']) < 1e-6)
+check("the planet's own gas, banked and put back, is not mined again",
+      frozen['added'].get('Oxygen', 0.0) > 1.0 and frozen['new'].get('Oxygen', 0.0) < 1e-9)
+check('the phases are summed when the route puts a gas in and takes it out again',
+      bool(frozen['staged']) and abs(frozen['hours'] - frozen['addition hours'] - frozen['removal hours']) < 1e-6)
+
+# Carbon dioxide: the game's burn turns 3 moles of ice gas into 9, so burning beats mining it.
+budget = ice_budget({'CarbonDioxide': 100.0, 'Oxygen': 50.0})
+check('burning volatiles for carbon dioxide costs less ice than mining it',
+      budget['ice'] < budget['ice, mining the CO2 instead'],
+      '%.0f vs %.0f' % (budget['ice'], budget['ice, mining the CO2 instead']))
+check("the burn makes more pollutant than a recipe wants, so the recipe's share costs no ice",
+      budget['pollutant to store'] > 0.0
+      and ice_budget({'CarbonDioxide': 100.0, 'Pollutant': 2.0})['ice'] == ice_budget({'CarbonDioxide': 100.0})['ice'])
+
 print()
 print('%d failed' % len(failures) if failures else 'all passed')
 sys.exit(1 if failures else 0)
