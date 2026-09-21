@@ -91,6 +91,43 @@ and the atmos analyser see the planet's own air.
 Not covered by this session: the sky, frame time in a large base, rain and snow on a small planet,
 multiplayer, and any world but Mars.
 
+## The first Vulcan session
+
+2026-09-20, mod 0.1.0, creative, planet size 0.01, so 50,000 outdoor cells. Mars was played; this
+world was flown: the planet's air was set by a memory edit, the same thing the driver's `-SetAir`
+does, so none of it is gameplay. Every number below was read out of the game's memory rather than off
+the console readout. It is the first time the mod's own temperature response drove a planet outside
+the test driver.
+
+**At spawn, untouched.** 2,849,897 mol, 56.998 mol per outdoor cell against the shipped 57.000 (CO2
+12, volatiles 27, pollutant 15, hydrogen 3). The 103 mol under the exact hundredth share is about two
+outdoor cells' worth, the same reading as Mars's 9.76 mol. `AggregateTemperature` 503.41 K; parts sun
+angle 506.53, sun distance -3.11, greenhouse 0.00, density 0.00, weather 0, latent 0, external 0.01,
+and the mod adding 0 K.
+
+Two things follow that no earlier evidence gave:
+
+- **Vulcan ships neither a greenhouse nor a density curve.** Both parts read exactly 0.00 in the live
+  game. That is what the dump said (GAME-MODEL.md), and it is why the mod fills both in here.
+- **The untouched-air invariant holds on a world the mod fills in.** On Mars the mod defers to the
+  game entirely, so adding 0 K there is true for free. On Vulcan both halves of the rule are live and
+  it still adds exactly 0 K on the starting air.
+
+**The response, on a real planet.** The air was then overwritten to the fire-safe recipe (19 CO2, 46
+N2, 193 O2, 1 pollutant per cell, the volatiles and hydrogen zeroed): 12,950,000 mol, 259.000 per
+cell, the hundredth share exactly. `Climate.LastAdjustment` read **-131.044 K**. The parts were sun
+angle 404.72, sun distance -0.65, greenhouse 0.00, density 0.00, external 0.01, so the game alone
+would have read 404.08 K; the planet read **273.04 K**.
+
+`tools/Balance` on that air gives 272.85 K at the cold end of the day, 0.19 K under what the game
+read. The sample was near dusk: its base term pins the sun angle at 94.2 degrees, and there the model
+gives an adjustment of -131.10 K and a planet of 273.00 K, so model and game are 0.04 K apart on the
+same inputs. The judged Vulcan runs already covered this air headless (TEMPERATURE.md); what is new
+is that the rule behaves the same in a world someone is standing in.
+
+Not covered by this session: playing Vulcan rather than editing its air, and everything the Mars
+session did not cover either.
+
 ## The census
 
 ```powershell

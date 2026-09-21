@@ -132,6 +132,20 @@ orbit position the game reports at each sample and has to give the game's temper
 | The same storm on untouched Vulcan | 0.34 K over 50 samples | The share is 1 and the offset is unscaled, as it has to be: 400 + 122.6 = 522.5 K at night, 945 - 275 = 670.3 K at noon. Nothing left the air |
 | The same, but warmed at tick 1,900, after 19.9 of the 20 mol per cell had moved into the ice caps | 0.07 K over 516 samples | At 274 K the caps melted back at exactly the game's rate, 1,000 mol per tick planet-wide (19.95 to 17.18 mol per cell in 700 ticks, the air gaining the same 2.78). This is the run that proves the ice caps read the planet's air (GAME-MODEL.md): read as the game leaves them they would have sat near 136 K and never melted |
 
+### In play, not headless
+
+A creative Vulcan session at planet size 0.01 drove the rule outside the test driver for the first
+time (VERIFICATION.md). On the starting air it added exactly 0 K, with the world's greenhouse and
+density parts reading 0.00 as the dump says they do; on the fire-safe air it took the planet from the
+404.08 K the game alone would have read to **273.04 K**, an adjustment of -131.044 K, against 272.85 K
+at the cold end of the day in the model and 273.00 K at the sample's own sun angle.
+
+**On Mars the rule is a permanent no-op, by design.** Mars is the one world that ships both the
+greenhouse and the density curve, so neither is ever filled in and `Response` is not evaluated at all:
+no amount of terraforming Mars can exercise the mod's formula. Mars measures the finite planet and the
+game's own temperature; the rule here can only be measured somewhere else. `tools/ci/test_model.py`
+pins that ("a world with its own curves is left alone").
+
 ## Phase change and reachability
 
 `tools/Balance/planet.py` applies the game's phase rules to a settled planet, from constants the game

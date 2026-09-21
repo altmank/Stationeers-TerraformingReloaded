@@ -22,7 +22,10 @@
 6. **Play it.** One session has been played, on Mars at planet size 0.01 (VERIFICATION.md): a vent
    drew planet air into a sealed room and the planet took it back, composition, external heat, a
    save and load, a storm on untouched air and the gas sensor all behaved, and real outdoor cells
-   drain back to the tank. Still not seen by a person: the sky, frame time in a large base (defect
+   drain back to the tank. A second world has been seen, Vulcan in creative, with its air set by a
+   memory edit rather than played: the mod's own temperature response drove a planet for the first
+   time outside the test driver, -131.044 K to 273.04 K. Still not seen by a person: the sky, frame
+   time in a large base (defect
    D10, and the temperature postfix recomputes the greenhouse index per call, ASSUMPTIONS.md M9),
    rain and snow frequency on a small planet, and a session long enough, with `StatusLogSeconds`
    set, to say what a real base moves per hour.

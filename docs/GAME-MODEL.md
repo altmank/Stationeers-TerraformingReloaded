@@ -83,7 +83,8 @@ Game build 0.2.6428.27798. `D/` and `S/` as in README.md. Everything here is **C
   At 50 mmol/L: N2 -35.6, O2 -10.3. Hydrazine, helium, silanol, HCl, ozone have no curve.
 - Each offset is a `GlobalTemperatureCurveOffset` with a Day and a Night curve, day inside 70
   degrees of overhead, night past 110, eased between. A missing curve evaluates to 0.
-- Which worlds ship what (**MEASURED** by dump):
+- Which worlds ship what (**MEASURED** by dump; Vulcan's two blanks also read 0.00 in a live game,
+  VERIFICATION.md):
 
 | World | base | solar distance | GHG | density | start air, mol per cell |
 | --- | --- | --- | --- | --- | --- |
