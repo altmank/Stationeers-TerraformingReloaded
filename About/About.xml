@@ -35,8 +35,7 @@ Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they 
 
 [hr][/hr]
 [h2]How long it takes[/h2]
-One setting: [b]Planet size[/b].
-At [b]Standard[/b], to the point where you can stand outside with your helmet off:
+One setting, [b]Planet size[/b], decides the pace. At [b]Standard[/b], to the point where you can stand outside with your helmet off:
 [table]
 [tr][th]World[/th][th]Roughly[/th][/tr]
 [tr][td]The Moon[/td][td]80 hours[/td][/tr]
@@ -47,6 +46,7 @@ At [b]Standard[/b], to the point where you can stand outside with your helmet of
 [tr][td]Europa[/td][td]748 hours[/td][/tr]
 [/table]
 [b]Short[/b] is a fifth of those. [b]Long[/b] is five times. [b]Shipped[/b], the game's real planet, is twenty times.
+
 [b]Treat these as rough scale, not a promise.[/b] They are calculated from how much gas a large, heavily automated base can move in an hour, not measured from a real playthrough, because nobody has finished one yet. A smaller or more hands-on base will take considerably longer.
 
 Size changes nothing else about the world: the air, pressure and temperature you start with are the same at every size. A save made before you installed the mod carries the full-size planet until you rescale it.
