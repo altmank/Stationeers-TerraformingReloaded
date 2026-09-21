@@ -19,10 +19,13 @@
 5. **Improve `path.py`.** It is greedy: on Vulcan it strips fuel before adding the bulk gas that would
    have kept nights above CO2's freezing point, then pays for helpers. A search over orderings would
    give honest costs rather than upper bounds.
-6. **Play it.** One hour on Mars with `StatusLogSeconds` set, on a copy of a save: what a real base
-   moves per hour, the sky, frame time in a large base (defect D10, and the temperature postfix now
-   recomputes the greenhouse index per call, ASSUMPTIONS.md M9), rain and snow frequency on a small
-   planet.
+6. **Play it.** One session has been played, on Mars at planet size 0.01 (VERIFICATION.md): a vent
+   drew planet air into a sealed room and the planet took it back, composition, external heat, a
+   save and load, a storm on untouched air and the gas sensor all behaved, and real outdoor cells
+   drain back to the tank. Still not seen by a person: the sky, frame time in a large base (defect
+   D10, and the temperature postfix recomputes the greenhouse index per call, ASSUMPTIONS.md M9),
+   rain and snow frequency on a small planet, and a session long enough, with `StatusLogSeconds`
+   set, to say what a real base moves per hour.
 7. **Test what has never run live**: D2 (build over an occupied outdoor cell), D6 (weather guard),
    heat decay rate, multiplayer sync with and without the mod on the client, a custom world.
 
