@@ -71,6 +71,11 @@ namespace TerraformingReloaded.LiveCheck
         private static readonly bool MenuMix = Environment.GetEnvironmentVariable("TR_LIVECHECK_MENUMIX") == "1";
         private bool _menuMixDone;
 
+        // terraform size <share> confirm on the planet being played: RESCALE is the share to ask for.
+        private static readonly string RescaleTo = Environment.GetEnvironmentVariable("TR_LIVECHECK_RESCALE");
+        private static readonly uint RescaleTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_RESCALE_TICK"), out uint rs) ? rs : 0u;
+        private bool _rescaleDone;
+
         private bool _dumped;
         private bool _commandsRun;
         private uint _dirtiedAtTick;
@@ -115,6 +120,12 @@ namespace TerraformingReloaded.LiveCheck
             {
                 _instance._menuMixDone = true;
                 _instance.ReportMenuMix();
+            }
+            if (_instance != null && !_instance._rescaleDone && !string.IsNullOrEmpty(RescaleTo)
+                && RescaleTick > 0 && GameManager.GameTickCount >= RescaleTick)
+            {
+                _instance._rescaleDone = true;
+                _instance.CheckRescale();
             }
             if (_instance == null || _instance._failed || GameManager.GameTickCount % ReportEveryTicks != 0)
             {
@@ -365,6 +376,69 @@ namespace TerraformingReloaded.LiveCheck
             {
                 Logger.LogInfo("LiveCheck: wallvent FAIL " + e);
             }
+        }
+
+        /// <summary>
+        /// terraform size &lt;share&gt; confirm on a live planet. Run from the planet tick, where the
+        /// tank, the clouds, the ice caps and both heat stores read live and nothing else is moving,
+        /// so the figures either side of the command differ by the rescale and nothing else.
+        /// The ice caps, the clouds and both heat stores are loaded first (Dirty), or the parts of
+        /// the planet that are not the tank would all be zero and prove nothing.
+        /// The refusals are asked for first: they must answer, not throw, and must not rescale.
+        /// </summary>
+        private void CheckRescale()
+        {
+            try
+            {
+                Dirty();
+                RunCommand("size", "0", "confirm");
+                RunCommand("size", "banana", "confirm");
+                RunCommand("size", "1000", "confirm");
+                RunCommand("size", RescaleTo);              // no confirm: must explain and ask
+                string before = RescaleFigures();
+                RunCommand("size", RescaleTo, "confirm");
+                string after = RescaleFigures();
+                Logger.LogInfo("LiveCheck: rescale before " + before);
+                Logger.LogInfo("LiveCheck: rescale after " + after);
+                RunCommand("status");
+            }
+            catch (Exception e)
+            {
+                Logger.LogInfo("LiveCheck: rescale FAIL " + e);
+            }
+        }
+
+        /// <summary>
+        /// Everything a rescale is allowed to move and everything it is not, in one line. The pressure
+        /// is computed from the tank, not read from the game's per-tick planet readout, so that two
+        /// samples taken inside one tick are two answers rather than one reading printed twice.
+        /// </summary>
+        private static string RescaleFigures()
+        {
+            Type sim = typeof(PlanetaryAtmosphereSimulation);
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            GlobalGasMix caps = (GlobalGasMix)AccessTools.Field(sim, "_iceCaps").GetValue(null);
+            GlobalGasMix ice = (GlobalGasMix)AccessTools.Field(sim, "_iceClouds").GetValue(null);
+            GlobalGasMix liquid = (GlobalGasMix)AccessTools.Field(sim, "_liquidClouds").GetValue(null);
+            double cells = (tank.Volume / Chemistry.GridVolume).ToDouble();
+            System.Text.StringBuilder gases = new System.Text.StringBuilder();
+            foreach (Chemistry.GasType type in (Chemistry.GasType[])Enum.GetValues(typeof(Chemistry.GasType)))
+            {
+                double moles = Mole.MatterState(type) == AtmosphereHelper.MatterState.None ? 0.0 : tank.Get(type).ToDouble();
+                if (moles > 0.0)
+                {
+                    gases.AppendFormat(CultureInfo.InvariantCulture, " {0}={1:0.000000}", type, moles / cells);
+                }
+            }
+            return string.Format(CultureInfo.InvariantCulture,
+                "volume {0:0.000} | mol {1:0.000} | cells {2:0.000} | P {3:0.00000} | caps {4:0.000} | clouds {5:0.000} | capsVolume {6:0.000} | latentK {7:0.00000} | extK {8:0.00000} | gases{9}",
+                tank.Volume.ToDouble(), tank.TotalQuantity().ToDouble(), cells,
+                IdealGas.Pressure(tank.TotalQuantityGas(), PlanetaryAtmosphereSimulation.AggregateTemperature, tank.VolumeForGas()).ToDouble(),
+                caps.TotalQuantity().ToDouble(), liquid.TotalQuantity().ToDouble() + ice.TotalQuantity().ToDouble(),
+                caps.Volume.ToDouble(),
+                PlanetaryAtmosphereSimulation.GetLatentTemperatureOffset().ToDouble(),
+                PlanetaryAtmosphereSimulation.GetExternalInputEnergyOffset().ToDouble(),
+                gases);
         }
 
         /// <summary>A grid as coordinates; WorldGrid itself prints as its type name.</summary>
