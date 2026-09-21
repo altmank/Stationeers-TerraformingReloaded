@@ -330,7 +330,7 @@ namespace TerraformingReloaded.LiveCheck
                 WorldGrid roomSide = new WorldGrid(new Vector3(0f, 300f, 0f));
                 if (AtmosphericsManager.CloneGlobalAtmosphereThreadSafe(roomSide) == null)
                 {
-                    Logger.LogInfo("LiveCheck: wallvent FAIL no cell could be made at " + roomSide);
+                    Logger.LogInfo("LiveCheck: wallvent FAIL no cell could be made at " + Where(roomSide));
                     return;
                 }
                 WorldGrid outSide = WorldGrid.INVALID;
@@ -345,7 +345,7 @@ namespace TerraformingReloaded.LiveCheck
                 }
                 if (outSide == WorldGrid.INVALID)
                 {
-                    Logger.LogInfo("LiveCheck: wallvent FAIL every grid next to " + roomSide + " already has a cell");
+                    Logger.LogInfo("LiveCheck: wallvent FAIL every grid next to " + Where(roomSide) + " already has a cell");
                     return;
                 }
 
@@ -356,12 +356,18 @@ namespace TerraformingReloaded.LiveCheck
                 bool conserved = Math.Abs(after - before) <= 1.0;
                 Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
                     "LiveCheck: wallvent {0} built a cell at {1} next to {2}: cells {3} -> {4}, tank plus cells {5:0.000} -> {6:0.000} mol ({7:+0.000;-0.000})",
-                    built && conserved ? "PASS" : "FAIL", outSide, roomSide, cellsBefore, cellsAfter, before, after, after - before));
+                    built && conserved ? "PASS" : "FAIL", Where(outSide), Where(roomSide), cellsBefore, cellsAfter, before, after, after - before));
             }
             catch (Exception e)
             {
                 Logger.LogInfo("LiveCheck: wallvent FAIL " + e);
             }
+        }
+
+        /// <summary>A grid as coordinates; WorldGrid itself prints as its type name.</summary>
+        private static string Where(WorldGrid grid)
+        {
+            return string.Format(CultureInfo.InvariantCulture, "({0},{1},{2})", grid.Value.x, grid.Value.y, grid.Value.z);
         }
 
         /// <summary>The planet plus every outdoor cell, read on the simulation thread and at rest.</summary>
