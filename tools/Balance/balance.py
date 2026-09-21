@@ -73,17 +73,18 @@ def main():
     print('\nWHICH CONSTRAINT BINDS, at Standard size and the mega base')
     print('  %-14s %7s %9s %9s %7s  %s' % ('world', 'hours', 'adding', 'removing', 'vents', 'why'))
     for world, e in found.items():
-        print('  %-14s %7.0f %9.0f %9.0f %7.0f  %s-bound, %s' % (
-            world, e['hours'], e['addition hours'], e['removal hours'], e['vents to keep up'], e['bound by'],
+        print('  %-14s %7.0f %9.0f %9.0f %7s  %s-bound, %s' % (
+            world, e['hours'], e['addition hours'], e['removal hours'],
+            '-' if e['removal hours'] <= 0.0 else '%.0f' % e['vents to keep up'], e['bound by'],
             ('one after the other: ' + e['staged']) if e['staged'] else 'the two run side by side'))
     print('  "vents" is the inward vent count below which removal becomes the longer job.')
 
     # Hours are exactly proportional to planet size: the ice bill and the air the filters have to
     # pass both scale with the number of outdoor cells, and nothing else in the model does.
     print('\nHOURS BY PLANET SIZE, mega base')
-    print('  %-14s%s' % ('world', ''.join('%20s' % ('%s (%g)' % (n, s)) for n, s in SIZES)))
+    print('  %-14s%s' % ('world', ''.join('%22s' % ('%s (%g)' % (n, s)) for n, s in SIZES)))
     for world, e in found.items():
-        print('  %-14s%s' % (world, ''.join('%20s' % format(round(e['hours'] * s / STANDARD), ',') for _, s in SIZES)))
+        print('  %-14s%s' % (world, ''.join('%22s' % format(round(e['hours'] * s / STANDARD), ',') for _, s in SIZES)))
 
     print('\nPLANET SIZE for a mega base to need %d hours to reach shirt sleeves' % TARGET_HOURS_MEGA)
     for world, e in found.items():
