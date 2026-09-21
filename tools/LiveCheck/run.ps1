@@ -30,6 +30,13 @@
                must show the duplicate: that is what says the check can fail. -Vanilla is no control
                here, because unmodded the planet throws away whatever it is handed, so the defect
                costs nothing until the mod switches the planet simulation on.
+    -CustomWorld  A world written here rather than shipped by the game, staged into the test mod's
+               GameData folder, which is where the game loads worlds from. It has air and its own
+               Temperature curve and leaves out the greenhouse and density curves, so the mod has to
+               supply those two and add nothing at all while the air is as the file sets it.
+               -ZeroVolume starts the same world declaring a planet of no volume, which the mod must
+               refuse. Nothing of the game's is copied anywhere: the world names the terrain, sun and
+               sky the game installed.
     -Weather   A cloud bucket filling while other weather is already running (D6). The driver starts
                snow, fills the liquid clouds, and checks that the bucket went back into the air and
                snow is still the running event. With -Vanilla snow must be replaced by rain instead.
@@ -90,6 +97,8 @@ param(
     [switch]$Rescale,
     [switch]$BuildOver,
     [switch]$Unguarded,
+    [switch]$CustomWorld,
+    [switch]$ZeroVolume,
     [switch]$Weather,
     [string]$WeatherEvent = 'Snow',
     [double]$RescaleTo = 0,
@@ -115,12 +124,14 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
-if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver and -Weather.' }
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $CustomWorld | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather and -CustomWorld.' }
 if ($Rescale -and -not (($RescaleTo -gt 0) -or ($RescaleBy -gt 0))) { throw 'Give -RescaleBy, how many times its present size the planet should end up, or -RescaleTo, an absolute share of the shipped planet.' }
 if ($Rescale -and ($RescaleTo -le 0) -and ([math]::Abs($RescaleBy - 1) -lt 1e-9)) { throw '-RescaleBy 1 is not a rescale.' }
 if ($Storm -and -not ($Observe -or $Model)) { throw '-Storm only applies to -Observe and -Model.' }
 if ($Unguarded -and -not $BuildOver) { throw '-Unguarded only applies to -BuildOver.' }
 if ($Unguarded -and $Vanilla) { throw 'There is no guard to take off without the mod.' }
+if ($ZeroVolume -and -not $CustomWorld) { throw '-ZeroVolume only applies to -CustomWorld.' }
+if ($CustomWorld -and $Vanilla) { throw 'Without the mod there is nothing to say about a custom world.' }
 if ($Storm -and $StormTick -le 0) { throw '-Storm needs -StormTick, the tick to force the event on at.' }
 
 # Only what a run creates is removed afterwards.
@@ -162,7 +173,7 @@ $envKeys = @(
     'TR_LIVECHECK_SETAIR2', 'TR_LIVECHECK_SETAIR2_TICK', 'TR_LIVECHECK_STORM', 'TR_LIVECHECK_STORM_TICK',
     'TR_LIVECHECK_WALLVENT_TICK', 'TR_LIVECHECK_MENUMIX', 'TR_LIVECHECK_RESCALE', 'TR_LIVECHECK_RESCALE_BY',
     'TR_LIVECHECK_RESCALE_TICK', 'TR_LIVECHECK_BUILDOVER_TICK', 'TR_LIVECHECK_BUILDOVER_UNGUARD',
-    'TR_LIVECHECK_WEATHER_TICK', 'TR_LIVECHECK_WEATHER_EVENT')
+    'TR_LIVECHECK_WEATHER_TICK', 'TR_LIVECHECK_WEATHER_EVENT', 'TR_LIVECHECK_STATUS_TICK')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -238,6 +249,10 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $mods 'TRLiveCheck\About') -Force | Out-Null
     Copy-Item (Join-Path $PSScriptRoot 'About\*') (Join-Path $mods 'TRLiveCheck\About')
     Copy-Item (Join-Path $PSScriptRoot 'bin\Release\TRLiveCheck.dll') (Join-Path $mods 'TRLiveCheck')
+    if ($CustomWorld) {
+        # The game loads a world from every enabled mod's GameData folder (WorldManager.LoadDataFiles).
+        Copy-Item (Join-Path $PSScriptRoot 'GameData') (Join-Path $mods 'TRLiveCheck') -Recurse
+    }
     if (-not $Vanilla -and -not $Dump) {
         New-Item -ItemType Directory -Path (Join-Path $mods 'TerraformingReloaded\About') -Force | Out-Null
         Copy-Item (Join-Path $root 'About\*') (Join-Path $mods 'TerraformingReloaded\About')
@@ -349,6 +364,42 @@ try {
         }
         if ($line -notmatch '^weather PASS') { throw "LiveCheck FAILED: $line" }
         Write-Host ("LiveCheck OK: a full cloud bucket gave its gas back to the air and left {0} running." -f $was)
+        return
+    }
+
+    if ($CustomWorld) {
+        # The mod keeps no list of worlds; it reads whatever is loaded (WORLDS.md). This starts one
+        # written here, so what it proves is about a world the mod has never seen.
+        $id = if ($ZeroVolume) { 'TRTestWorldNoVolume' } else { 'TRTestWorld' }
+        # The later status is the one to read: the temperature response is worked out the first time
+        # it is needed, so the one at tick 6 says it has not been evaluated yet.
+        $log = Invoke-Game @('-new', $id) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_STATUS_TICK = '40' } `
+            { param($l) @($l -match 'LiveCheck: cmd status').Count -ge 2 } "the custom world $id to run"
+        $status = @($log -match 'LiveCheck: cmd status')[-1]
+        Write-Host (($status -replace '.*LiveCheck: cmd status -> ', '') -replace ' / ', "`n")
+
+        if ($ZeroVolume) {
+            if (-not ($log -match 'GlobalAtmosphere has no usable Volume')) {
+                throw 'LiveCheck FAILED: a world declaring a planet of no volume was not refused.'
+            }
+            if ($status -notmatch 'planet: off:') {
+                throw "LiveCheck FAILED: the mod did not stand down on a world with no planet volume: $status"
+            }
+            Write-Host 'LiveCheck OK: a custom world declaring no planet volume is refused, and its planet is left as shipped.'
+            return
+        }
+
+        Assert-ModLive $log
+        $problems = @()
+        if ($status -notmatch 'fills greenhouse=True, density=True') { $problems += 'the mod did not supply the two curves this world leaves out' }
+        if ($status -notmatch 'adding 0 K now') { $problems += 'the mod moved the temperature of a world whose air is exactly as its author set it' }
+        if ($status -notmatch 'CarbonDioxide\s+([\d.]+)') { $problems += 'the status did not report the air per outdoor cell' }
+        else {
+            $co2 = [double]$Matches[1]
+            if ([math]::Abs($co2 - 6) -gt 0.05) { $problems += "the planet is not this world's air: $co2 mol CO2 per outdoor cell, not 6" }
+        }
+        if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join '; ')." }
+        Write-Host 'LiveCheck OK: a world written by hand runs, the mod supplies the curves it leaves out, and adds nothing while its air is untouched.'
         return
     }
 

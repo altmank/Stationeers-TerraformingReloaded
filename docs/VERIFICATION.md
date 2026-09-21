@@ -15,6 +15,8 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 .\tools\LiveCheck\run.ps1 -BuildOver -Unguarded   # the same with the guard off: it must duplicate, or the check proves nothing
 .\tools\LiveCheck\run.ps1 -Weather         # a cloud bucket filling must not overwrite weather that is already running
 .\tools\LiveCheck\run.ps1 -Weather -Vanilla      # control: unmodded it does overwrite it
+.\tools\LiveCheck\run.ps1 -CustomWorld     # a world written here, not shipped by the game: the mod fills in what it leaves out
+.\tools\LiveCheck\run.ps1 -CustomWorld -ZeroVolume   # the same world declaring no planet volume: the mod must refuse it
 .\tools\LiveCheck\run.ps1 -Clean          # remove what an interrupted run left behind, and nothing else
 .\tools\LiveCheck\run.ps1 -MenuPressure     # the new-game menu sees the shipped planet, not the resized one
 .\tools\LiveCheck\run.ps1 -Rescale          # terraform size: the planet scales whole and its air does not move
@@ -36,6 +38,8 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 | `-BuildOver -Unguarded` | The counterfactual, and the reason the run above is worth anything: the same run with the mod's `Deregister` guard unpatched must show the duplicate. **`-Vanilla` is no control here** (D2 is the only defect where that is true): unmodded the planet discards whatever it is handed, so the defect costs nothing until the mod switches the planet simulation on | |
 | `-Weather` | A cloud bucket filling while other weather is already running (D6). The driver starts snow, fills the liquid clouds past their volume, and reads what the next tick did. Snow is the case that reaches the defect: the game's own guard only steps aside for a storm or for rain, which leaves its snow branch unreachable. The bucket must come back empty, which is what says the tick reached this code at all, and snow must still be the running event with its length untouched | That clouds fill this way in play rather than by hand, and how often it happens |
 | `-Weather -Vanilla` | The control: unmodded, the same run must replace the running snow with rain | |
+| `-CustomWorld` | A world the mod has never seen. `tools/LiveCheck/GameData/TRTestWorld/TRTestWorld.xml` is written here, not shipped by the game, and staged into the test mod's `GameData`, which is where `WorldManager.LoadDataFiles` reads worlds from. It has air and its own `Temperature` curve and leaves out the greenhouse and density curves, so the mod has to supply those two, and add nothing at all while the air is as the file sets it. Nothing of the game's is copied: the world names the terrain, sun and sky the game installed, and `StreamingAssetLoader.GetPathRoots` resolves those against StreamingAssets | That a Workshop world is built this way; only that a world the mod has no knowledge of works |
+| `-CustomWorld -ZeroVolume` | The same world declaring a planet of no volume, which every per-cell share would divide by. The mod must warn and leave the planet as shipped | |
 | `-MenuPressure` | The new-game menu's mix (D16). While a resized planet is being played, `GlobalGasMix.Create` on the same world data has to give the shipped planet at the shipped volume, because the menu divides one by the other to show a pressure | That the menu screen itself reads it; only that what it reads is built right |
 | `-Rescale` | `terraform size <share> confirm` on a live planet, with the ice caps, the clouds and both heat stores loaded first so they are not zero. The command runs from the main thread while the planet ticks on its own, which is how a console command reaches it, and the figures either side are read under the tank lock: the air per outdoor cell, the pressure and both heat offsets in kelvin must not move at all, while volume, moles, cells, cap and cloud contents and the cap volume all move by the same factor. Then forty more rescales from the main thread holding nothing, which is where a rescale that did not take the lock would tear a tick in half: every one must answer, the planet must still be ticking, and it must end back at the share asked for. That share is `-RescaleBy` times the planet's present size, measured in the game, so it can never be the share the planet already is. The refusals are asked for too (zero, not a number, out of range, and no `confirm`), and status must still report that the setting and the planet disagree | That the new size survives a save and a load (the tank's volume is in the save data the `-SaveLoad` path already exercises), and multiplayer. A run that does not hit the unlocked window proves nothing about it |
 | `-WallVent` | The wall vent fix (D15). A headless run cannot build a vent, so the driver hands the hook body the two grids a wall vent would, one with a cell and one without, from the planet tick where every mole reads live. A cell must appear at the empty side and tank plus cells must not move | That a real vent's two grids are these two, or what the vent then does with the cell |
@@ -68,6 +72,14 @@ failure was the mod (see below).
   volume, the tick emptied the bucket into the air and left snow running with its length unchanged at
   218.08. Unmodded, the same run replaced snow with rain and reset the length to 186.98. The bucket
   emptying in both is what says the tick reached the code rather than the check passing by default.
+- `-CustomWorld`, first run live, 2026-09-21: a world written by hand loaded and ran. The mod's
+  self-test balanced on 8.5 mol, which is the world's own air (6 CO2, 2 nitrogen, 0.5 oxygen per
+  outdoor cell), and the planet read 5.999987, 1.999996 and 0.499999 at tick 40. It reported
+  `fills greenhouse=True, density=True, base=False` and `adding 0 K now`, with the greenhouse and
+  density parts both 0 K: a world nobody has touched reads exactly what its author set.
+- `-CustomWorld -ZeroVolume`: the mod warned and stood down, the planet held 0.000 mol and the
+  per-cell list was empty, which is the behaviour the guard is for. Three things it says on the way
+  are wrong, all readout and none of them behaviour; see DEFECTS.md D19.
 - `-Model` on Venus at `CarbonDioxide=23;Nitrogen=22;Oxygen=48`: largest gap 0.178 K over 50 samples,
   against a 0.5 K tolerance, with the planet at 322.18 K and its air steady (93.0 mol per cell, no
   liquid, clouds or ice caps).

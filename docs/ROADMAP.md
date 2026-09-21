@@ -32,8 +32,10 @@
    D10, and the temperature postfix recomputes the greenhouse index per call, ASSUMPTIONS.md M9),
    rain and snow frequency on a small planet, and a session long enough, with `StatusLogSeconds`
    set, to say what a real base moves per hour.
-7. **Test what has never run live**: D2 (build over an occupied outdoor cell), D6 (weather guard),
-   heat decay rate, multiplayer sync with and without the mod on the client, a custom world.
+7. **Test what has never run live.** D2 (build over an occupied outdoor cell), D6 (weather guard)
+   and a custom world are done, headless, 2026-09-21 (VERIFICATION.md). Left: the heat decay rate,
+   and multiplayer sync with and without the mod on the client, which needs a second machine.
+   The zero-volume custom world found three wrong lines in the readout on that path, D19.
 
 ## Before 1.0
 

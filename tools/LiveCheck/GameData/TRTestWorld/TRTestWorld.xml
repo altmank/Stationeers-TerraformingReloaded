@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Two throwaway worlds for tools/LiveCheck, never shipped with the mod.
+
+  TRTestWorld is the ordinary custom world: it has air and its own Temperature curve, and it leaves
+  out the greenhouse and density curves, which is what a world made by hand normally looks like. The
+  mod has to fill those two in and, while the air is as this file sets it, add nothing at all.
+
+  TRTestWorldNoVolume is the same world declaring a planet of no volume. Every per-cell share would
+  divide by it, so the mod has to refuse the world and leave it as shipped.
+
+  Neither carries any game data. The terrain, the sun and the sky are the ones the game installed,
+  named by the paths the game resolves against its own StreamingAssets folder, and the names are
+  localisation keys the game already has rather than strings invented here.
+-->
+<GameData xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <WorldSettings>
+
+        <World Id="TRTestWorld" Priority="99" Hidden="false">
+            <AmbienceSound>Mars</AmbienceSound>
+            <Name Key="NewWorldAreaMars" />
+            <Description Key="NewWorldMarsShortDesc" />
+            <ShortDescription Key="MarsWorldDescriptionShort"/>
+            <Rating Key="WorldRatingBeginner" Color="Green" />
+            <StartCondition Id="DefaultStart" IsDefault="true"/>
+            <SpaceMap Id="MarsSpaceMap"/>
+            <GlobalAtmosphere>
+                <Temperature>
+                    <Key Time="0" Value="280" InTangent="0" OutTangent="0" InWeight="0" OutWeight="0" WeightedMode="None" />
+                    <Key Time="180" Value="200" InTangent="0" OutTangent="0" InWeight="0" OutWeight="0" WeightedMode="None" />
+                </Temperature>
+                <Gas>
+                    <Gas Type="CarbonDioxide" Quantity="6" />
+                    <Gas Type="Nitrogen" Quantity="2" />
+                    <Gas Type="Oxygen" Quantity="0.5" />
+                </Gas>
+                <Volume Value="40000000000" />
+            </GlobalAtmosphere>
+            <SkyBoxMaterialName>MarsSky</SkyBoxMaterialName>
+            <SetSunInSkybox>true</SetSunInSkybox>
+            <SunPrefabName>MarsSun</SunPrefabName>
+            <TerrainPrefabName>TerrainMars</TerrainPrefabName>
+            <Gravity>-3.7</Gravity>
+            <Skybox />
+            <CelestialConstants BodyScale="5.5">
+                <TimeOffset Minutes="18" Seconds="0" />
+            </CelestialConstants>
+            <PlayableBody Id="Mars" Latitude="13.5" Longitude="-17.1" />
+            <CelestialBodies>
+                <Body Id="Mars">
+                    <SynodicRotation x="0.436" y="0.9" z="0" Days="1.02749125" />
+                </Body>
+            </CelestialBodies>
+            <AtmosphericScattering>false</AtmosphericScattering>
+            <GeographicRegionData>
+                <DefaultRegionName Value="Mars"/>
+                <RegionSet Id="MarsNamedRegions"/>
+            </GeographicRegionData>
+            <TerrainSettings Path="Worlds/Mars2/Terrain" WorldSize="4096">
+                <Curvature Value="0.3"/>
+            </TerrainSettings>
+        </World>
+
+        <World Id="TRTestWorldNoVolume" Priority="99" Hidden="false">
+            <AmbienceSound>Mars</AmbienceSound>
+            <Name Key="NewWorldAreaMars" />
+            <Description Key="NewWorldMarsShortDesc" />
+            <ShortDescription Key="MarsWorldDescriptionShort"/>
+            <Rating Key="WorldRatingBeginner" Color="Green" />
+            <StartCondition Id="DefaultStart" IsDefault="true"/>
+            <SpaceMap Id="MarsSpaceMap"/>
+            <GlobalAtmosphere>
+                <Temperature>
+                    <Key Time="0" Value="280" InTangent="0" OutTangent="0" InWeight="0" OutWeight="0" WeightedMode="None" />
+                    <Key Time="180" Value="200" InTangent="0" OutTangent="0" InWeight="0" OutWeight="0" WeightedMode="None" />
+                </Temperature>
+                <Gas>
+                    <Gas Type="CarbonDioxide" Quantity="6" />
+                    <Gas Type="Nitrogen" Quantity="2" />
+                    <Gas Type="Oxygen" Quantity="0.5" />
+                </Gas>
+                <Volume Value="0" />
+            </GlobalAtmosphere>
+            <SkyBoxMaterialName>MarsSky</SkyBoxMaterialName>
+            <SetSunInSkybox>true</SetSunInSkybox>
+            <SunPrefabName>MarsSun</SunPrefabName>
+            <TerrainPrefabName>TerrainMars</TerrainPrefabName>
+            <Gravity>-3.7</Gravity>
+            <Skybox />
+            <CelestialConstants BodyScale="5.5">
+                <TimeOffset Minutes="18" Seconds="0" />
+            </CelestialConstants>
+            <PlayableBody Id="Mars" Latitude="13.5" Longitude="-17.1" />
+            <CelestialBodies>
+                <Body Id="Mars">
+                    <SynodicRotation x="0.436" y="0.9" z="0" Days="1.02749125" />
+                </Body>
+            </CelestialBodies>
+            <AtmosphericScattering>false</AtmosphericScattering>
+            <GeographicRegionData>
+                <DefaultRegionName Value="Mars"/>
+                <RegionSet Id="MarsNamedRegions"/>
+            </GeographicRegionData>
+            <TerrainSettings Path="Worlds/Mars2/Terrain" WorldSize="4096">
+                <Curvature Value="0.3"/>
+            </TerrainSettings>
+        </World>
+
+    </WorldSettings>
+</GameData>

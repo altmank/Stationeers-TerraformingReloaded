@@ -123,6 +123,10 @@ namespace TerraformingReloaded.LiveCheck
 
         private bool _dumped;
         private bool _commandsRun;
+        // Some of what status reports is built the first time it is needed, so at tick 6 the
+        // temperature response reads "not evaluated yet". This asks for status once more, later.
+        private static readonly uint StatusAgainTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_STATUS_TICK"), out uint sa) ? sa : 0u;
+        private bool _statusAgain;
         private uint _dirtiedAtTick;
         private bool _dirtied;
         private bool _resetDone;
@@ -233,6 +237,11 @@ namespace TerraformingReloaded.LiveCheck
             if (WeatherTick > 0 && _weatherStage < 2 && GameManager.GameTickCount >= WeatherTick)
             {
                 CheckWeather();
+            }
+            if (!_statusAgain && StatusAgainTick > 0 && GameManager.GameTickCount >= StatusAgainTick)
+            {
+                _statusAgain = true;
+                RunCommand("status");
             }
             // From Update, which is the main thread: a console command reaches the planet from there,
             // and the planet tick runs on another thread, so this is the only arrangement in which a
