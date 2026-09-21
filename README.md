@@ -65,7 +65,10 @@ the planet section of the save; the game reads that section with or without the 
 - **Tutorials** are left as shipped.
 - **First session on an existing save.** Outdoor cells that already exist were never drawn from
   the planet, so the planet gains their gas once as they are cleaned up. For a large base that is
-  a few thousandths of the planet.
+  a few thousandths of the planet. The planet also keeps the size the game shipped it at, because
+  a save owns its own size and the setting below only applies to a new world. On Mars that is
+  about 1,650 hours of work for a large base, so run `terraform size` to bring it down to
+  something you will finish.
 
 ## Pace
 
