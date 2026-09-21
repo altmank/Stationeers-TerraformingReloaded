@@ -5,7 +5,7 @@
     <AssemblyName>TerraformingReloaded</AssemblyName>
     <RootNamespace>TerraformingReloaded</RootNamespace>
     <LangVersion>12.0</LangVersion>
-    <Version>0.9.0</Version>
+    <Version>0.9.1</Version>
     <Nullable>disable</Nullable>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>

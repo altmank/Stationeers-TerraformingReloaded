@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.1
+
+- The `terraform` readout now shows the clouds and the ice caps: how much gas has frozen or
+  condensed out of the air, which gas it is, and how close a cloud is to raining or snowing it back.
+  Until now gas that left the sky had nowhere visible to go, and the only way to see it was a
+  developer window that crashes partway through drawing itself.
+- The full-size setting is called `Unmodded baseline` instead of `Shipped`, which meant nothing to
+  anyone. If your config says `Shipped`, set it again.
+- The time estimates were wrong and are now worked out properly. Adding gas is priced by the ice you
+  have to mine, removing it by how fast vents can draw the planet through filters, and the two are
+  added only where the route stops them overlapping. Venus drops from 208 hours to 40, Europa from
+  748 to 220, Mimas from 516 to 360. Every world turns out to be limited by ice arriving, not by
+  taking gas out.
+- The store page and readme say what each world's project actually is, what each gas does to the
+  temperature, and what a large base means in moles an hour.
+
 ## 0.9.0
 
 First release. Everything is in, and every part of it is checked against the game by automated runs
