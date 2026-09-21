@@ -31,16 +31,22 @@ HANDLED = {
     'Entity.cs::LifeBreathe': 'accepted: animals and NPCs outdoors breathe the copy; at most 0.005 mol of oxygen a breath. Humans breathe through a cloned cell',
     'FridgePowered.cs::OnAtmosphericTick': 'accepted: heat only, no gas. Up to 1000 J a tick (2 kW) shed outdoors never reaches the planet\'s heat counter',
     'VendingMachineRefrigerated.cs::OnAtmosphericTick': 'accepted: heat only, as the powered fridge',
+    'Plant.cs::TakePlantBreath': 'accepted: a plant on open ground breathes the copy, about 0.0012 mol of CO2 a tick each, taken from nowhere. An outdoor farm therefore does not change the planet; plants in a room or an automated tray breathe real air',
+    'Plant.cs::DoPlantBreathOut': 'accepted: the oxygen such a plant breathes out is dropped, about 0.0012 mol a tick each (0.12 mol a tick for a hundred plants)',
+    'Plant.cs::DoPlantBreathOutEndothermic': 'accepted: as above, plus 90 J a tick of cooling that never reaches the planet',
+    'Human.cs::TakeBreath': 'accepted: an unhelmeted human outdoors breathes out into the copy, at most 0.0024 mol of CO2 a tick',
 }
+
+# Sites the first, broken closure pass added under symbols since removed, and accessor sites the script used to
+# name "set": no longer produced by census.py.
+DROPPED = (
+    'Egg.cs::CentrifugeProcessUnit', 'SpaceOre.cs::CentrifugeProcessUnit', 'OrganicMaterial.cs::CentrifugeProcessUnit',
+    'ICentrifugable.cs::(type)', 'Centrifuge.cs::CollectResource', 'CombustionCentrifuge.cs::CollectResource',
+    'Human.cs::set', 'Entity.cs::set',
+)
 
 # Sites the closure pass added (wrapper symbols), read directly.
 CLOSURE = [
-    ('Assets.Scripts.Objects.Items/Egg.cs::CentrifugeProcessUnit', 'none', 'no', '', 'reagents only; shares a name with a wrapper, touches no atmosphere'),
-    ('Assets.Scripts.Objects.Items/SpaceOre.cs::CentrifugeProcessUnit', 'none', 'no', '', 'reagents only'),
-    ('OrganicMaterial.cs::CentrifugeProcessUnit', 'none', 'no', '', 'reagents only'),
-    ('Assets.Scripts.Objects.Items/ICentrifugable.cs::(type)', 'none', 'no', '', 'interface declaration'),
-    ('Assets.Scripts.Objects.Pipes/Centrifuge.cs::CollectResource', 'none', 'no', '', 'collects reagents'),
-    ('Assets.Scripts.Objects.Pipes/CombustionCentrifuge.cs::CollectResource', 'none', 'no', '', 'collects reagents'),
     ('Assets.Scripts.Objects.Items/RoadFlare.cs::OnAtmosphericTick', 'gated', 'yes', 'GetBurningAtmosphere: WorldAtmosphere null or Mode == Global -> CloneGlobalAtmosphere (line 161)', 'sparks and heats a real cell; 1000 J a tick while lit'),
     ('Objects.RoboticArm/RoboticArmDockAtmos.cs::GetLogicValue', 'read', 'no', '', 'logic readout of the input atmosphere'),
 ]
@@ -52,6 +58,18 @@ def main():
         with open(path, newline='', encoding='utf-8') as f:
             for r in csv.DictReader(f):
                 (extras if r['site'].startswith(('WRAPPER::', 'CONSTANT::')) else rows).append(r)
+    # The closure batch re-visits some known sites for newly matched lines only: fold those into the first
+    # verdict, and let a bypass found there win.
+    merged = {}
+    for r in rows:
+        first = merged.get(r['site'])
+        if first is None:
+            merged[r['site']] = r
+        else:
+            if r['kind'] == 'bypass' and first['kind'] != 'bypass':
+                first['kind'], first['guard'], first['mutates'] = 'bypass', r['guard'], r['mutates']
+            first['note'] = (first['note'] + ' | closure pass: ' + r['note']).strip(' |')
+    rows = [r for r in merged.values() if not r['site'].endswith(DROPPED)]
     known = {r['site'] for r in rows}
     for site, kind, mutates, guard, note in CLOSURE:
         full = next((k for k in known if k.endswith(site)), None)

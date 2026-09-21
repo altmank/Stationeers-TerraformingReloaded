@@ -1,9 +1,13 @@
 site,kind,mutates,guard,note
+CONSTANT::Atmosphere.MINIMUM_RATIO_TO_TAKE,none,no,,1.2 pressure ratio above which a neighbour is not taken from
 CONSTANT::Atmosphere.ReactWithCell_radiation,none,no,,"Literals RatioOneAtmosphereUnclamped x 10 and 0.1 x NewAtmosSupressionMultiplier in GetRadiatedHeat toward the planet; per cell, feeds ExternalInputEnergyOffset whose effect is divided by tank heat capacity (20x stronger at 0.05 volume)."
+CONSTANT::Atmosphere._mixSpeed,none,no,,0.4 of each cell liquid mixed per tick (MixLiquids)
+CONSTANT::AtmosphereHelper.CalculateEntropy(50K),none,no,,radiation sink floor 50 K when planet temperature < 1 K
 CONSTANT::AtmosphereHelper.GlobalAtmosphereNeighbourThreshold,none,no,,"100 (scaled by planet pressure ratio clamped 0.04..1 and NewAtmosSupressionMultiplier): decides sample-vs-clone of neighbours in PrepareDataMixInWorld, i.e. how far a plume spreads as real cells."
 CONSTANT::AtmosphereHelper.LerpRate,none,no,,0.2..1 per tick relaxation of open cells toward planet air.
 CONSTANT::AtmosphericAudioHandler.MinimumLocalAtmosPressure,none,no,,1 kPa absolute for wind audio; GameAudioSource.AtmosAudioVolumeThreshold 3 kPa likewise (display only).
 CONSTANT::AtmosphericScatteringBlend.FallbackMoles,none,no,,"40 mol per cell reference when world XML has no gas (per-cell, volume-invariant)."
+CONSTANT::AtmosphericsManager.WorldAtmospheresCount(20000),none,no,,hard cell-count cap above which neighbours are sampled (read-only copy) instead of cloned
 CONSTANT::AtmosphericsManager.WorldAtmospheresCount_20000,none,no,,Literal 20000 in Atmosphere.PrepareDataMixInWorld (forces read-only neighbours) and AtmosphereHelper.LerpRate denominator.
 CONSTANT::Chemistry.ArmstrongLimit,none,no,,"6.3 kPa absolute: gates device waste heat (Device.OnAtmosphericTick), portable AC, scrubber heat, road flare, furnace explode."
 CONSTANT::Chemistry.GridVolume,none,no,,"8000 L outdoor cell; read-only copy volume; tank/cell scaling ratio in CloneGlobalGasMix, GetGlobalMoles, TakeGlobalGasMix."
@@ -14,12 +18,14 @@ CONSTANT::Chemistry.PressureFullyApplyVelocity,none,no,,90 kPa absolute: wind pu
 CONSTANT::ContactSlotData+PlaneCondition.MinPressure,none,no,,1 kPa planet pressure for plane traders (intensive).
 CONSTANT::DynamicAirConditioner.MINCoolingTemp,none,no,,263.15 K absolute outdoor limit; MAXHeatingTemp 323.15 K likewise.
 CONSTANT::Dynamite.EnergyReleasedPerTick,none,no,,100 J/tick.
+CONSTANT::Entity.BreathMoles(0.0048),none,no,,"mol O2 per breath per tick; CO2 return 0.5, Zrilian N2O return 0.032"
 CONSTANT::FridgePowered.HeatTransferJoulesPerTick,none,no,,1000 J/tick heat dumped outdoors (lost on the read-only copy).
 CONSTANT::GlobalAtmosphereData.Volume,none,no,,"Default 4e10 L tank volume (5,000,000 cells); saved per tank and restored by Load."
 CONSTANT::GlobalAtmosphereLiquid.MAX_WATER_HEIGHT,none,no,,Sea height lerp 2..10 m by liquid/tank volume ratio (relative).
 CONSTANT::GlobalAtmosphereLiquid.RenderThreshold,none,no,,"1.5e6 L of tank liquid before the global sea renders; absolute, and its multiplier is evaluated once at static init."
 CONSTANT::GlobalGasMix.GlobalTemperatureStateChangeOffset,none,no,,2 K hysteresis on all planet phase change.
 CONSTANT::GlobalTemperatureCurveOffset.DayNightAngles,none,no,,70/110 degree day-night blend hardcoded in both offset types.
+CONSTANT::Lungs.volume,none,no,,6 L lung atmosphere mixed with BreathingAtmosphere each tick
 CONSTANT::OrganPipe._pressurePerTick,none,no,,20 kPa/tick (gated).
 CONSTANT::PlanetaryAtmosphereSimulation.CLOUD_VOLUME,none,no,,"100000 L liquid and ice cloud buckets; absolute, does not scale with tank volume."
 CONSTANT::PlanetaryAtmosphereSimulation.FREEZE_RATIO,none,no,,"4.1667e-5 per tick (a ratio, scales)."
@@ -58,5 +64,6 @@ WRAPPER::PlanetaryAtmosphereSimulation.ReadOnlyGlobal,none,no,,"Returns _readOnl
 WRAPPER::Plant.BreathingAtmosphere,none,no,,Forwards tray atmosphere or base.WorldAtmosphere.
 WRAPPER::RoadFlare.GetBurningAtmosphere,none,no,,"Returns parent internal or WorldAtmosphere, which can still be the read-only copy below Armstrong."
 WRAPPER::RoboticArmDockAtmos.GetInputAtmos,none,no,,Private; docked vent pipe atmosphere or the sample; callers are logic reads only.
+WRAPPER::StatusUpdates._atmosphere,none,no,,"NEW but closed: private field caching Human.BreathingAtmosphere (StatusUpdates.cs L87, set L1699); all uses in the class are reads (L662-695, L1700-1701); unreachable from outside the class, so it adds no census sites"
 WRAPPER::SuitBase.BreathingAtmosphere,none,no,,Private; forwards ParentEntity.BreathingAtmosphere.
 WRAPPER::VendingMachineRefrigerated._worldAtmosphere,none,no,,Private field holding the sample; only used in OnAtmosphericTick.
