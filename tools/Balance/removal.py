@@ -19,12 +19,16 @@ the air at that moment. Rain-out and freeze-out, where the planet offers them, a
 """
 import sys
 
-from planet import CELL_LITRES, Planet, R
+from planet import CELL_LITRES, DATA, Planet, R
 from solve import cheapest
 
-TICKS_PER_HOUR = 7200.0
+TICKS_PER_HOUR = 3600.0 / DATA['tickSeconds']
 VENTS = (('active vent', 10.0), ('large powered vent', 40.0))
 SIZES = (('Standard', 0.05),)
+# Dilution never reaches zero, so a removal has to stop somewhere. Half a mole per cell is the game's
+# own line: path.py's fire rule stops seeing a fuel below it, and at a habitable temperature it is
+# under 0.2 kPa, which is under every threshold in the habitability test. Chasing past it is not work.
+FLOOR = 0.5
 
 
 def intake_per_hour(pressure_per_tick, outdoor_kpa, kelvin):
@@ -42,7 +46,7 @@ def hours_to_remove(world, start, final, size, vents, pressure_per_tick, steps=4
         return 0.0, 0.0
     hours, drawn = 0.0, 0.0
     # Step in equal log-decrements of the slowest gas, so the long tail is resolved.
-    while any(air[g] > max(final.get(g, 0.0), 1e-3) * 1.001 for g in unwanted):
+    while any(air[g] > max(final.get(g, 0.0), FLOOR) * 1.001 for g in unwanted):
         p = Planet(world, size=size)
         p.air = dict(air)
         cold, hot = p.extremes()
@@ -54,7 +58,7 @@ def hours_to_remove(world, start, final, size, vents, pressure_per_tick, steps=4
             return float('inf'), drawn
         dt = 0.01 * total * cells / rate                       # 1 % of the planet's air through the filters
         for g in unwanted:
-            floor = final.get(g, 0.0)
+            floor = max(final.get(g, 0.0), FLOOR)
             if air[g] > floor:
                 air[g] = max(floor, air[g] * (1.0 - 0.01))
         hours += dt

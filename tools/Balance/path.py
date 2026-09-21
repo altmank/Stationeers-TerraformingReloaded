@@ -116,6 +116,16 @@ def _walk(world, level, found, order, **kw):
     let_go = {}                                     # gas -> moles that froze or rained out on the way
     set_aside = {}                                  # gas -> moles taken out for a while, to go back in at the end
     stages, work = [], 0.0
+    # The work split per gas, and the air after every change. A gas put in as a temporary warming
+    # blanket and taken back out counts on BOTH sides: that churn is real work and each side is
+    # priced differently (cost.py). The timeline is what prices removal, because how fast a gas can
+    # be taken out depends on how much of the air it is at the time.
+    added, removed, timeline = {}, {}, [dict(start)]
+
+    def book(gas, delta):
+        """Record moles of `gas` put into (delta > 0) or taken out of (delta < 0) the air."""
+        side = added if delta > 0.0 else removed
+        side[gas] = side.get(gas, 0.0) + abs(delta)
 
     def remaining():
         # A gas set aside goes back in at the very end, once the helpers it made room for are out.
@@ -133,6 +143,7 @@ def _walk(world, level, found, order, **kw):
                 let_go[gas] = let_go.get(gas, 0.0) + mix[gas]
                 stages.append('%.0f %s leaves the air by itself: %s' % (mix[gas], gas, why))
                 mix[gas] = 0.0
+                timeline.append(dict(mix))         # free, but the air is thinner from here on
                 final = dict(final)
                 final[gas] = 0.0
         rest = {g: d for g, d in remaining().items() if abs(d) > 1e-6}
@@ -154,6 +165,8 @@ def _walk(world, level, found, order, **kw):
                 continue
             mix = trial
             work += abs(step)
+            book(gas, step)
+            timeline.append(dict(mix))
             progressed = True
         if progressed:
             continue
@@ -208,7 +221,9 @@ def _walk(world, level, found, order, **kw):
                     set_aside[gas] = mix[gas]
                     work += mix[gas]
                     stages.append('take the %.0f %s out for now (was stuck on: %s)' % (mix[gas], gas, '; '.join('%s: %s' % kv for kv in blocked.items())))
+                    book(gas, -mix[gas])
                     mix = trial
+                    timeline.append(dict(mix))
                     break
             else:
                 gas = None
@@ -230,6 +245,8 @@ def _walk(world, level, found, order, **kw):
         mix[helper] = mix.get(helper, 0.0) + amount
         helpers[helper] = helpers.get(helper, 0.0) + amount
         work += amount
+        book(helper, amount)
+        timeline.append(dict(mix))
         p = _planet(world, mix, **kw)
         cold, hot = p.extremes()
         stages.append('add %g %s as a temporary gas (was stuck on: %s) -> %.0f..%.0f K' % (
@@ -255,7 +272,9 @@ def _walk(world, level, found, order, **kw):
                 return {'world': world, 'reached': False, 'final': final, 'stages': stages, 'work': work,
                         'stuck': {helper: 'cannot be taken back out: ' + why}, 'mix': mix}
             work += mix[helper] - trial[helper]
+            book(helper, trial[helper] - mix[helper])
             mix = trial
+            timeline.append(dict(mix))
         stages.append('take the %g %s back out' % (amount, helper))
     # What was set aside goes back in, to the recipe's amount.
     for gas in list(set_aside):
@@ -268,18 +287,24 @@ def _walk(world, level, found, order, **kw):
                 return {'world': world, 'reached': False, 'final': final, 'stages': stages, 'work': work,
                         'stuck': {gas: 'cannot be put back: ' + why}, 'mix': mix}
             work += trial[gas] - mix.get(gas, 0.0)
+            book(gas, trial[gas] - mix.get(gas, 0.0))
             mix = trial
+            timeline.append(dict(mix))
         stages.append('put %.0f %s back' % (target, gas))
     for gas, moles in let_go.items():
         if _comes_back(world, mix, gas, **kw):
             work += moles
+            book(gas, -moles)          # caught as it melts back, not diluted out: priced in cost.py
             stages.append('the %.0f %s that left would return at the hottest hour, so removing it is counted as work' % (moles, gas))
         else:
             stages.append('the %.0f %s that left stays out of the air on the finished planet: free removal' % (moles, gas))
     p = _planet(world, mix, **kw)
     direct = sum(abs(final.get(g, 0.0) - start.get(g, 0.0)) for g in gases)
     return {'world': world, 'reached': bool(p.report()[level]), 'final': final, 'stages': stages,
-            'work': work, 'direct': direct, 'mix': mix, 'report': p.report()}
+            'work': work, 'direct': direct, 'mix': mix, 'report': p.report(),
+            # `banked` is the planet's own gas taken into tanks and put back later, so the putting
+            # back costs no mining: cost.py takes it off the addition bill.
+            'added': added, 'removed': removed, 'banked': dict(set_aside), 'timeline': timeline}
 
 
 if __name__ == '__main__':
@@ -292,6 +317,8 @@ if __name__ == '__main__':
         if result['reached']:
             print('%-14s reachable, %s: %.0f mol/cell moved (%.0f if the recipe could be added directly). End air: %s' % (
                 world, result['order'], result['work'], result['direct'], recipe))
+            print('%-14s   added   %s' % ('', ', '.join('%s %.0f' % (g[:4], m) for g, m in sorted(result['added'].items()) if m >= 0.5) or 'nothing'))
+            print('%-14s   removed %s' % ('', ', '.join('%s %.0f' % (g[:4], m) for g, m in sorted(result['removed'].items()) if m >= 0.5) or 'nothing'))
         else:
             print('%-14s NO PATH FOUND to: %s. Stuck at %.0f..%.0f K on: %s' % (
                 world, recipe, result.get('cold', 0), result.get('hot', 0), result.get('stuck') or ('ran out of steps or ended off the recipe: %s' % {k: round(v, 1) for k, v in result['mix'].items() if v > 0.05})))
