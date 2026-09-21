@@ -34,6 +34,63 @@ Latest results (planet size 0.05): sum varies 0.000 mol before and 0.005 mol aft
 planet's CO2 up 99,998.6 of 100,000 with the rest still in the last cells; save-load change 0.000 mol;
 after reset and mod removal +0.18 mol and 8e3 J (about 1e-4 K).
 
+## The first played session
+
+2026-09-20, mod 0.1.0 at tag `v0.1.0`. Mars, creative, planet size 0.01, so 50,000 outdoor cells.
+Everything above this line was the headless driver. This is the first time a person played on the
+mod, built on it, and read its numbers off the game's own instruments.
+
+**The planet at rest.** Tick 1331: 455,940.230 mol, 2.144 kPa, 226.2 K, 9.118805 mol per outdoor
+cell (CO2 8.659737, N2 0.269992, O2 0.131078, pollutant 0.057998). Temperature parts: base 240,
+sun distance 10, greenhouse 1.5, density -25.3, weather 0, latent 0, external 0, and the mod
+adding 0 K. The untouched-air invariant therefore holds in play, not only at world start. The
+planet read 9.76 mol under the exact hundredth share of shipped Mars (455,949.993 mol), which is
+the air the one real outdoor cell was holding, so planet size is exact in play too.
+
+**Drawing planet air in.** A powered active vent set Inward (`VentDirection.Inward` is 1, Outward
+is 0) fed a pipe network serving a sealed 7,436 L space. By tick 4360 the planet read
+448,732.870 mol, so 7,207.360 mol had left it, and the space held 2,395.24 mol at 636.33 kPa and
+237.6 K. Its volume, computed from the gas law at every sample, was a constant 7,436 L, which is
+the check that the instrument itself is sound.
+
+**What arrives is the planet's own mix.** The drawn gas matched the planet to seven figures at the
+in-game gas sensor and again at the vent's pipe side: CO2 share 0.9496571 and 0.9496570, against a
+planet that moved only from 0.949656 to 0.949657 across the whole run. Nitrogen, oxygen and
+pollutant matched to the same decimal. So a take is a share of the planet, not a fixed recipe, and
+draining the planet does not drift its composition.
+
+**Real outdoor cells drain back to the tank.** The door was opened and the space vented (room down
+to 10.323 mol, 2.711 kPa). The planet recovered over about two minutes: 452,612.715 mol at tick
+4480, 455,905.624 at tick 4582. Of the 7,207.360 mol that left, 7,172.754 came back. The residual
+is 34.606 mol, 0.0076 % of the planet and about 3.8 cells' worth, still held in the real outdoor
+cells by the door. Nothing overshot, so nothing was created. This settles a question the code left
+open: a real outdoor cell does not sit at planet density in equilibrium, it drains.
+
+**External heat, first seen in play.** Venting 636 kPa gas into a 2 kPa planet booked
+`ExternalInputEnergyOffset` 0.13 K. It rose to 0.18 K while gas was still returning, because every
+returning parcel books its own heat, then fell to 0.17 K once the flow stopped. At the default 60
+minute half-life the fade is slow. One room of compressed gas is worth a fifth of a kelvin, so the
+50 K cap is a long way off at base scale (ASSUMPTIONS.md M8).
+
+**Save and load in play.** Saved, quit to the menu, reloaded: 455,905.624 to 455,905.530 mol, a
+drift of 0.094 mol. That is two parts in ten million, a hundredth of one outdoor cell, against the
+5,793 mol defect D12 used to put in the file, but it is not the headless test's 0.000 mol either:
+the base was still moving gas when the save was taken. The external heat offset of 0.18 K survived
+the save. The self-test re-armed on world load and passed, reporting 9.118 mol per cell against
+9.119 earlier, tracking air that really was that much thinner.
+
+**A storm on untouched air.** `storm start` gave a weather offset of -7 K and the parts added up as
+reported: 245 + 10 + 1.5 + 11.9 - 7 + 0.17 = 261.6 K. The mod still added 0 K, which is right: on
+untouched air a storm offset is deliberately unscaled, and the scaling engages only on a planet the
+mod has filled in (DEFECTS.md D17).
+
+**Sensors read the planet.** The in-game Gas Sensor's gas ratios matched the planet to seven
+figures throughout, which confirms in play what had only been read in the code: an outdoor sensor
+and the atmos analyser see the planet's own air.
+
+Not covered by this session: the sky, frame time in a large base, rain and snow on a small planet,
+multiplayer, and any world but Mars.
+
 ## The census
 
 ```powershell
