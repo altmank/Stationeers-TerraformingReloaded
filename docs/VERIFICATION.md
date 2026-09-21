@@ -13,6 +13,9 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 .\tools\LiveCheck\run.ps1 -WallVent         # the wall vent fix: a cell appears, the planet total does not move
 .\tools\LiveCheck\run.ps1 -BuildOver       # building over an occupied outdoor cell: the planet total does not move
 .\tools\LiveCheck\run.ps1 -BuildOver -Unguarded   # the same with the guard off: it must duplicate, or the check proves nothing
+.\tools\LiveCheck\run.ps1 -Weather         # a cloud bucket filling must not overwrite weather that is already running
+.\tools\LiveCheck\run.ps1 -Weather -Vanilla      # control: unmodded it does overwrite it
+.\tools\LiveCheck\run.ps1 -Clean          # remove what an interrupted run left behind, and nothing else
 .\tools\LiveCheck\run.ps1 -MenuPressure     # the new-game menu sees the shipped planet, not the resized one
 .\tools\LiveCheck\run.ps1 -Rescale          # terraform size: the planet scales whole and its air does not move
 .\tools\LiveCheck\run.ps1 -Rescale -RescaleBy 0.37             # the same, shrinking rather than growing
@@ -31,6 +34,8 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 | `-Vanilla` | The control: the default scenario fails without the mod, so its pass means something | |
 | `-BuildOver` | Building into an occupied outdoor cell (D2). A headless run cannot build a structure, so the driver calls what a structure calls, `AtmosphericEventInstance.StructureBlockingGrid`. It makes two neighbouring cells in open sky, gives both gas (a cell holding what the planet holds is culled on the next tick, `Atmosphere.IsLive`), waits for the simulation to link them as open neighbours, tops the first one up, and hands over the grid. Tank plus cells must not move | That a real structure reaches this by the same route, and whether a cell being there afterwards means anything: the neighbours the divide filled push gas straight back and the game rebuilds one |
 | `-BuildOver -Unguarded` | The counterfactual, and the reason the run above is worth anything: the same run with the mod's `Deregister` guard unpatched must show the duplicate. **`-Vanilla` is no control here** (D2 is the only defect where that is true): unmodded the planet discards whatever it is handed, so the defect costs nothing until the mod switches the planet simulation on | |
+| `-Weather` | A cloud bucket filling while other weather is already running (D6). The driver starts snow, fills the liquid clouds past their volume, and reads what the next tick did. Snow is the case that reaches the defect: the game's own guard only steps aside for a storm or for rain, which leaves its snow branch unreachable. The bucket must come back empty, which is what says the tick reached this code at all, and snow must still be the running event with its length untouched | That clouds fill this way in play rather than by hand, and how often it happens |
+| `-Weather -Vanilla` | The control: unmodded, the same run must replace the running snow with rain | |
 | `-MenuPressure` | The new-game menu's mix (D16). While a resized planet is being played, `GlobalGasMix.Create` on the same world data has to give the shipped planet at the shipped volume, because the menu divides one by the other to show a pressure | That the menu screen itself reads it; only that what it reads is built right |
 | `-Rescale` | `terraform size <share> confirm` on a live planet, with the ice caps, the clouds and both heat stores loaded first so they are not zero. The command runs from the main thread while the planet ticks on its own, which is how a console command reaches it, and the figures either side are read under the tank lock: the air per outdoor cell, the pressure and both heat offsets in kelvin must not move at all, while volume, moles, cells, cap and cloud contents and the cap volume all move by the same factor. Then forty more rescales from the main thread holding nothing, which is where a rescale that did not take the lock would tear a tick in half: every one must answer, the planet must still be ticking, and it must end back at the share asked for. That share is `-RescaleBy` times the planet's present size, measured in the game, so it can never be the share the planet already is. The refusals are asked for too (zero, not a number, out of range, and no `confirm`), and status must still report that the setting and the planet disagree | That the new size survives a save and a load (the tank's volume is in the save data the `-SaveLoad` path already exercises), and multiplayer. A run that does not hit the unlocked window proves nothing about it |
 | `-WallVent` | The wall vent fix (D15). A headless run cannot build a vent, so the driver hands the hook body the two grids a wall vent would, one with a cell and one without, from the planet tick where every mole reads live. A cell must appear at the empty side and tank plus cells must not move | That a real vent's two grids are these two, or what the vent then does with the cell |
@@ -59,6 +64,10 @@ failure was the mod (see below).
   than the cell held because the event is queued: the cell goes on draining the ordinary way until
   the atmospherics pass applies it, and what lands twice is whatever is left at that moment. Both
   figures repeated exactly across runs.
+- `-Weather`, first run live, 2026-09-21: with snow running and the liquid clouds filled past their
+  volume, the tick emptied the bucket into the air and left snow running with its length unchanged at
+  218.08. Unmodded, the same run replaced snow with rain and reset the length to 186.98. The bucket
+  emptying in both is what says the tick reached the code rather than the check passing by default.
 - `-Model` on Venus at `CarbonDioxide=23;Nitrogen=22;Oxygen=48`: largest gap 0.178 K over 50 samples,
   against a 0.5 K tolerance, with the planet at 322.18 K and its air steady (93.0 mol per cell, no
   liquid, clouds or ice caps).

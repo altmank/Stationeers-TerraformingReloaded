@@ -68,6 +68,10 @@
 
   Close Stationeers first: the script refuses to run beside another instance.
 
+  -Clean removes what a previous run left in the game folder and does nothing else. A run that is
+  interrupted never reaches its own cleanup, and every run after it refuses to start; this is the way
+  back. It removes only the names this script creates, and only from the game folder.
+
 .EXAMPLE
   .\tools\LiveCheck\run.ps1
   .\tools\LiveCheck\run.ps1 -SaveLoad
@@ -101,6 +105,7 @@ param(
     [string]$SetAir2 = '',
     [int]$SetAir2Tick = 0,
     [switch]$Keep,
+    [switch]$Clean,
     [int]$TimeoutSeconds = 360     # raised automatically for long -Observe runs
 )
 
@@ -118,13 +123,27 @@ if ($Unguarded -and -not $BuildOver) { throw '-Unguarded only applies to -BuildO
 if ($Unguarded -and $Vanilla) { throw 'There is no guard to take off without the mod.' }
 if ($Storm -and $StormTick -le 0) { throw '-Storm needs -StormTick, the tick to force the event on at.' }
 
+# Only what a run creates is removed afterwards.
+$names = 'mods', 'saves', 'scripts', 'thumbnails', 'modconfig.xml', 'modrepos.xml', 'setting.xml'
+
+if ($Clean) {
+    # A run that is interrupted never reaches its own cleanup, and every run after it then refuses to
+    # start. This is that cleanup on its own: the same names, the same folder, nothing else.
+    $left = @($names | Where-Object { Test-Path (Join-Path $GameDir $_) })
+    if ($left.Count -eq 0) {
+        Write-Host "Nothing from a previous run is left in ${GameDir}."
+        return
+    }
+    foreach ($name in $left) { Remove-Item (Join-Path $GameDir $name) -Recurse -Force }
+    Write-Host "Removed from ${GameDir}: $($left -join ', ')"
+    return
+}
+
 dotnet build (Join-Path $root 'src\TerraformingReloaded.csproj') -c Release -p:GameDir="$GameDir" --nologo -v quiet
 if ($LASTEXITCODE -ne 0) { throw 'Mod build failed.' }
 dotnet build (Join-Path $PSScriptRoot 'LiveCheck.csproj') -c Release -p:GameDir="$GameDir" --nologo -v quiet
 if ($LASTEXITCODE -ne 0) { throw 'LiveCheck build failed.' }
 
-# Only what this run creates is removed afterwards.
-$names = 'mods', 'saves', 'scripts', 'thumbnails', 'modconfig.xml', 'modrepos.xml', 'setting.xml'
 $preexisting = @($names | Where-Object { Test-Path (Join-Path $GameDir $_) })
 if ($preexisting.Count -gt 0) {
     throw "Already present in the game folder: $($preexisting -join ', '). A headless run would mix with them; move them aside first."
