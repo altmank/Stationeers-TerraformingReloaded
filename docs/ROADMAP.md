@@ -3,9 +3,10 @@
 ## Next, in order
 
 1. **Hold the model to the game.** `run.ps1 -Model` judges it and passes within 0.2 K on Venus,
-   Vulcan, Europa mid-route, the Moon, Mimas with heat, and ice caps melting back (TEMPERATURE.md). Still to run: Vulcan at
+   Vulcan, Europa mid-route, the Moon, Mimas with heat, ice caps melting back, a forced storm, and a gas
+   cycling across its freeze threshold every night (TEMPERATURE.md). Still to run: Vulcan at
    the near end of its orbit (the model says 320 K, 3 K inside the limit; needs a way to set the
-   orbit position); a gas sitting on its freeze threshold through a day (ASSUMPTIONS.md S4).
+   orbit position).
 2. **Mimas's heat, as a player would make it.** Held at +25 K by the test driver, volatiles stay a
    gas: the mechanism works. Not shown: that a base venting warm gas reaches +25 K (BALANCE.md sizes
    it on paper). That is what decides whether 60 min and 50 K are the right defaults for
@@ -21,7 +22,7 @@
 6. **Play it.** One hour on Mars with `StatusLogSeconds` set, on a copy of a save: what a real base
    moves per hour, the sky, frame time in a large base (defect D10, and the temperature postfix now
    recomputes the greenhouse index per call, ASSUMPTIONS.md M9), rain and snow frequency on a small
-   planet (the game's phase rates are absolute).
+   planet.
 7. **Test what has never run live**: D2 (build over an occupied outdoor cell), D6 (weather guard),
    heat decay rate, multiplayer sync with and without the mod on the client, a custom world.
 
@@ -36,9 +37,6 @@
 - **Liquid toxins outdoors** (ASSUMPTIONS.md S6): breathing ignores liquids (code); does contact hurt?
 - **Outdoor sun heating.** The old mod set `LightManager.SunPathTraceWorldAtmos = true`, which makes
   open outdoor cells take solar heating (`AtmosphericsController.cs:244`). Left as the game ships it.
-- **Clouds and ice caps on a small planet.** Fixed 100,000 L and 10,000,000 L, and absolute melt and
-  freeze rates, so everything phase-related runs 20 times faster per cell at Standard size. Consider
-  scaling them with planet size.
 - **Albedo** from clouds and ice (TEMPERATURE.md option 3).
 - **First session on an existing save** gains the gas of outdoor cells that were never debited.
   A one-off correction at first enable is possible but needs a marker in the save.
