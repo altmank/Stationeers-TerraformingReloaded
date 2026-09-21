@@ -11,11 +11,12 @@ The air outside is no longer bottomless. What you vent stays. What your base dra
 [hr][/hr]
 [h2]Two things set the temperature[/h2]
 [b]Which gas it is.[/b] Each one either traps heat or sheds it:
-[list]
-[*][b]Traps heat:[/b] pollutant (strongest), volatiles, carbon dioxide, steam
-[*][b]Sheds heat:[/b] nitrous oxide (strongest), hydrogen, nitrogen, oxygen
-[*][b]Does neither:[/b] helium, hydrazine, hydrochloric acid, ozone, silanol
-[/list]
+[table]
+[tr][th]Effect[/th][th]Gases[/th][/tr]
+[tr][td][b]Traps heat[/b][/td][td]pollutant (strongest), volatiles, carbon dioxide, steam[/td][/tr]
+[tr][td][b]Sheds heat[/b][/td][td]nitrous oxide (strongest), hydrogen, nitrogen, oxygen[/td][/tr]
+[tr][td][b]Does neither[/b][/td][td]helium, hydrazine, hydrochloric acid, ozone, silanol[/td][/tr]
+[/table]
 Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they get, which is why a breathable mix still wants carbon dioxide alongside it.
 
 [b]How much of it there is.[/b] Thick air narrows the gap between day and night whatever it is made of. Helium is the clean example: it neither traps nor sheds, so it is pure thickening.
@@ -35,12 +36,13 @@ Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they 
 [hr][/hr]
 [h2]How long it takes[/h2]
 One setting: [b]Planet size[/b].
-[list]
-[*][b]Short:[/b] about 17 hours
-[*][b]Standard:[/b] about 85 hours
-[*][b]Long:[/b] about 410 hours
-[*][b]Shipped:[/b] the game's real planet, about 1,650 hours
-[/list]
+[table]
+[tr][th]Size[/th][th]Roughly[/th][/tr]
+[tr][td][b]Short[/b][/td][td]17 hours[/td][/tr]
+[tr][td][b]Standard[/b][/td][td]85 hours[/td][/tr]
+[tr][td][b]Long[/b][/td][td]410 hours[/td][/tr]
+[tr][td][b]Shipped[/b], the game's real planet[/td][td]1,650 hours[/td][/tr]
+[/table]
 [b]Treat these as rough scale, not a promise.[/b] They are calculated from how much gas a large, heavily automated base can move in an hour, not measured from a real playthrough, because nobody has finished one yet. A smaller or more hands-on base will take considerably longer.
 
 Hours are for making Mars breathable, meaning you can stand outside with your helmet off. The Moon is similar, Venus and Vulcan roughly three times longer, Mimas six, Europa nine. Size changes nothing else. A save made before you installed the mod carries the full-size planet until you rescale it.
