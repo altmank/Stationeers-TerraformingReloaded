@@ -34,6 +34,26 @@ Game build 0.2.6428.27798. `D/` and `S/` as in README.md. Everything here is **C
   (`Atmosphere.LerpToGlobalAtmosphere`), so with the switch on, gas released up there returns to the
   planet. Cells either side of the line are not neighbours. Vented gas cannot be dumped to space; rocket
   exhaust above the line is simply discarded (`RocketEngineBase.Exhaust`), which is propellant, not planet air.
+- **Wind turbines read the planet, not the cell they stand in.**
+  `WindTurbineGenerator.CalculateGenerationRate` gives 0 unless the turbine is operable, completed,
+  has an open grid and `GetRoom()` is null. It then reads
+  `AtmosphericsController.ReadonlyGlobalAtmosphere(WorldGrid).PressureGassesAndLiquids`, which is
+  `PAS.ReadOnlyGlobal`: always the planet's read-only copy, or the space copy above the 1,000 m
+  line, so a turbine up there makes nothing. Under 1 kPa the pressure is taken as zero and the
+  turbine makes nothing either; otherwise it is clamped between `_minPressure` 5 kPa and
+  `_maxPressure` 25 kPa. Output is
+  `clamp(kPa * WindStrength * stormMultiplier * NoiseIntensity, floor, ceiling)`. `WindStrength` is
+  one shared simplex noise, `NoiseIntensity` is 10 (25 on the large turbine), and outside a storm
+  the multiplier is 1, the floor 0 and the ceiling `MAXPowerOutput` 500 W (1,000 W large). While a
+  weather event with a `StormEffect` runs, the multiplier becomes the event's own `WindStrength`
+  times `WeatherUtilisationMultiplier` 3 (20 large), the ceiling becomes `MaxPowerOutputStorm`
+  1,000 W (20,000 W large), and the floor becomes the event's `WindStrength` times a hundredth of
+  that ceiling; every shipped storm has `WindStrength` 15, so 150 W (3,000 W). **MEASURED** in play
+  on untouched Mars at 2.1 to 2.2 kPa: 5.34 W and 9.35 W, which is the clamped 5 kPa times the
+  noise, not the real pressure. So thickening a planet's air is worth up to five times the power
+  from the same turbine, reaching the cap at 25 kPa, and on a world under 1 kPa it is the
+  difference between nothing and something. `Objects/WindTurbineGenerator.cs:133-212`,
+  `Objects/LargeWindTurbineGenerator.cs`.
 - **The switch.** Each of those first asks `PAS.IsGlobalInteraction`, which is
   `public static bool IsGlobalInteraction => false;` (IL: `ldc.i4.0; ret`). Eight call sites:
   `CloneGlobalGasMix`, `GetGlobalMoles`, `TakeGlobalGasMix`, `TakeGlobalMoles`, `GiveToGlobal`,

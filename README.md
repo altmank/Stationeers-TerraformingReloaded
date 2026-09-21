@@ -58,6 +58,8 @@ the planet section of the save; the game reads that section with or without the 
   above its datum, and everything outdoors below that level counts as under water. The amount of liquid that takes
   is fixed by the game and does not shrink with planet size.
 - **Heat.** Heat your base sheds outdoors warms the planet slightly and fades over time.
+- **Wind turbines** pay for thick air: the game clamps the pressure they see to between 5 and
+  25 kPa, so a thickened planet runs them up to five times harder, and under 1 kPa they give nothing.
 - **Tutorials** are left as shipped.
 - **First session on an existing save.** Outdoor cells that already exist were never drawn from
   the planet, so the planet gains their gas once as they are cleaned up. For a large base that is
