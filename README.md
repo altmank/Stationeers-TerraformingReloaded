@@ -81,7 +81,7 @@ changes. Pick it in the StationeersLaunchPad config editor.
 | Short | 1/100 | about 17 hours | about 70 hours |
 | **Standard** (default) | 1/20 | about 85 hours | about 340 hours |
 | Long | 1/4 | about 410 hours | about 1,700 hours |
-| Shipped | 1 | about 1,650 hours | about 6,700 hours |
+| Unmodded baseline | 1 | about 1,650 hours | about 6,700 hours |
 | Custom | `CustomPlanetSize` | in proportion | in proportion |
 
 Hours are to reach air you can breathe outside without a suit on Mars: 16 kPa of oxygen, no toxins,
@@ -106,7 +106,7 @@ game itself evaluated, plus stated assumptions about what each size of base runs
 
 The size applies when a planet is created: a new world, or after `terraform reset confirm`. A saved
 planet keeps the size it has, and `terraform` shows it. That includes a save from before the mod:
-it holds the game's full-size planet, so it plays at Shipped size until you reset it (which changes
+it holds the game's full-size planet, so it plays at Unmodded baseline size until you reset it (which changes
 nothing on a planet you have not touched yet).
 
 If the size turns out wrong once you have a feel for it, `terraform size <share> confirm` rescales
@@ -120,7 +120,7 @@ for the next new world.
 
 That fixed amount is the one planet-scale number the game holds absolute, so size decides how wet
 a planet has to get before the sea arrives: a Short planet needs a far larger share of its air as
-liquid than a Shipped one does. A new world starts with the size you set applied to its starting
+liquid than an Unmodded baseline one does. A new world starts with the size you set applied to its starting
 air, liquid included, so a custom world that ships liquid can start with a sea at one size and
 without one at another. No world the game ships starts with any liquid.
 

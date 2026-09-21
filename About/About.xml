@@ -37,7 +37,7 @@ Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they 
 [h2]How long it takes[/h2]
 One setting, [b]Planet size[/b], decides the pace. Hours to reach air you can stand in with your helmet off:
 [table]
-[tr][th]World[/th][th]Short[/th][th]Standard[/th][th]Long[/th][th]Shipped[/th][/tr]
+[tr][th]World[/th][th]Short (1/100)[/th][th]Standard (1/20)[/th][th]Long (1/4)[/th][th]Unmodded Baseline (1/1)[/th][/tr]
 [tr][td]The Moon[/td][td]16[/td][td]80[/td][td]399[/td][td]1,597[/td][/tr]
 [tr][td]Mars[/td][td]17[/td][td]83[/td][td]414[/td][td]1,655[/td][/tr]
 [tr][td]Venus[/td][td]42[/td][td]208[/td][td]1,038[/td][td]4,153[/td][/tr]
@@ -45,7 +45,7 @@ One setting, [b]Planet size[/b], decides the pace. Hours to reach air you can st
 [tr][td]Mimas[/td][td]103[/td][td]516[/td][td]2,582[/td][td]10,328[/td][/tr]
 [tr][td]Europa[/td][td]150[/td][td]748[/td][td]3,739[/td][td]14,956[/td][/tr]
 [/table]
-[b]Shipped[/b] is the planet at the size the game itself uses.
+[b]Unmodded Baseline[/b] is the planet at the size the game itself uses. The others shrink it, so there is less air behind every outdoor cell and less of it to move.
 
 [b]Treat these as rough scale, not a promise.[/b] They assume a large base: four ice mining rockets, each actually mining about 60% of the time, plus a large gas trader bought out every other hour. Near 378,000 moles an hour between them. That rate is worked out from what each of those can produce, not measured from a finished playthrough. Run half that and every number above doubles.
 

@@ -53,7 +53,7 @@ namespace TerraformingReloaded
         /// <summary>1/4 of shipped. About 410 hours for a mega base.</summary>
         Long,
         /// <summary>As the game ships it. About 1,650 hours for a mega base.</summary>
-        Shipped,
+        UnmoddedBaseline,
         /// <summary>Use CustomPlanetSize.</summary>
         Custom,
     }

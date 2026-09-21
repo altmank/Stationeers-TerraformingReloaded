@@ -148,7 +148,7 @@ Time scales with planet size and nothing else does, so:
 | Short | 0.01 | about 17 h | about 70 h |
 | **Standard** (default) | 0.05 | about 85 h | about 340 h |
 | Long | 0.25 | about 410 h | about 1,700 h |
-| Shipped | 1 | about 1,650 h | about 6,700 h |
+| Unmodded baseline | 1 | about 1,650 h | about 6,700 h |
 
 Implemented as a postfix on `GlobalGasMix.Create`: volume and quantities scale together, so air per
 cell is identical. **Verified live**: at 0.05 the tank starts at exactly 2,279,749.963 mol.

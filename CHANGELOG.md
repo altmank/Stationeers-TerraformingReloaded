@@ -15,7 +15,7 @@ but nobody has played a world through on it yet.
   when the planet warms, storms still come (milder on a world you have cooled), and fuel beside oxygen
   outdoors burns.
 - Planet size sets how long it takes and nothing else: Short, Standard (default, about 85 hours for a mega
-  base on Mars), Long, Shipped, or a custom share.
+  base on Mars), Long, Unmodded baseline, or a custom share.
 - `terraform` console command: status, `size <share> confirm`, `reset confirm`, `curves export`,
   `curves reload`. The reset puts the planet back as the world ships and is the clean way to remove the mod.
 - `terraform size <share> confirm` changes how big the planet you are playing is, and so how long
