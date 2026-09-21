@@ -35,11 +35,11 @@
 7. **Test what has never run live**: D2 (build over an occupied outdoor cell), D6 (weather guard),
    heat decay rate, multiplayer sync with and without the mod on the client, a custom world.
 
-## Before publishing
+## Before 1.0
 
-- Repository is private; the Workshop description links to it. Make it public or drop the link.
-- `WorkshopHandle` is 0 until first publish.
-- The alpha warning in About.xml stays until items 1, 6 and 7 are done.
+Published 2026-09-21 as a release candidate: Workshop id `3805529206`, repository public, `v0.9.0`
+and `v0.9.1` tagged at the two uploads. The release-candidate note in About.xml stays until items 1,
+6 and 7 are done.
 
 ## Open questions
 
