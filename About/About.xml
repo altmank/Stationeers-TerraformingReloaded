@@ -9,16 +9,16 @@ The air outside is no longer bottomless. What you vent stays. What your base dra
 [b]Release candidate.[/b] Every part of this is checked against the game by automated runs, but nobody has played a world all the way through on it yet. You are the first. Back up your save, and report anything odd on GitHub with your Player.log.
 
 [hr][/hr]
-[h2]The two levers[/h2]
-[b]Greenhouse[/b] depends on which gas:
+[h2]Two things set the temperature[/h2]
+[b]Which gas it is.[/b] Each one either traps heat or sheds it:
 [list]
-[*][b]Warms:[/b] pollutant (strongest), volatiles, carbon dioxide, steam
-[*][b]Cools:[/b] nitrous oxide (strongest), hydrogen, nitrogen, oxygen
-[*][b]Neither:[/b] helium, hydrazine, hydrochloric acid, ozone, silanol
+[*][b]Traps heat:[/b] pollutant (strongest), volatiles, carbon dioxide, steam
+[*][b]Sheds heat:[/b] nitrous oxide (strongest), hydrogen, nitrogen, oxygen
+[*][b]Does neither:[/b] helium, hydrazine, hydrochloric acid, ozone, silanol
 [/list]
-Nitrogen and oxygen are not filler. Both cool, and harder the thicker they get, which is why a breathable mix still wants carbon dioxide alongside it.
+Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they get, which is why a breathable mix still wants carbon dioxide alongside it.
 
-[b]Density[/b] does not care which gas. Any gas evens out day and night. Helium is the clean example: no greenhouse effect at all, pure thickening.
+[b]How much of it there is.[/b] Thick air narrows the gap between day and night whatever it is made of. Helium is the clean example: it neither traps nor sheds, so it is pure thickening.
 
 [hr][/hr]
 [h2]How it plays[/h2]
