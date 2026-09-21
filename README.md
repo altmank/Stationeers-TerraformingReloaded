@@ -85,10 +85,10 @@ changes. Pick it in the StationeersLaunchPad config editor.
 | Custom | `CustomPlanetSize` | in proportion | in proportion |
 
 Hours are to reach air you can breathe outside without a suit on Mars: 16 kPa of oxygen, no toxins,
-no pressure or temperature warnings day or night, at any point in Mars's orbit. That takes about 125 mol per outdoor cell,
-roughly 57 of oxygen and 67 of carbon dioxide, because Mars nights start 50 K too cold and oxygen
-itself cools the planet a little. A mega base here means about 380,000 mol an hour sustained (four
-ice-mining rockets and gas traders); a one-rocket base about 93,000.
+no pressure or temperature warnings day or night, at any point in Mars's orbit. That takes about
+125 mol per outdoor cell, roughly 57 of oxygen and 67 of carbon dioxide, because Mars nights start
+50 K too cold and oxygen itself cools the planet a little. A mega base here means about 380,000 mol
+an hour sustained (four ice-mining rockets and gas traders); a one-rocket base about 93,000.
 
 Every world can be made habitable. Roughly, against Mars: the Moon the same, Venus and Vulcan two
 and a half to three times the gas moved, Mimas six times and it needs the planet held warm with vented
