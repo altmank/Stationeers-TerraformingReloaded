@@ -33,7 +33,7 @@ Game build 0.2.6428.27798. `D/` and `S/` as in README.md. Everything here is **C
   vacuum instead of the planet's air, but what they shed is still handed to `GiveToGlobal`
   (`Atmosphere.LerpToGlobalAtmosphere`), so with the switch on, gas released up there returns to the
   planet. Cells either side of the line are not neighbours. Vented gas cannot be dumped to space; rocket
-  exhaust above the line is simply discarded (`RocketEngineBase.Exhaust`), which is propellant, not planet air.
+  exhaust above the line is discarded (`RocketEngineBase.Exhaust`), which is propellant, not planet air.
 - **Wind turbines read the planet, not the cell they stand in.**
   `WindTurbineGenerator.CalculateGenerationRate` gives 0 unless the turbine is operable, completed,
   has an open grid and `GetRoom()` is null. It then reads

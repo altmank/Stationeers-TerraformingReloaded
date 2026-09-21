@@ -1,4 +1,4 @@
-# Design corpus
+# Design notes
 
 Everything needed to pick this project up cold: what it is for, how the game works underneath it,
 what was found, what was decided and why, how it is verified, and what is still open.

@@ -65,7 +65,7 @@ Shape is not behaviour, so there are three layers:
    until restart (a new world does not clear it), an error in the log, `terraform` status says so.
    The temperature rule keeps running, so a planet already terraformed does not jump. Airless
    planets report skipped once, quietly, and run when the first air arrives. **Verified live**: "passed:
-   take and give of 9.119 mol balanced" on Mars, and LiveCheck now requires that line.
+   take and give of 9.119 mol balanced" on Mars, and LiveCheck now needs that line.
 
 A world whose `GlobalAtmosphere` has no usable `Volume` (possible in a custom world) is left as shipped.
 

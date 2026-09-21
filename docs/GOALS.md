@@ -8,7 +8,7 @@ sky and weather change. It is an endgame project that gives a gas-processing meg
 
 It started as a request to bring Elmotrix's Terraforming Mod
 (https://github.com/Elmotrix/TerraformingMod, v0.23, last commit 2024-08-12) up to the current game.
-That mod has no licence, so none of its code is used. Analysis showed a port was the wrong job:
+That mod has no licence, so none of its code is used. A port turned out to be the wrong job:
 the game had since gained its own planetary atmosphere model and left it switched off. This mod
 switches that on. See GAME-MODEL.md.
 

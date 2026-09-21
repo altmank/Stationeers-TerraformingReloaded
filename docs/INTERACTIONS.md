@@ -1,6 +1,6 @@
 # Interaction census
 
-Four reviews by reading each found things the one before had missed, because a review is a hunt: it
+Four read-throughs, and each found things the one before had missed, because a review is a hunt: it
 finds what the reader thought to look for. This replaces the hunt with a list that can be checked.
 
 ## How it works
@@ -72,7 +72,7 @@ explosions create matter into real cells (sources, as intended); the game's deve
 regenerate the planet; several devices (battery, turbine, stirling engine, fire extinguisher) keep a
 real outdoor cell alive every tick, which costs the planet nothing but is work per tick.
 
-**A hazard to keep in mind.** World mixing does put the read-only copy into a cell's mixing list, and
+**A hazard.** World mixing does put the read-only copy into a cell's mixing list, and
 gas is safe there because both directions test for it and go through the switched calls. Liquid mixing
 (`Atmosphere.MixLiquids`) has no such test and is safe only because the copy is built from gas alone, so
 it holds no liquid. Anything that ever put the planet's liquid into the copy would turn liquid mixing
