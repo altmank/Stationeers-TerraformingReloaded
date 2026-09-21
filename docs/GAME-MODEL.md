@@ -8,7 +8,7 @@ Game build 0.2.6428.27798. `D/` and `S/` as in README.md. Everything here is **C
 
 - One `GlobalGasMix` per world, the **tank**: 28 gas quantities as doubles plus a Volume. Default
   volume 4e10 L = 5,000,000 outdoor cells of 8000 L (`GlobalAtmosphereData.cs:23-26`,
-  `Chemistry.cs:161`). No shipped world overrides the volume.
+  `Chemistry.cs:161`). No shipped world sets a different one (three tutorials state the default explicitly).
 - Three more reservoirs of the same type: `_liquidClouds` and `_iceClouds` (100,000 L each),
   `_iceCaps` (10,000,000 L).
 - Two energy counters: `LatentEnergyOffset` (phase change) and `ExternalInputEnergyOffset` (heat
@@ -20,10 +20,20 @@ Game build 0.2.6428.27798. `D/` and `S/` as in README.md. Everything here is **C
   `LerpToGlobalAtmosphere` (:1710), `GiveAtmospheresMixInWorld` (:1775),
   `AtmosphericsManager.Deregister` (:382), `AtmosphericsController.CloneGlobalAtmosphere` (:289),
   heat via `ReactWithCell` (:2285) and `AtmosphereHelper.DoEntropy` (:522).
+- **The read-only copy.** `SampleGlobalAtmosphere(grid)` returns the real outdoor cell at a grid or, where
+  there is none, one shared read-only copy of the planet's air (`PAS.ReadOnlyGlobal`). Writes to it are
+  ignored (`Mole.Quantity` and `Mole.Energy` setters test `ReadOnly`); `Remove` still returns the moles asked
+  for. `DynamicThing.SetWorldAtmosphere` caches it as `WorldAtmosphere`. Everything that moves real amounts
+  builds a real cell first with `CloneGlobalAtmosphere`; 17 small things do not (INTERACTIONS.md).
+- **The global sea.** When the tank's liquid passes a fixed volume (`GlobalAtmosphereLiquid.RenderThreshold`,
+  1.5e6 L times a multiplier evaluated once at start-up) the game renders a sea between 2 and 10 m and treats
+  everything outdoors below it as submerged. Tank liquid reaches cells only through that; cells give liquid to
+  the tank through the ordinary lerp.
 - **No sink above the space line.** Outdoor cells at or above 1,000 m (`PAS.SpaceHeight`) relax toward
   vacuum instead of the planet's air, but what they shed is still handed to `GiveToGlobal`
   (`Atmosphere.LerpToGlobalAtmosphere`), so with the switch on, gas released up there returns to the
-  planet. Cells either side of the line are not neighbours. Gas cannot be dumped to space.
+  planet. Cells either side of the line are not neighbours. Vented gas cannot be dumped to space; rocket
+  exhaust above the line is simply discarded (`RocketEngineBase.Exhaust`), which is propellant, not planet air.
 - **The switch.** Each of those first asks `PAS.IsGlobalInteraction`, which is
   `public static bool IsGlobalInteraction => false;` (IL: `ldc.i4.0; ret`). Eight call sites:
   `CloneGlobalGasMix`, `GetGlobalMoles`, `TakeGlobalGasMix`, `TakeGlobalMoles`, `GiveToGlobal`,
@@ -94,7 +104,9 @@ into the ice clouds. It runs in the unmodded game too.
   and never melt), so there the mod evaluates its terms from the planet's air for the caps and both
   clouds (`Climate.IsReservoir`). Found by code review.
 - Phase change books latent heat into `LatentEnergyOffset`, which warms the planet while material is
-  frozen out and returns as it melts.
+  frozen out. It does not all come back: freezing a gas books vaporisation plus fusion, evaporating it
+  returns vaporisation only, and melting the caps returns more than freezing into them gave
+  (**MEASURED**: 17 % left after one freeze-and-return; DEFECTS.md D14).
 - **MEASURED** thresholds, dumped from the game (freezing point; add 2 K): hydrogen 15.2, nitrogen
   40.0, ozone 51.0, oxygen 56.4, volatiles 81.5, silanol 143.4, pollutant 173.3, CO2 217.8, hydrazine
   246.2, HCl 247.3, N2O 251.4, steam 273.1 K. Minimum liquid pressure is 6.3 kPa for most; CO2 517,

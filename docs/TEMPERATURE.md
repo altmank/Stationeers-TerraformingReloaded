@@ -12,8 +12,8 @@ review it went through, and what the game itself says about it.
         + latent / capacity + external / capacity
 
 Only Mars ships the greenhouse and density curves (GAME-MODEL.md), so elsewhere air changes and
-temperature cannot follow. v0.1.0 filled the two curves with Mars's, measured from the starting air.
-That left two worlds out of reach (**MEASURED** in `tools/Balance`):
+temperature cannot follow. The first version of the rule filled the two curves with Mars's, measured
+from the starting air. That left two worlds out of reach (**MEASURED** in `tools/Balance`):
 
 - **Venus** ships one flat 737 K and no greenhouse curve. Mars's curve credits Venus's whole starting
   load (index 33) with 118 K. Strip every greenhouse gas: still about 600 K. Bare-rock equilibrium at
@@ -64,13 +64,15 @@ for the world, with an error, if it is not.
 cancels out of the warming side entirely: the end point stays at equilibrium once the greenhouse air
 is gone, and so does every point on the way. Without that, lowering the strength below 0.95 made
 Venus impossible and raising it sent a stripped Venus below 0 K: a setting that silently breaks a
-world is a trap. `DensityResponseScale` is an exponent for the same reason: as a plain multiplier, anything under
-0.96 left Vulcan a swing it could never lose. As an exponent, 0 is off, more bites sooner, and air
-thick enough to end the swing ends it at any strength. On a hot world the greenhouse setting still scales the cooling side, and the curves file
-reshapes the route. On worlds that are not anchored the setting scales the response directly.
+world is a trap. The cap of 10 is applied before the division, or a low strength would have brought
+the trap back for Vulcan. `DensityResponseScale` is an exponent for the same reason: as a plain
+multiplier, anything under 0.96 left Vulcan a swing it could never lose. As an exponent, 0 is off,
+more bites sooner, and air thick enough to end the swing ends it at any strength. On a hot world the
+greenhouse setting still scales the cooling side, and the curves file reshapes the route. On worlds
+that are not anchored the setting scales the response directly.
 
-On an airless world this reduces exactly to v0.1.0's rule. On Europa (index0 -8, no swing) it is
-v0.1.0's rule. Venus gets gain 3.70, Vulcan 8.01.
+On an airless world, and on Europa (index0 -8, no swing), this reduces exactly to that first version.
+Venus gets gain 3.70, Vulcan 8.01.
 
 ### Hook
 
@@ -80,7 +82,7 @@ three-argument one (checked at load: `SelfTest.StillCalls`), so patching both wo
 `__instance` is the mix asked about, never assumed to be the planet: the new-game menu passes a fresh
 starting mix and reads as shipped. A second postfix on `CacheTemperatureCurveOffsets` corrects
 `AggregateTemperature`, which the game's debug window, `terraform` and LiveCheck read and which the
-game adds up by itself. v0.1.0's three postfixes on one-line getters are gone.
+game adds up by itself.
 
 ## Adversarial review (2026-09-20) and what changed
 
@@ -97,6 +99,10 @@ An independent pass tried to break the first draft of this rule. Findings that c
 | `_curves` and the cached entry could mix old and new for a tick after a reload | `Climate.Load` | Entry holds its curves; one immutable swap |
 | **The simulator ignored phase change.** The planet tick freezes a whole gas in one tick below freezing + 2 K. CO2 needs 219.8 K, so "+285 CO2" on a 124 K Europa cannot work as written, and Mimas looked like a dead end | `PAS:436`, `Mole.cs:809` | Simulator now carries the game's freeze and boil rules (dumped from the game), and `path.py` checks a recipe can be reached. See below |
 
+A later code review found that the game evaluates the ice caps' temperature on the caps themselves,
+which hold no gas, so on a warmed world they would never have melted (DEFECTS.md D13); and a docs audit
+found the gain cap applied after the strength division. Both are fixed and the first is checked live.
+
 Checked and sound: untouched reads stock exactly; table ranges cover what Venus needs; the day-night
 easing matches the game; eclipse does not touch temperature; the long method is not an inlining
 candidate.
@@ -109,7 +115,7 @@ candidate.
 | Europa with the mod, 20 mol per cell of CO2 added at 134 K | All of it out of the air within 5 ticks, snow scheduled, moving into the ice caps at 3,000 mol per tick planet-wide, latent heat +1.9 K. Base temperatures 133.05 and 124.0 K vs model 133.07 and 124.0 |
 | Unmodded Vulcan through a fast day | Night 399.98 K, day peak 945 K at 19 degrees |
 | **Venus with the mod, air set to the solver's recipe** (CO2 23, HCl 1, N2 22, O2 48 per cell) | **322.17 K day and night** (stock 737 K; model 322.3), readout equal to the real value, the acid stayed a gas |
-| **Vulcan with the mod, air set to the solver's recipe** (CO2 27, H2 3, N2 99, O2 130, pollutant 1), a full fast day near the far end of its orbit | **273.97 K at night to 292.99 K at noon** (stock 400 to 945 K). Model at the same six sun angles: 273.94, 273.94, 281.62, 287.61, 291.55, 292.99. Largest gap 0.19 K. The anchored greenhouse, the proportional damping and the sun-distance term are all in that number |
+| **Vulcan with the mod, air set to an earlier recipe** (CO2 27, H2 3, N2 99, O2 130, pollutant 1; it kept the starting hydrogen beside oxygen, which the solver no longer allows), a full fast day near the far end of its orbit | **273.97 K at night to 292.99 K at noon** (stock 400 to 945 K). Model at the same six sun angles: 273.94, 273.94, 281.62, 287.61, 291.55, 292.99. Largest gap 0.19 K. The anchored greenhouse, the proportional damping and the sun-distance term are all in that number |
 
 The rows below were judged by `run.ps1 -Model`: the simulator is rebuilt from the air, sun angle and
 orbit position the game reports at each sample and has to give the game's temperature within 0.5 K.
@@ -136,4 +142,4 @@ whether it would come back on the finished planet), finds temporary gases to get
 last resort a heat kick: the game banks the heat of gas vented outdoors, the mod lets it fade and caps
 it at 50 K, so venting gas warmer than the planet holds the planet warm while it lasts.
 
-Results are in BALANCE.md. Open questions are in ASSUMPTIONS.md (S4, S5, S6, S8, S9) and ROADMAP.md.
+Results are in BALANCE.md. What is still open is in ASSUMPTIONS.md (S4, S10 to S12) and ROADMAP.md.

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using Assets.Scripts;
 using Assets.Scripts.Atmospherics;
+using Assets.Scripts.GridSystem;
 using UnityEngine;
 using Weather;
 
@@ -77,32 +78,28 @@ namespace TerraformingReloaded.Patching
         /// </summary>
         private static void Upkeep()
         {
-            double energy = PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset.ToDouble();
-            double original = energy;
-
-            if (double.IsNaN(energy) || double.IsInfinity(energy))
-            {
-                energy = 0.0;
-            }
-
-            double halfLife = Settings.ExternalHeatHalfLifeMinutes * 60.0;
-            if (halfLife > 0.0)
-            {
-                energy *= Math.Pow(0.5, GameManager.GameTickSpeedSeconds / halfLife);
-            }
-
             double capacity = PlanetaryAtmosphereSimulation.GetHeatCapacity().ToDouble();
-            double limit = Math.Max(0.0, Settings.MaxExternalOffsetKelvin) * Math.Max(0.0, capacity);
-            if (double.IsNaN(limit))
-            {
-                limit = 0.0;
-            }
-            energy = Math.Max(-limit, Math.Min(limit, energy));
 
-            if (energy != original)
+            double external = PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset.ToDouble();
+            double settled = Settle(external, capacity);
+            if (settled != external)
             {
-                PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset = new MoleEnergy(energy);
+                PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset = new MoleEnergy(settled);
             }
+
+            // The game's phase change books heat unevenly: freezing a gas adds its heat of vaporisation
+            // and of fusion, but evaporating it again takes back only the first, and melting the ice caps
+            // takes back more than freezing into them gave. Measured live: 20 mol per cell of CO2 frozen
+            // and returned left 17 % of its heat behind for good. Every cycle adds to a counter that is
+            // saved and never drained, so it gets the same fade and the same bound as outside heat.
+            double latent = PlanetaryAtmosphereSimulation.LatentEnergyOffset.ToDouble();
+            settled = Settle(latent, capacity);
+            if (settled != latent)
+            {
+                PlanetaryAtmosphereSimulation.LatentEnergyOffset = new MoleEnergy(settled);
+            }
+
+            Planet.KeepPhaseChangeInProportion();
 
             double cap = Settings.MaxPressureKPa;
             if (cap > 0.0)
@@ -114,6 +111,65 @@ namespace TerraformingReloaded.Patching
                 }
             }
         }
+
+        /// <summary>One tick of fading toward zero, then the bound on the kelvin it may apply.</summary>
+        private static double Settle(double energy, double capacity)
+        {
+            if (double.IsNaN(energy) || double.IsInfinity(energy))
+            {
+                return 0.0;
+            }
+            double halfLife = Settings.ExternalHeatHalfLifeMinutes * 60.0;
+            if (halfLife > 0.0)
+            {
+                energy *= Math.Pow(0.5, GameManager.GameTickSpeedSeconds / halfLife);
+            }
+            double limit = Math.Max(0.0, Settings.MaxExternalOffsetKelvin) * Math.Max(0.0, capacity);
+            if (double.IsNaN(limit))
+            {
+                limit = 0.0;
+            }
+            return Math.Max(-limit, Math.Min(limit, energy));
+        }
+
+        // ---- WallVent.OnAtmosphericTick ------------------------------------------------------------
+
+        /// <summary>
+        /// Outdoor air at a grid is the real cell there if one exists, otherwise a shared read-only copy
+        /// of the planet's air: writes to the copy are ignored and removals from it cost the planet
+        /// nothing. Every vent that moves real amounts builds a real cell first; the wall vent does not.
+        /// It averages the room with the copy every tick, so a wall vent to outdoors was a bottomless
+        /// source for a thin room and a bottomless sink for a thick one, and the ordinary way to open a
+        /// base to outside skipped the finite planet altogether. Give it a real cell to mix with: building
+        /// one draws its air from the planet, and what the vent pushes into it drains back.
+        /// tools/census lists every other place the game touches the copy; the rest are too small to matter.
+        /// </summary>
+        public static void WallVentPrefix(WorldGrid ____facingGrid, WorldGrid ____rearGrid)
+        {
+            if (!Gate.Enabled())
+            {
+                return;
+            }
+            try
+            {
+                bool facing = AtmosphericsManager.Find(____facingGrid) != null;
+                bool rear = AtmosphericsManager.Find(____rearGrid) != null;
+                if (facing == rear)
+                {
+                    return;             // both real already, or nothing on either side to exchange
+                }
+                AtmosphericsManager.CloneGlobalAtmosphereThreadSafe(facing ? ____rearGrid : ____facingGrid);
+            }
+            catch (Exception e)
+            {
+                if (Interlocked.Increment(ref _ventFaults) <= 3)
+                {
+                    Log.Error("Wall vent fix failed and was skipped: " + e.Message);
+                }
+            }
+        }
+
+        private static int _ventFaults;
 
         // ---- PlanetaryAtmosphereSimulation.GiveToGlobal -------------------------------------------
 

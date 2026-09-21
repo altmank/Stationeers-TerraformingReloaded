@@ -3,7 +3,7 @@
 ## Next, in order
 
 1. **Hold the model to the game.** `run.ps1 -Model` judges it and passes within 0.2 K on Venus,
-   Vulcan, Europa mid-route, the Moon and Mimas with heat (TEMPERATURE.md). Still to run: Vulcan at
+   Vulcan, Europa mid-route, the Moon, Mimas with heat, and ice caps melting back (TEMPERATURE.md). Still to run: Vulcan at
    the near end of its orbit (the model says 320 K, 3 K inside the limit; needs a way to set the
    orbit position); a gas sitting on its freeze threshold through a day (ASSUMPTIONS.md S4).
 2. **Mimas's heat, as a player would make it.** Held at +25 K by the test driver, volatiles stay a

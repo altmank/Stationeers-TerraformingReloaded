@@ -23,9 +23,22 @@ namespace TerraformingReloaded.Patching
         /// GlobalAtmosphereData.GetVolume because that is a one-line getter, an inlining candidate.
         /// A planet loaded from a save keeps the size it was saved with.
         /// </summary>
+        [ThreadStatic] private static int _buildingPlanet;
+
+        // Prefix and finalizer on the two methods that build the planet being played. GlobalGasMix.Create
+        // is also called by the new-game menu, which divides the moles by the world's unscaled volume to
+        // show a pressure: resized there, every world read twenty times too thin at the default size.
+        public static void BuildPrefix() => _buildingPlanet++;
+
+        public static void BuildFinalizer() => _buildingPlanet = Math.Max(0, _buildingPlanet - 1);
+
         public static void CreatePostfix(GlobalGasMix __result)
         {
             double size = Settings.PlanetSize;
+            if (_buildingPlanet <= 0)
+            {
+                return;
+            }
             if (!Settings.Enabled || __result == null || SetVolume == null || size == 1.0 || !(size > 0.0) || double.IsInfinity(size))
             {
                 return;
@@ -42,6 +55,101 @@ namespace TerraformingReloaded.Patching
         }
 
         private static readonly string[] Reservoirs = { "_liquidClouds", "_iceClouds", "_iceCaps" };
+
+        // ---- phase change in proportion to the planet ------------------------------------------------
+        // The game's clouds and ice caps have fixed volumes and its melt and freeze rates are fixed moles
+        // per tick, all sized for its full planet. On a planet a twentieth the size they would run twenty
+        // times faster per outdoor cell: more rain and snow, caps that fill and empty in minutes. Planet
+        // size is meant to change how long terraforming takes and nothing else, so they follow the size.
+        // The shipped values are read from the game, not written here.
+
+        private static readonly AccessTools.FieldRef<GlobalGasMix>[] ReservoirRefs = ResolveReservoirs();
+        private static readonly double ShippedMelt = PlanetaryAtmosphereSimulation.MINMeltQuantity.ToDouble();
+        private static readonly double ShippedFreeze = PlanetaryAtmosphereSimulation.MINLiquidFreezeQuantity.ToDouble();
+        private static readonly double[] ShippedReservoirLitres = new double[3];
+        private static volatile bool _reservoirsSeen;
+
+        private static AccessTools.FieldRef<GlobalGasMix>[] ResolveReservoirs()
+        {
+            var refs = new AccessTools.FieldRef<GlobalGasMix>[Reservoirs.Length];
+            for (int i = 0; i < Reservoirs.Length; i++)
+            {
+                try
+                {
+                    FieldInfo field = AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), Reservoirs[i]);
+                    refs[i] = field == null ? null : AccessTools.StaticFieldRefAccess<GlobalGasMix>(field);
+                }
+                catch (Exception)
+                {
+                    refs[i] = null;
+                }
+            }
+            return refs;
+        }
+
+        /// <summary>True for the clouds and ice caps of the planet being played.</summary>
+        public static bool IsReservoir(GlobalGasMix mix)
+        {
+            foreach (AccessTools.FieldRef<GlobalGasMix> reservoir in ReservoirRefs)
+            {
+                if (reservoir != null && ReferenceEquals(mix, reservoir()))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public static bool ReservoirsKnown => ReservoirRefs[0] != null && ReservoirRefs[1] != null && ReservoirRefs[2] != null;
+
+        /// <summary>World start, straight after the game has built fresh reservoirs and before a save is loaded over them.</summary>
+        internal static void NoteShippedReservoirs()
+        {
+            for (int i = 0; i < ReservoirRefs.Length; i++)
+            {
+                GlobalGasMix reservoir = ReservoirRefs[i]?.Invoke();
+                if (reservoir == null)
+                {
+                    return;
+                }
+                ShippedReservoirLitres[i] = reservoir.Volume.ToDouble();
+            }
+            _reservoirsSeen = true;
+        }
+
+        /// <summary>
+        /// Every planet tick, under the tank lock. The share is measured from the planet itself, so a
+        /// save made at another size, or before the mod, behaves at the size it actually has.
+        /// </summary>
+        internal static void KeepPhaseChangeInProportion()
+        {
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            double shipped = WorldSetting.Current?.Data?.GlobalAtmosphereData?.Volume?.Value ?? 0.0;
+            if (tank == null || SetVolume == null || !(shipped > 0.0))
+            {
+                return;
+            }
+            double share = tank.Volume.ToDouble() / shipped;
+            if (!(share > 0.0) || double.IsInfinity(share))
+            {
+                return;
+            }
+            PlanetaryAtmosphereSimulation.MINMeltQuantity = new MoleQuantity(ShippedMelt * share);
+            PlanetaryAtmosphereSimulation.MINLiquidFreezeQuantity = new MoleQuantity(ShippedFreeze * share);
+            if (!_reservoirsSeen)
+            {
+                return;
+            }
+            for (int i = 0; i < ReservoirRefs.Length; i++)
+            {
+                GlobalGasMix reservoir = ReservoirRefs[i]?.Invoke();
+                double wanted = ShippedReservoirLitres[i] * share;
+                if (reservoir != null && wanted > 0.0 && Math.Abs(reservoir.Volume.ToDouble() - wanted) > wanted * 1e-9)
+                {
+                    SetVolume.Invoke(reservoir, new object[] { new VolumeLitres(wanted) });
+                }
+            }
+        }
 
         /// <summary>
         /// Puts the planet back exactly as the world ships: starting air, empty clouds, empty ice caps,

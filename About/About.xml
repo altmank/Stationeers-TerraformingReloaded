@@ -11,10 +11,11 @@ HOW IT PLAYS
 - This is an endgame project for a base built to move gas: ice-mining rockets, gas traders, big vents, tank farms.
 - A breathable Mars needs oxygen and a lot of carbon dioxide, because its nights start far too cold.
 - Every world can be made habitable. The harder ones take longer and take more thought.
-- Venus and Vulcan are hot because of the air they start with. Pull the greenhouse gases out and they cool; thick air evens out Vulcan's brutal days and nights. You will need somewhere to put all that gas.
+- Venus and Vulcan are hot because of the air they start with. Pull the greenhouse gases out and they cool; thick air evens out Vulcan's brutal days and nights. You will need somewhere to put all that gas. On Vulcan, get bulk gas in before the fuel is more than half gone, or the nights turn cold enough to freeze the whole atmosphere.
 - Cold worlds freeze what you vent. Carbon dioxide only stays in the air once nights are above 220 K, pollutant above 175 K, volatiles above 84 K. What freezes lands in the ice caps and melts back as the planet warms. Europa and Mimas have to be warmed in stages.
 - Keep fuel and oxygen apart outdoors. Volatiles or hydrogen beside oxygen burn at the first spark, and the fire spreads.
 - The Moon and Mimas start with no air at all. Their first air swings hard between day and night until it thickens.
+- Storms still come, milder on a world you have cooled. Enough standing liquid and the game raises a sea that floods low ground.
 - A world you have not touched reads exactly as it does without the mod.
 - Custom worlds work too. WORLDS.md in the mod's folder is for world authors.
 
@@ -24,7 +25,7 @@ One setting, Planet size, in the mod's config:
 - Standard (default): about 85 hours for a mega base, about 340 for a base with one ice-mining rocket
 - Long: about 410 hours
 - Shipped: the game's full-size planet, about 1,650 hours
-Hours are to reach shirt-sleeve air on Mars. The Moon is about the same, Venus and Vulcan two and a half to three times as long, Mimas about six, Europa about nine. Planet size changes nothing else, and applies to a new world or after a reset.
+Hours are to reach shirt-sleeve air on Mars. The Moon is about the same, Venus and Vulcan two and a half to three times as long, Mimas about six, Europa about nine. Planet size changes nothing else, and applies to a new world or after a reset. A save from before the mod holds the full-size planet, so it plays at Shipped size until you reset it.
 
 CONSOLE (F3)
 - terraform : the planet's pressure, temperature and gases, and whether the mod is running
@@ -32,10 +33,10 @@ CONSOLE (F3)
 - terraform curves export / terraform curves reload : for tuning how temperature responds. CURVES.md in the mod's folder explains
 
 REMOVING THE MOD
-Your changed planet is stored in the save, so removing the mod alone does not undo it. To go back to stock: run "terraform reset confirm", save, quit, then disable the mod. Do not skip this on the Moon or Mimas: without the mod their new air would sit near absolute zero.
+Your changed planet is stored in the save, so removing the mod alone does not undo it. To go back to stock: run "terraform reset confirm", save, quit, then disable the mod. Do not skip this: without the mod a changed world snaps back to the temperature it ships with (a breathable Venus is 737 K again, and new air on the Moon or Mimas sits near absolute zero).
 
 GOOD TO KNOW
-- Settings are in the StationeersLaunchPad config editor and apply at once, except the two marked as needing a restart.
+- Settings are in the StationeersLaunchPad config editor and apply at once, except those marked as needing a restart. The pressure ceiling deletes air for good: leave it at 0 unless you mean it.
 - Multiplayer: the host needs the mod. Clients with it see the changed planet; clients without it can still join. Untested.
 - Tutorials are left alone.
 - If a game update changes the code this depends on, the mod switches itself off and says why in the log rather than risk your save.

@@ -2,7 +2,7 @@
 
 **A static audit is not enough for this mod.** Three code audits missed D12; the first live
 save-load run showed 5,800 mol appearing from nowhere. Run the live tests after any change to
-`src/Patching/` and after a game update. Close the game first; each run takes about four minutes.
+`src/Patching/` and after a game update. Close the game first; each run takes about four minutes, and only one can run at a time.
 
 ```powershell
 .\build.ps1 -Deploy                         # build, PatchCheck, stage package, copy to local mods
@@ -11,7 +11,8 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 .\tools\LiveCheck\run.ps1 -Reset            # terraform, reset, save, load WITHOUT the mod: stock
 .\tools\LiveCheck\run.ps1 -Vanilla          # control: without the mod the gas vanishes
 .\tools\LiveCheck\run.ps1 -Dump tools\Balance\gamedata.json   # game data for tools/Balance
-.\tools\LiveCheck\run.ps1 -Observe -World Venus -SetAir "CarbonDioxide=23;Oxygen=48"   # watch a planet through a fast day
+.\tools\LiveCheck\run.ps1 -Model -World Venus -SetAir "CarbonDioxide=23;Oxygen=48"     # judged: the game's temperature against the simulator's
+.\tools\LiveCheck\run.ps1 -Observe -World Venus -SetAir "CarbonDioxide=23;Oxygen=48"   # the same, printed and not judged
 ```
 
 | Tool | Proves | Cannot prove |
@@ -21,13 +22,24 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 | `-SaveLoad` | A save taken with about 4,300 cells in flight loads back with the total unchanged (D1, D12) | |
 | `-Reset` | After terraform, dirtying ice caps, clouds and both heat stores, `terraform reset confirm`, save: the **unmodded** game loads a planet within 1 mol and 0.01 K of stock | |
 | `-Vanilla` | The control: the default scenario fails without the mod, so its pass means something | |
-
-| `-Model` | **Judged.** `-Observe`, then `tools/Balance/compare.py` rebuilds the simulator from what the game reported at every sample (air, sun angle, place in the orbit, latent and external heat) and fails the run if the game's temperature and the model's differ by more than `-Tolerance` (0.5 K). `-HeatK n` holds the planet's banked outside heat at n kelvin; `-SetAir2 ... -SetAir2Tick n` sets a second air later without touching clouds or ice caps. Passing at v0.1.0: Venus, Vulcan, Europa mid-route, the Moon, Mimas with heat, all within 0.2 K | Anything about how a player gets there |
+| `-Model` | **Judged.** `-Observe`, then `tools/Balance/compare.py` rebuilds the simulator from what the game reported at every sample (air, sun angle, place in the orbit, latent and external heat) and fails the run if the game's temperature and the model's differ by more than `-Tolerance` (0.5 K). `-HeatK n` holds the planet's banked outside heat at n kelvin; `-SetAir2 ... -SetAir2Tick n` sets a second air later without touching clouds or ice caps. Passing: Venus, Vulcan, Europa mid-route, the Moon, Mimas with heat, and ice caps melting back on Europa, all within 0.2 K (TEMPERATURE.md) | Anything about how a player gets there |
 | `-Observe` | Not judged. Prints the planet every five ticks through a fast day (`-DaySpeed`, default 10x) on any `-World`, with or without the mod (`-Vanilla`), optionally after setting the planet's air per outdoor cell (`-SetAir "Gas=mol;Gas=mol"`, unnamed gases emptied): sun angle, place in the orbit, the temperature outdoor cells get, the readout, pressure, gas, liquid, both clouds, ice caps, latent heat, weather, composition. This is how `tools/Balance` is held to the game: set the air a recipe or a path waypoint calls for and compare | Anything about how a player gets there |
 
-LiveCheck results at v0.1.0 (planet size 0.05): sum varies 0.000 mol before and 0.005 mol after
-injection; CO2 gained 99,998.8 of 100,000; save-load change 0.000 mol; after reset and mod removal
-+0.27 mol and 1.2e4 J (about 2e-4 K).
+Latest results (planet size 0.05): sum varies 0.000 mol before and 0.005 mol after injection; the
+planet's CO2 up 99,998.6 of 100,000 with the rest still in the last cells; save-load change 0.000 mol;
+after reset and mod removal +0.18 mol and 8e3 J (about 1e-4 K).
+
+## The census
+
+```powershell
+python tools\census\census.py <decompile folder> --check
+```
+
+Lists every method in the game that touches the planet or outdoor air and fails unless each has a verdict in
+`tools/census/ledger.csv` and every bypass is fixed or accepted in writing (INTERACTIONS.md). Run it after a
+game update, against a fresh decompile (`ilspycmd -p -o <folder> Assembly-CSharp.dll`): anything new or moved
+comes up as unclassified. It needs a decompile, so it runs locally, not on GitHub; GitHub does check that every
+census pattern still matches its sample.
 
 ## What runs on GitHub, and what cannot
 
@@ -80,12 +92,3 @@ removes what it created. It refuses to start if any of that already exists or th
   own in batch mode.
 - Totals read from `Update` are a tick stale (the mole cache). The first harness read them there
   and reported a 6,000 mol swing that did not exist.
-
-## Working rules learned the hard way
-
-- After every launch, read back the specific line that proves the thing under test is loaded and
-  live. A started process is not a working test.
-- Chain dependent shell steps with `&&`. Never `;`, and watch `A && B || C`.
-- Never swallow an exception in diagnostics.
-- When a number looks off, measure the source (open the save, sum it) before theorising.
-- Patch scripts with backslashes or apostrophes go in a file, not a shell heredoc.

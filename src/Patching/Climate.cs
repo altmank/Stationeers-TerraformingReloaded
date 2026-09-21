@@ -6,6 +6,7 @@ using Assets.Scripts;
 using Assets.Scripts.Atmospherics;
 using Assets.Scripts.UI.ImGuiUi;
 using HarmonyLib;
+using Weather;
 
 namespace TerraformingReloaded.Patching
 {
@@ -410,7 +411,7 @@ namespace TerraformingReloaded.Patching
                 // no gas, so left alone they would read the planet as if it had no air: a terraformed
                 // Europa's caps would sit at 125 K for ever and never give back what froze into them.
                 // The planet has one temperature; its reservoirs read the planet's air.
-                GlobalGasMix air = IsReservoir(__instance) ? (PlanetaryAtmosphereSimulation.GetGlobalGasMix() ?? __instance) : __instance;
+                GlobalGasMix air = Planet.IsReservoir(__instance) ? (PlanetaryAtmosphereSimulation.GetGlobalGasMix() ?? __instance) : __instance;
                 float index = TerraForming.GetGhgIndex(air);
                 float density = (float)IdealGas.GetMilliMolesPerLitre(air.Volume, air.TotalQuantityGas());
                 double delta = Response(entry, solarAngle, solarEnergyPercent, index, float.IsNaN(density) ? 0f : density);
@@ -418,6 +419,7 @@ namespace TerraformingReloaded.Patching
                 {
                     delta += AirlessBaseAt(entry, solarAngle);
                 }
+                delta += StormInProportion(entry, solarAngle, solarEnergyPercent, __result.ToDouble() + delta);
                 // Exactly nothing to add: leave the game's own value alone, bit for bit.
                 if (delta == 0.0 || double.IsNaN(delta) || double.IsInfinity(delta))
                 {
@@ -434,35 +436,35 @@ namespace TerraformingReloaded.Patching
             }
         }
 
+        /// <summary>
+        /// A world's storms carry fixed temperature offsets sized for the world as shipped: Vulcan's ash
+        /// storm is -275 K by day, reasonable against 1,200 K and fatal against a terraformed 293 K, where
+        /// it reads 18 K and freezes the whole atmosphere in one tick. On a world the mod has cooled, a
+        /// storm's offset shrinks in the same proportion as the planet has. It is never enlarged, and on
+        /// untouched air the proportion is exactly one. Returns the kelvin to add to the game's own figure.
+        /// </summary>
+        private static double StormInProportion(Entry entry, float solarAngle, float solarEnergyPercent, double kelvinWithStorm)
+        {
+            if (!(entry.FillGhg || entry.FillDensity) || !WeatherManager.IsWeatherEventRunning)
+            {
+                return 0.0;
+            }
+            GlobalTemperatureOffsetData offset = WeatherManager.CurrentWeatherEvent?.TemperatureOffset;
+            if (offset == null)
+            {
+                return 0.0;
+            }
+            double storm = offset.GetOffset(solarAngle);
+            double shipped = Shipped(entry, solarAngle, solarEnergyPercent);
+            if (storm == 0.0 || double.IsNaN(storm) || !(shipped > 0.0))
+            {
+                return 0.0;
+            }
+            double share = Clamp01((kelvinWithStorm - storm) / shipped);
+            return storm * (share - 1.0);
+        }
+
         private static int _faults;
-        private static readonly AccessTools.FieldRef<GlobalGasMix> IceCaps = Reservoir("_iceCaps");
-        private static readonly AccessTools.FieldRef<GlobalGasMix> IceClouds = Reservoir("_iceClouds");
-        private static readonly AccessTools.FieldRef<GlobalGasMix> LiquidClouds = Reservoir("_liquidClouds");
-
-        private static AccessTools.FieldRef<GlobalGasMix> Reservoir(string name)
-        {
-            try
-            {
-                return AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), name) == null
-                    ? null
-                    : AccessTools.StaticFieldRefAccess<GlobalGasMix>(AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), name));
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-        }
-
-        /// <summary>True for the clouds and ice caps of the planet being played.</summary>
-        private static bool IsReservoir(GlobalGasMix mix)
-        {
-            return (IceCaps != null && ReferenceEquals(mix, IceCaps()))
-                || (IceClouds != null && ReferenceEquals(mix, IceClouds()))
-                || (LiquidClouds != null && ReferenceEquals(mix, LiquidClouds()));
-        }
-
-        /// <summary>Whether the reservoir fields were found, for the status readout.</summary>
-        public static bool ReservoirsKnown => IceCaps != null && IceClouds != null && LiquidClouds != null;
 
         /// <summary>
         /// The game's debug readout adds the parts up itself and so misses the postfix above. Make the

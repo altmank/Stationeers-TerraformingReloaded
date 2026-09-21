@@ -45,6 +45,53 @@ namespace TerraformingReloaded.Patching
             Gate.VanillaGetter = AccessTools.PropertyGetter(simulation, "IsGlobalInteraction");
             Guards.TankLock = AccessTools.Field(simulation, "GlobalInteraction")?.GetValue(null);
 
+            // The temperature rule does not depend on the switch. A terraformed Venus reads 322 K only while
+            // it runs; if a game update makes the planet stand down, dropping the rule too would put a
+            // breathable Venus back at 737 K under a player with no suit. So it is applied on every path.
+            bool temperatureApplied = false;
+            Action applyTemperature = () =>
+            {
+                if (temperatureApplied)
+                {
+                    return;
+                }
+                temperatureApplied = true;
+                Extra(report, "temperature response", () =>
+                {
+                    Type data = typeof(GlobalAtmosphereData);
+                    MethodInfo ghg = AccessTools.DeclaredMethod(data, "GetGHGTemperatureOffset", new[] { typeof(float), typeof(float) });
+                    MethodInfo density = AccessTools.DeclaredMethod(data, "GetDensityOffset", new[] { typeof(float), typeof(double) });
+                    MethodInfo solar = AccessTools.DeclaredMethod(data, "GetSolarAngleTemperature", new[] { typeof(float) });
+                    MethodInfo distance = AccessTools.DeclaredMethod(data, "GetSolarDistanceTemperatureOffset", new[] { typeof(float), typeof(float) });
+                    MethodInfo formula = AccessTools.DeclaredMethod(typeof(GlobalGasMix), "GetGlobalGasMixTemperature", new[] { data, typeof(float), typeof(float) });
+                    MethodInfo oneArgument = AccessTools.DeclaredMethod(typeof(GlobalGasMix), "GetGlobalGasMixTemperature", new[] { data });
+                    Need(formula);
+                    // The response is worked out against the formula as it stands: a base, a sun-distance
+                    // term, a greenhouse term and a density term, summed. If a game update drops or
+                    // replaces one, stay out rather than add to a formula that means something else.
+                    if (!SelfTest.StillCalls(formula, new[] { Need(ghg), Need(density), Need(solar), Need(distance) }, out string missing))
+                    {
+                        throw new InvalidOperationException("the planet temperature formula no longer uses " + missing);
+                    }
+                    // Only the three-argument overload is patched; that is right only while the other calls it.
+                    if (!SelfTest.StillCalls(Need(oneArgument), new[] { formula }, out _))
+                    {
+                        throw new InvalidOperationException("the planet temperature shortcut no longer goes through the full formula");
+                    }
+                    harmony.Patch(formula, postfix: Body(typeof(Climate), nameof(Climate.TemperaturePostfix)));
+                    if (!Planet.ReservoirsKnown)
+                    {
+                        Log.Warn("The planet's cloud and ice cap fields were not found, so on worlds the mod warms or cools, gas that froze out may not melt back.");
+                    }
+                });
+
+                // On its own: the response above is live whether or not the readout can be corrected.
+                Extra(report, "temperature readout", () =>
+                {
+                    harmony.Patch(Need(AccessTools.DeclaredMethod(simulation, "CacheTemperatureCurveOffsets")), postfix: Body(typeof(Climate), nameof(Climate.ReadoutPostfix)));
+                });
+            };
+
             // ---- resolve and count everything required before touching anything ------------------
             List<MethodBase> tank = new List<MethodBase>();
             List<string> problems = new List<string>();
@@ -108,6 +155,7 @@ namespace TerraformingReloaded.Patching
             {
                 report.Failed.AddRange(problems);
                 Log.Error("This game build does not match what the mod expects, so the planet is left as shipped: " + string.Join("; ", problems));
+                applyTemperature();
                 return report;
             }
 
@@ -132,6 +180,7 @@ namespace TerraformingReloaded.Patching
             {
                 report.Failed.Add("required patches: " + e.Message);
                 Log.Error("A required patch failed, so the planet is left as shipped. " + e);
+                applyTemperature();
                 return report;
             }
 
@@ -150,6 +199,7 @@ namespace TerraformingReloaded.Patching
             if (report.Failed.Count > 0)
             {
                 Log.Error("The tank methods did not all convert, so the planet is left as shipped: " + string.Join("; ", report.Failed));
+                applyTemperature();
                 return report;
             }
 
@@ -167,6 +217,7 @@ namespace TerraformingReloaded.Patching
                 report.Failed.Add("save consistency: " + e.Message);
                 report.Errors["save consistency"] = e;
                 Log.Error("The save guard failed, so the planet is left as shipped. " + e.Message);
+                applyTemperature();
                 return report;
             }
 
@@ -181,39 +232,17 @@ namespace TerraformingReloaded.Patching
                 harmony.Patch(Need(schedule), prefix: Body(typeof(Guards), nameof(Guards.ScheduleWeatherPrefix)));
             });
 
-            Extra(report, "temperature response", () =>
-            {
-                Type data = typeof(GlobalAtmosphereData);
-                MethodInfo ghg = AccessTools.DeclaredMethod(data, "GetGHGTemperatureOffset", new[] { typeof(float), typeof(float) });
-                MethodInfo density = AccessTools.DeclaredMethod(data, "GetDensityOffset", new[] { typeof(float), typeof(double) });
-                MethodInfo solar = AccessTools.DeclaredMethod(data, "GetSolarAngleTemperature", new[] { typeof(float) });
-                MethodInfo distance = AccessTools.DeclaredMethod(data, "GetSolarDistanceTemperatureOffset", new[] { typeof(float), typeof(float) });
-                MethodInfo formula = AccessTools.DeclaredMethod(typeof(GlobalGasMix), "GetGlobalGasMixTemperature", new[] { data, typeof(float), typeof(float) });
-                MethodInfo oneArgument = AccessTools.DeclaredMethod(typeof(GlobalGasMix), "GetGlobalGasMixTemperature", new[] { data });
-                Need(formula);
-                // The response is worked out against the formula as it stands: a base, a sun-distance
-                // term, a greenhouse term and a density term, summed. If a game update drops or
-                // replaces one, stay out rather than add to a formula that means something else.
-                if (!SelfTest.StillCalls(formula, new[] { Need(ghg), Need(density), Need(solar), Need(distance) }, out string missing))
-                {
-                    throw new InvalidOperationException("the planet temperature formula no longer uses " + missing);
-                }
-                // Only the three-argument overload is patched; that is right only while the other calls it.
-                if (!SelfTest.StillCalls(Need(oneArgument), new[] { formula }, out _))
-                {
-                    throw new InvalidOperationException("the planet temperature shortcut no longer goes through the full formula");
-                }
-                harmony.Patch(formula, postfix: Body(typeof(Climate), nameof(Climate.TemperaturePostfix)));
-                if (!Climate.ReservoirsKnown)
-                {
-                    Log.Warn("The planet's cloud and ice cap fields were not found, so on worlds the mod warms or cools, gas that froze out may not melt back.");
-                }
-            });
+            applyTemperature();
 
-            // On its own: the response above is live whether or not the readout can be corrected.
-            Extra(report, "temperature readout", () =>
+            Extra(report, "wall vent", () =>
             {
-                harmony.Patch(Need(AccessTools.DeclaredMethod(simulation, "CacheTemperatureCurveOffsets")), postfix: Body(typeof(Climate), nameof(Climate.ReadoutPostfix)));
+                MethodInfo vent = AccessTools.DeclaredMethod(typeof(Assets.Scripts.Objects.Pipes.WallVent), "OnAtmosphericTick");
+                if (AccessTools.Field(typeof(Assets.Scripts.Objects.Pipes.WallVent), "_facingGrid") == null
+                    || AccessTools.Field(typeof(Assets.Scripts.Objects.Pipes.WallVent), "_rearGrid") == null)
+                {
+                    throw new MissingFieldException("WallVent no longer has the two grids it mixes");
+                }
+                harmony.Patch(Need(vent), prefix: Body(typeof(Guards), nameof(Guards.WallVentPrefix)));
             });
 
             Extra(report, "planet size", () =>
@@ -223,6 +252,12 @@ namespace TerraformingReloaded.Patching
                 if (!Planet.CanResize)
                 {
                     throw new MissingMethodException("GlobalGasMix.Volume has no setter");
+                }
+                // The size applies to the planet being played, not to every mix built from a world file.
+                MethodInfo regenerate = AccessTools.DeclaredMethod(simulation, "RegenerateGlobalFromData");
+                foreach (MethodInfo builder in new[] { Need(create), Need(regenerate) })
+                {
+                    harmony.Patch(builder, prefix: Body(typeof(Planet), nameof(Planet.BuildPrefix)), finalizer: Body(typeof(Planet), nameof(Planet.BuildFinalizer)));
                 }
                 harmony.Patch(createPlanet, postfix: Body(typeof(Planet), nameof(Planet.CreatePostfix)));
             });
@@ -264,6 +299,7 @@ namespace TerraformingReloaded.Patching
                 Gate.SetWorldAllowed(world != null && !world.IsTutorial && sized);
                 Climate.Invalidate();
                 SelfTest.Arm();
+                Planet.NoteShippedReservoirs();
             }
             catch (Exception e)
             {

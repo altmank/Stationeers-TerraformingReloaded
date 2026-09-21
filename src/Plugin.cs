@@ -173,8 +173,8 @@ namespace TerraformingReloaded
                 "Share of sunlight an airless world (Moon, Mimas) reflects. Sets the temperature its first air settles toward: lower is warmer.",
                 v => Settings.AirlessAlbedo = v, new AcceptableValueRange<double>(0.0, 0.95), "Airless world reflectivity", 12, "%.2f");
             Bind("Climate", "MaxPressureKPa", Settings.MaxPressureKPa,
-                "Ceiling on the planet air pressure; excess is lost to space. 0 means no ceiling.",
-                v => Settings.MaxPressureKPa = v, new AcceptableValueRange<double>(0.0, 10000.0), "Pressure ceiling (kPa)", 13, "%.0f");
+                "Ceiling on the planet air pressure. 0 means no ceiling. DESTRUCTIVE: whenever the planet is above it, at its hottest hour, the excess air is deleted for good and the loss is saved. Set it below a world's starting pressure and most of its air is gone within a day.",
+                v => Settings.MaxPressureKPa = v, new AcceptableValueRange<double>(0.0, 10000.0), "Pressure ceiling (kPa)", 13, "%.0f", restart: true);
             Bind("Climate", "WeatherOnWeatherlessWorlds", Settings.WeatherOnWeatherlessWorlds,
                 "Allow rain and snow from filled clouds on worlds that ship with no weather at all.",
                 v => Settings.WeatherOnWeatherlessWorlds = v, null, "Weather on worlds without any", 14);
@@ -214,7 +214,10 @@ namespace TerraformingReloaded
             }
             ConfigEntry<T> entry = Config.Bind(new ConfigDefinition(section, key), fallback, new ConfigDescription(description, range, tags.ToArray()));
             apply(entry.Value);
-            entry.SettingChanged += (_, __) => apply(entry.Value);
+            if (!restart)
+            {
+                entry.SettingChanged += (_, __) => apply(entry.Value);      // a restart setting really does wait for the restart
+            }
             return entry;
         }
     }

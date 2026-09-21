@@ -17,6 +17,8 @@
 | `tools/PatchCheck` | Out-of-game patch pre-flight |
 | `tools/LiveCheck` | Headless in-game test driver and runner |
 | `tools/Balance` | Pacing and temperature design model |
+| `tools/census` | Every game method that touches the planet or outdoor air, with a verdict each (INTERACTIONS.md) |
+| `tools/ci` | Checks that need no game |
 
 Nothing under `src/Patching/` references BepInEx, so `tools/PatchCheck` can load and run it.
 
@@ -28,20 +30,22 @@ patched and the game runs as shipped:
 | Target | Kind | Purpose |
 | --- | --- | --- |
 | PAS `CloneGlobalGasMix`, `GetGlobalMoles`, `TakeGlobalGasMix`, `TakeGlobalMoles`, `GiveToGlobal`, `AddEnergy`, `RemoveEnergy` | transpiler | The switch. Each must contain exactly one getter call, counted before and after |
-| PAS `TickPlanetarySimulation` | prefix + finalizer | Hold the tank lock (D8); upkeep: decay and clamp external heat (D3, D4), pressure ceiling |
+| PAS `TickPlanetarySimulation` | prefix + finalizer | Hold the tank lock (D8); the once-per-world self-test; upkeep: fade and bound outside heat and latent heat (D3, D4, D14), keep clouds, ice caps and phase rates in proportion to the planet (D16), pressure ceiling |
 | PAS `GiveToGlobal` | prefix | Refuse bad mixtures (D7) |
 | `AtmosphericEventInstance.DivideWorldAtmosphere` | prefix + finalizer | Flag for D2 |
 | `AtmosphericsManager.Deregister(Atmosphere)` | prefix | Empty an already-distributed cell (D2) |
-| PAS `CreateGlobalAtmosphere` | postfix | World start: allow or disallow (tutorials), invalidate the climate cache |
+| PAS `CreateGlobalAtmosphere` | postfix | World start: allow or disallow (tutorials, a planet with no volume), invalidate the climate cache, arm the self-test |
 | `XmlSaveLoad.GetWorldData` | prefix | Refresh caches before the save reads them (D12). Applied last and on its own, because it reaches Unity native code and PatchCheck must tell that apart from a real failure |
 
-Extras, each independent; a failure costs only that part:
+Extras, each independent; a failure costs only that part. The temperature pair is applied even when the
+required set stands down, so a planet already terraformed keeps its temperature:
 
 | Target | Purpose |
 | --- | --- |
 | `WeatherManager.ScheduleWeatherEvent` prefix | D6 |
 | `GlobalGasMix.GetGlobalGasMixTemperature(data, angle, percent)` postfix, `PAS.CacheTemperatureCurveOffsets` postfix | Temperature response and its readout (TEMPERATURE.md). Refused if the formula no longer calls the four part getters, or the one-argument overload no longer calls this one |
-| `GlobalGasMix.Create` postfix | Planet size |
+| `GlobalGasMix.Create` postfix, with a prefix and finalizer on PAS `CreateGlobalAtmosphere` and `RegenerateGlobalFromData` | Planet size, applied only while the game builds the planet being played (D16) |
+| `WallVent.OnAtmosphericTick` prefix | A wall vent to outdoors mixes with a real cell, not the read-only copy (D15) |
 | `AtmosphericScattering.UpdateAtmosphericScatteringToGlobalAtmosphere` prefix + postfix, then `ManagerUpdate` transpiler | Sky follows the air, throttled (D9). Throttle first, so the sky is never on without it |
 
 ## Detecting a game update that matters
@@ -52,8 +56,8 @@ Shape is not behaviour, so there are three layers:
    switch question exactly once. Any miss: nothing is patched.
 2. **Meaning, before patching** (`SelfTest`): the game's own `IsGlobalInteraction` still answers false
    (if the developers switch the planet on themselves the mod stands down rather than stack on it),
-   and `GetGlobalGasMixTemperature` still calls the three getters the temperature patches adjust
-   (otherwise that part is off).
+   and `GetGlobalGasMixTemperature` still calls the four part getters the temperature rule is worked
+   out against, and its one-argument overload still calls it (otherwise that part is off).
 3. **Behaviour, in the world** (`SelfTest.RunIfPending`, first live planet tick of every world, under
    the tank lock): take one outdoor cell of air from the planet, check it fell by exactly that, give it
    back, check it returned, restore the heat counter. Pass leaves the planet as found to within the
@@ -80,10 +84,16 @@ reads only. `Gate.Describe()` says which condition is false, for the status read
 | Off while loading | D1 |
 | Off on clients | A client can give (through `Deregister`) but never take, so its tank would only grow |
 | Keep the game's `GiveToGlobal` body | Survives game updates |
-| Do not decay or clamp `LatentEnergyOffset` | It runs in the unmodded game and is bounded by the phase-change inventory |
+| `LatentEnergyOffset` fades and is bounded like outside heat | The game books phase-change heat unevenly, so it is not bounded by the inventory: measured, 17 % stays after one freeze-and-return (DEFECTS.md D14). Earlier versions of these notes said to leave it alone; that was wrong |
 | Every temperature term is measured from the world's starting air, and that is evaluated at world start | Requirement 4: an untouched world reads as stock. If it does not, the response switches itself off for that world |
 | One postfix on the long temperature method, not three on one-line getters | The swing term multiplies base plus sun distance, which no single part can express; and one-line getters are inlining candidates |
 | Sunlight for the anchor comes from the game's orbit range, no table | Custom worlds |
+| A storm's temperature offset shrinks with the planet | Offsets are sized for the shipped world; unscaled, one ash storm freezes a finished Vulcan solid (D17) |
+| Only one of the 17 read-only-copy bypasses is fixed | The owner's rule: no effort on minor sources. The wall vent moves rooms of gas and is how bases open to outdoors; the rest are a breath, a mask, or one portable's contents (INTERACTIONS.md) |
+| Settings tagged as needing a restart do not apply live | The pressure ceiling deletes air for good; dragging its slider must not wipe a planet |
+| The clouds and ice caps read the planet's air | The game asks the caps for their own temperature, and they hold no gas (DEFECTS.md D13) |
+| Neither strength setting can change where a world ends up | Greenhouse strength is divided out of a hot world's gain, density strength is an exponent: a setting that silently makes Venus or Vulcan impossible is a trap (TEMPERATURE.md) |
+| The temperature postfix catches its own exceptions and builds its per-world entry once, under a lock | It runs on every worker thread for every outdoor cell; a custom world that throws must not throw there every tick |
 | Worlds with their own curves are never adjusted | Mars is the developers' tuning |
 | Guards check `Gate.Enabled()`, not config | A guard acting while the gate is off would change the unmodded game. Exception: `Climate` runs on clients too, since they evaluate the same formula |
 | Sync is optional for clients | LaunchPadBooster sections are skipped by a client without the mod; cells themselves are synced by the game |
@@ -92,7 +102,6 @@ reads only. `Gate.Describe()` says which condition is false, for the status read
 | Pressure ceiling off by default | It was the old mod's behaviour, not the game's |
 | `terraform reset` needs `confirm` | It cannot be undone except by loading an earlier save |
 | Status logging runs from `Update`, not the tick | It must still report when the simulation is paused or the planet is off, which is when it is needed |
-| The title on the cover is drawn onto the artwork as text | Exact spelling |
 
 ## Console
 

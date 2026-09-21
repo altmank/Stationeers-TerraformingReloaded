@@ -69,6 +69,17 @@ c0, h0 = start.extremes()
 c, h = with_air('Swing', dict(start.air, Helium=100.0), density_scale=0.0).extremes()
 check('density strength 0 switches damping off', abs((h - c) - (h0 - c0)) < 1e-6)
 
+# 3d. Storms. A world's weather offsets are sized for the world as shipped; on a cooled world they
+# shrink in proportion, and a finished world must survive its own worst storm without freezing out.
+swing = Planet('Swing')
+check('a storm on untouched air is the world file\'s own', abs(swing.temperature(0.0, 50.0, storm=-275.0) - (swing.temperature(0.0, 50.0) - 275.0)) < 1e-9)
+done = with_air('Swing', {'Helium': 300.0, 'Oxygen': 60.0, 'CarbonDioxide': 20.0})
+calm = done.temperature(0.0, 50.0)
+hit = done.temperature(0.0, 50.0, storm=-275.0)
+check('the same storm on a cooled world is milder in proportion', calm - hit < 275.0 * calm / swing.shipped(0.0, 50.0) + 1e-6 and hit > 0.0, '%.1f -> %.1f' % (calm, hit))
+check('and a warming storm is never enlarged on a warmed cold world', with_air('Cold', {'Oxygen': 340.0, 'Methane': 80.0}).temperature(0.0, 50.0, storm=50.0) - with_air('Cold', {'Oxygen': 340.0, 'Methane': 80.0}).temperature(0.0, 50.0) <= 50.0 + 1e-9)
+check('a world with its own curves gets its storms untouched', abs(Planet('Mars2').temperature(0.0, 50.0, storm=-40.0) - (Planet('Mars2').temperature(0.0, 50.0) - 40.0)) < 1e-9)
+
 # 4. Review finding: thinning the air never makes the swing larger than shipped.
 for world in ('Swing', 'Cold', 'Hot'):
     start = Planet(world)

@@ -184,14 +184,24 @@ class Planet:
             total += (self._density_mean(density) - self._density_mean(self._density0)) * self.density_scale
         return total
 
-    def temperature(self, angle, percent=50.0):
+    def temperature(self, angle, percent=50.0, storm=0.0):
+        """`storm` is the running weather event's own temperature offset, as the world file gives it."""
         t = self.shipped(angle, percent)
         index, density = self.ghg_index(), self.density()
         if not self._fill_ghg:
             t += day_night(self._ghg, angle, index)
         if not self._fill_density:
             t += day_night(self._density, angle, density)
-        return max(0.0, t + self.adjustment(angle, percent) + self.external)
+        t += self.adjustment(angle, percent) + self.external
+        return max(0.0, t + storm * self.storm_share(angle, percent, t))
+
+    def storm_share(self, angle, percent, kelvin_without_storm):
+        """A storm's offset is sized for the world as shipped. On a world the mod fills in, it shrinks in
+        the proportion the planet has cooled, never grows, and is untouched on untouched air."""
+        shipped = self.shipped(angle, percent)
+        if not (self._fill_ghg or self._fill_density) or shipped <= 0.0:
+            return 1.0
+        return max(0.0, min(1.0, kelvin_without_storm / shipped))
 
     def extremes(self):
         """(coldest, hottest) over every sun angle and both ends of the orbit."""

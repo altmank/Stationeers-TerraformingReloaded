@@ -21,9 +21,9 @@ The project is held to these.
 2. **Verify by running.** A static audit is not enough (three audits missed defect D12; the first
    live save-load run found it). After any change to `src/Patching/`, the live tests run.
 3. **Any world can be made habitable.** Harder worlds may be much harder, but none is impossible.
-   Met in the model for all six shipped worlds, with a found step-by-step path for each under the
-   game's phase change (BALANCE.md); the end states checked in the game on Venus and Vulcan, where the
-   game and the model agree within 0.2 K (TEMPERATURE.md). The paths themselves are not yet replayed live.
+   Met in the model for all six shipped worlds, with a found fire-safe, step-by-step path for each
+   under the game's phase change (BALANCE.md). The model is held to the game within 0.2 K on Venus,
+   Vulcan, Europa mid-route, the Moon and Mimas (TEMPERATURE.md). No path has been played.
 4. **An untouched world reads exactly as it does without the mod.** Temperature, pressure,
    composition. Only the player's changes move anything.
 5. **Pace is one simple setting.** The original mod aimed for "a mega base designed to process gas a
@@ -52,8 +52,3 @@ The project is held to these.
 - Tutorials. The mod is off in tutorial worlds.
 - Supporting StationeersMods. The loader is StationeersLaunchPad on BepInEx 5.4.
 
-## Where things stand
-
-v0.1.0, private repository, not on the Workshop. Core verified live on Mars (conservation, save and
-load, reset then mod removal, planet size, self-test); the temperature rule verified live on Venus.
-Never played through. ROADMAP.md has the open work.

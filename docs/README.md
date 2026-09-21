@@ -7,12 +7,13 @@ what was found, what was decided and why, how it is verified, and what is still 
 | --- | --- |
 | [GOALS.md](GOALS.md) | What the mod is for, the requirements it is held to, what is out of scope |
 | [GAME-MODEL.md](GAME-MODEL.md) | How the game's dormant planetary atmosphere works, with file and line evidence |
-| [DEFECTS.md](DEFECTS.md) | The twelve defects switching it on exposes, each with evidence, fix and test status |
+| [DEFECTS.md](DEFECTS.md) | The defects switching it on exposes, each with evidence, fix and test status |
+| [INTERACTIONS.md](INTERACTIONS.md) | The census: every game method that touches the planet or outdoor air, what each does, and which bypasses are fixed or accepted |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the mod is built, every patch, the rules that are easy to break |
 | [VERIFICATION.md](VERIFICATION.md) | The tools, what each proves and cannot, and the hard-won facts about running the game headless |
 | [BALANCE.md](BALANCE.md) | Pacing research: machine rates, habitability thresholds, cost per world, the planet-size presets |
 | [ASSUMPTIONS.md](ASSUMPTIONS.md) | Every assumption and simplification in the models and the design, with its justification, what breaks if it is wrong, and how to settle it. Nothing is left out of a model without an entry here |
-| [TEMPERATURE.md](TEMPERATURE.md) | The temperature model: what ships today, its gap, the design options, the anchored design and its results |
+| [TEMPERATURE.md](TEMPERATURE.md) | The temperature rule: the gap in the game's formula, the options weighed, the rule as built, the reviews that changed it, and what the game says when it runs |
 | [ROADMAP.md](ROADMAP.md) | Open work in priority order, open questions, things deliberately not done |
 
 Conventions used throughout:
