@@ -115,6 +115,12 @@ fixed, so on a wet planet a rescale can raise a sea or drain one. The command sa
 asks you to confirm, and rescaling back undoes it. The setting is left alone: it stays the default
 for the next new world.
 
+That fixed amount is the one planet-scale number the game holds absolute, so size decides how wet
+a planet has to get before the sea arrives: a Short planet needs a far larger share of its air as
+liquid than a Shipped one does. A new world starts with the size you set applied to its starting
+air, liquid included, so a custom world that ships liquid can start with a sea at one size and
+without one at another. No world the game ships starts with any liquid.
+
 At Short size one base is a real share of the planet. Mars's coldest nights sit only about 1.5 K above
 the point where carbon dioxide freezes out, and pulling a tenth of its air into tanks crosses it: the
 carbon dioxide then snows out every night and returns every morning until you put some back.

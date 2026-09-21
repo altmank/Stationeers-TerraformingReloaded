@@ -26,10 +26,14 @@
     -MenuPressure  The mix the new-game menu builds to describe a world must be the shipped planet,
                not the resized one it is playing.
     -Rescale   'terraform size <share> confirm' on the planet being played, with the ice caps, the
-               clouds and both heat stores loaded first. Measured either side of the command inside
-               one tick: the air per outdoor cell, the pressure and both heat offsets in kelvin must
-               not move, while the volume, the moles, the cells and the reservoir contents all move
-               by the same factor. -RescaleTo sets the share asked for (default 0.01).
+               clouds and both heat stores loaded first. Run from the main thread while the planet
+               ticks on its own, which is how a console command reaches it. The air per outdoor cell,
+               the pressure and both heat offsets in kelvin must not move, while the volume, the
+               moles, the cells and the reservoir contents all move by the same factor; then forty
+               more rescales from the main thread with nothing held, to give a rescale that did not
+               take the tank lock a chance to tear a tick in half. -RescaleBy is how many times its
+               present size to ask for (default 2.5), measured off the planet itself so the share
+               asked for is never the share it already is. -RescaleTo asks for an absolute share.
 
   -Storm <id> -StormTick <n> force a weather event on at tick n during -Observe or -Model, because
   the game only schedules one after a cooldown of days. Ids are in the game's weather data:
@@ -68,7 +72,8 @@ param(
     [switch]$WallVent,
     [switch]$MenuPressure,
     [switch]$Rescale,
-    [double]$RescaleTo = 0.01,
+    [double]$RescaleTo = 0,
+    [double]$RescaleBy = 2.5,
     [string]$Storm = '',
     [int]$StormTick = 0,
     [double]$HeatK = 0,
@@ -90,7 +95,8 @@ $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
 if (@(($Vanilla -and -not ($Observe -or $Model)), $SaveLoad, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Reset, -Dump, -WallVent, -MenuPressure and -Rescale.' }
-if ($Rescale -and -not ($RescaleTo -gt 0)) { throw '-RescaleTo is the share of the shipped planet to ask for, and must be above zero.' }
+if ($Rescale -and -not (($RescaleTo -gt 0) -or ($RescaleBy -gt 0))) { throw 'Give -RescaleBy, how many times its present size the planet should end up, or -RescaleTo, an absolute share of the shipped planet.' }
+if ($Rescale -and ($RescaleTo -le 0) -and ([math]::Abs($RescaleBy - 1) -lt 1e-9)) { throw '-RescaleBy 1 is not a rescale.' }
 if ($Storm -and -not ($Observe -or $Model)) { throw '-Storm only applies to -Observe and -Model.' }
 if ($Storm -and $StormTick -le 0) { throw '-Storm needs -StormTick, the tick to force the event on at.' }
 
@@ -117,7 +123,8 @@ $envKeys = @(
     'TR_LIVECHECK_INJECT', 'TR_LIVECHECK_SAVE_AFTER_TICKS', 'TR_LIVECHECK_RESET', 'TR_LIVECHECK_DUMP',
     'TR_LIVECHECK_OBSERVE', 'TR_LIVECHECK_DAYSPEED', 'TR_LIVECHECK_SETAIR', 'TR_LIVECHECK_HEATK',
     'TR_LIVECHECK_SETAIR2', 'TR_LIVECHECK_SETAIR2_TICK', 'TR_LIVECHECK_STORM', 'TR_LIVECHECK_STORM_TICK',
-    'TR_LIVECHECK_WALLVENT_TICK', 'TR_LIVECHECK_MENUMIX', 'TR_LIVECHECK_RESCALE', 'TR_LIVECHECK_RESCALE_TICK')
+    'TR_LIVECHECK_WALLVENT_TICK', 'TR_LIVECHECK_MENUMIX', 'TR_LIVECHECK_RESCALE', 'TR_LIVECHECK_RESCALE_BY',
+    'TR_LIVECHECK_RESCALE_TICK')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -148,8 +155,9 @@ function Invoke-Game([string[]]$arguments, [hashtable]$environment, [scriptblock
 
 function Get-Rows($log) {
     foreach ($line in $log) {
-        if ($line -match 'LiveCheck: tick\s+(\d+) \| tank ([\d.]+) \| tank CO2 ([\d.]+) \| outdoor cells\s+(\d+) holding ([\d.]+) \| SUM ([\d.]+)') {
-            [pscustomobject]@{ Tick = [int]$Matches[1]; Tank = [double]$Matches[2]; Co2 = [double]$Matches[3]; Cells = [int]$Matches[4]; Held = [double]$Matches[5]; Sum = [double]$Matches[6] }
+        if ($line -match 'LiveCheck: tick\s+(\d+) \| tank ([\d.]+) \| tank CO2 ([\d.]+) \| outdoor cells\s+(\d+) holding ([\d.]+) \| cell CO2 ([\d.]+) \| SUM ([\d.]+)') {
+            [pscustomobject]@{ Tick = [int]$Matches[1]; Tank = [double]$Matches[2]; Co2 = [double]$Matches[3]; Cells = [int]$Matches[4]
+                Held = [double]$Matches[5]; CellCo2 = [double]$Matches[6]; Sum = [double]$Matches[7] }
         }
     }
 }
@@ -276,19 +284,37 @@ try {
         # 'terraform size <share> confirm'. Planet size is what a player picks before they know what
         # it means, so it can be changed on the planet being played. What that must not touch is the
         # air: the mix per outdoor cell, the pressure and both heat offsets have to come out where
-        # they were, while the planet behind them scales whole. Both sides are measured inside one
-        # planet tick, so nothing but the command can have moved between them.
-        $share = $RescaleTo.ToString([cultureinfo]::InvariantCulture)
-        $log = Invoke-Game @('-new', 'Mars2') @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_RESCALE = $share; TR_LIVECHECK_RESCALE_TICK = '30' } `
-            { param($l) @($l -match 'LiveCheck: rescale after ').Count -gt 0 -and @($l -match 'LiveCheck: cmd status').Count -ge 2 } 'the planet rescale'
+        # they were, while the planet behind them scales whole.
+        #
+        # The share is measured off the planet by the driver (-RescaleBy times its present size), so
+        # it can never be the share the planet already is: an absolute default silently became a
+        # no-op whenever the config happened to match it, and the run then judged a rescale that had
+        # correctly refused to happen.
+        $environment = @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_RESCALE_TICK = '30' }
+        if ($RescaleTo -gt 0) { $environment.TR_LIVECHECK_RESCALE = $RescaleTo.ToString([cultureinfo]::InvariantCulture) }
+        else { $environment.TR_LIVECHECK_RESCALE_BY = $RescaleBy.ToString([cultureinfo]::InvariantCulture) }
+        # Waits for a sample taken after the last rescale as well, so a planet that stopped ticking
+        # under them shows up as a timeout here rather than as an empty check below.
+        $log = Invoke-Game @('-new', 'Mars2') $environment `
+            { param($l)
+              $done = @($l -match 'LiveCheck: rescale done ')
+              if ($done.Count -eq 0) { return $false }
+              $tick = if ($done[0] -match '\| tick (\d+)') { [int]$Matches[1] } else { 0 }
+              @(Get-Rows $l | Where-Object { $_.Tick -gt $tick }).Count -ge 1 } 'the planet rescale'
         Assert-ModLive $log
+        $askedLine = @($log -match 'LiveCheck: rescale asking for ')
+        if ($askedLine.Count -eq 0) { throw 'LiveCheck FAILED: the driver never chose a share to ask for.' }
+        if ($askedLine[0] -notmatch 'asking for ([\d.E+-]+) of shipped at tick \d+ \| planet is ([\d.E+-]+) \| factor ([\d.E+-]+)') {
+            throw "LiveCheck FAILED: could not read the share asked for: $($askedLine[0])"
+        }
+        $asked = [double]$Matches[1]; $factor = [double]$Matches[3]
+        if ([math]::Abs($factor - 1) -lt 1e-6) { throw "LiveCheck FAILED: the share asked for is the size the planet already is, so this run would prove nothing." }
         $before = Get-Rescale $log 'before'
         $after = Get-Rescale $log 'after'
         $answers = @($log -match 'LiveCheck: cmd ') | ForEach-Object { $_ -replace '.*LiveCheck: cmd ', '' }
         $answers | ForEach-Object { Write-Host ("cmd " + $_.Substring(0, [math]::Min(200, $_.Length))) }
         $sizes = @(@($answers -match 'planet size: ([\d.]+) of shipped') | ForEach-Object { [double]($_ -replace '.*planet size: ([\d.]+) of shipped.*', '$1') })
         if ($sizes.Count -lt 2) { throw 'LiveCheck FAILED: status did not report the planet size both before and after.' }
-        $factor = $RescaleTo / $sizes[0]
         Write-Host ("planet size {0} -> {1}, so everything the rescale moves must move by {2}" -f $sizes[0], $sizes[-1], $factor)
         Write-Host ("before: volume {0:N0} L, {1:N3} mol, caps {2:N3}, clouds {3:N3}, P {4:0.00000} kPa, latent {5:0.00000} K, external {6:0.00000} K" -f $before.Volume, $before.Mol, $before.Caps, $before.Clouds, $before.P, $before.LatentK, $before.ExtK)
         Write-Host ("after:  volume {0:N0} L, {1:N3} mol, caps {2:N3}, clouds {3:N3}, P {4:0.00000} kPa, latent {5:0.00000} K, external {6:0.00000} K" -f $after.Volume, $after.Mol, $after.Caps, $after.Clouds, $after.P, $after.LatentK, $after.ExtK)
@@ -306,21 +332,37 @@ try {
         foreach ($scaled in @(@('volume', $before.Volume, $after.Volume), @('moles', $before.Mol, $after.Mol), @('outdoor cells', $before.Cells, $after.Cells),
                               @('ice caps', $before.Caps, $after.Caps), @('clouds', $before.Clouds, $after.Clouds), @('ice cap volume', $before.CapsVolume, $after.CapsVolume))) {
             $wanted = $scaled[1] * $factor
-            if ([math]::Abs($scaled[2] - $wanted) -gt [math]::Max(1e-6, [math]::Abs($wanted) * 1e-9)) {
+            # The driver prints these to six decimals, so each side carries up to 5e-7 of rounding and
+            # the before figure carries it times the factor. Below that there is nothing to compare.
+            if ([math]::Abs($scaled[2] - $wanted) -gt ([math]::Abs($wanted) * 1e-9 + 1e-6 * (1 + $factor))) {
                 $problems += ("{0} did not scale by {1}: {2} became {3}, expected {4}" -f $scaled[0], $factor, $scaled[1], $scaled[2], $wanted)
             }
         }
-        # Status prints the size to four decimals, so compare it at that.
-        if ([math]::Abs($sizes[-1] - $RescaleTo) -gt 5e-5) { $problems += "status reports the planet at $($sizes[-1]) of shipped, not $RescaleTo" }
+        # Status prints the size to four decimals, so compare it at that. The last status is taken
+        # after the hammering, so it also says the planet came back to the share it was asked for.
+        if ([math]::Abs($sizes[-1] - $asked) -gt 5e-5) { $problems += "status reports the planet at $($sizes[-1]) of shipped, not $asked" }
         if ($answers -match 'THREW') { $problems += 'a console command threw' }
+        if ($log -match 'LiveCheck: rescale FAIL') { $problems += 'the driver could not run the rescale' }
         if (-not ($answers -match "^size 0 confirm -> '0' is not a planet size")) { $problems += 'size 0 confirm was not refused' }
         if (-not ($answers -match "^size banana confirm -> 'banana' is not a planet size")) { $problems += 'a size that is not a number was not refused' }
         if (-not ($answers -match "^size 1000 confirm -> '1000' is not a planet size")) { $problems += 'a size outside the range was not refused' }
         if (-not ($answers -match '^size [\d.]+ -> This rescales the planet you are playing')) { $problems += 'size without confirm did not explain and ask' }
         if (-not ($answers -match '^size [\d.]+ confirm -> Planet rescaled\.')) { $problems += 'the rescale did not report what it did' }
         if (-not ($answers -match 'the setting is [\d.]+ and applies to a new world')) { $problems += 'status no longer says the setting and the planet disagree' }
+
+        # The unlocked path: rescale after rescale from the main thread while the planet ticks on its
+        # own. Every one has to answer that it rescaled, and the world has to go on ticking afterwards.
+        $doneLine = @($log -match 'LiveCheck: rescale done ')[0]
+        $hammered = if ($doneLine -match 'from the main thread (\d+) more times \| tick (\d+)') { [int]$Matches[1] } else { 0 }
+        $doneTick = if ($doneLine -match 'from the main thread \d+ more times \| tick (\d+)') { [int]$Matches[1] } else { 0 }
+        $rescaled = @($answers -match '^size [\d.]+ confirm -> Planet rescaled\.').Count
+        Write-Host ("{0} rescales ran from the main thread while the planet ticked, all answered" -f $rescaled)
+        if ($hammered -lt 20) { $problems += "only $hammered rescales crossed threads; the run did not exercise the console path" }
+        if ($rescaled -lt $hammered + 1) { $problems += "$rescaled of $($hammered + 1) rescales answered that they rescaled" }
+        $ticking = @(@(Get-Rows $log) | Where-Object { $_.Tick -gt $doneTick })
+        if ($ticking.Count -lt 1) { $problems += 'the planet stopped ticking after the rescales' }
         if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: ' + ($problems -join '; ')) }
-        Write-Host 'LiveCheck OK: the planet scaled whole and its air did not move.'
+        Write-Host 'LiveCheck OK: the planet scaled whole, its air did not move, and it took the command from another thread.'
         return
     }
 
@@ -368,7 +410,16 @@ try {
         $v = $rows[-1]; $vs = $states[-1]
         Write-Host ($fmt -f 'mod removed:', $v.Tank, ($v.Tank - $stock.Tank), $vs.Caps, $vs.Clouds, $vs.LatentJ, $vs.ExternalJ)
         $problems = @()
-        if ([math]::Abs($v.Tank - $stock.Tank) -gt 1) { $problems += "planet air is off stock by $([math]::Round($v.Tank - $stock.Tank, 3)) mol" }
+        # The reset restores the tank; the outdoor cells still standing are not touched by it and go
+        # on handing back what they hold over the ticks before the save. They were resting at the
+        # terraformed planet's density, so what they hand back above stock is what they held times
+        # how much denser than stock the planet was, and that share is larger on a smaller planet: a
+        # flat 1 mol bound only passes at the size it was measured at (+1.825 mol at 0.01). Take the
+        # bound from the run's own figures instead, with 1 mol for the rest.
+        $denser = [math]::Max(0.0, ($dirtyRow.Tank / $stock.Tank) - 1.0)
+        $allowed = 1.0 + $dirtyRow.Held * $denser
+        Write-Host ("outdoor cells held {0:0.000} mol at the reset on a planet {1:P2} denser than stock, so the planet may come back up to {2:0.000} mol above it" -f $dirtyRow.Held, $denser, $allowed)
+        if ([math]::Abs($v.Tank - $stock.Tank) -gt $allowed) { $problems += "planet air is off stock by $([math]::Round($v.Tank - $stock.Tank, 3)) mol, more than the $([math]::Round($allowed, 3)) the cells could hand back" }
         if (($vs.Caps + $vs.Clouds) -gt 0.001) { $problems += 'ice caps or clouds are not empty' }
         # 1.27e9 J shifts Mars by 1 K. Allow a hundredth of a kelvin: outdoor cells go on trading a
         # few hundred joules with the planet in the ticks between the reset and the save, and the
@@ -424,14 +475,29 @@ try {
     $before = @($rows | Where-Object { $_.Sum -lt ($rows[0].Sum + 50000) })
     $after = @($rows | Where-Object { $_.Sum -ge ($rows[0].Sum + 50000) })
     if ($before.Count -lt 2 -or $after.Count -lt 5) { throw 'Not enough samples either side of the injection.' }
-    $co2Gain = $after[-1].Co2 - $before[-1].Co2
+    # Moles, then species. The planet and its outdoor cells together must gain exactly what was put
+    # outdoors, at any planet size; almost all of it must be the gas that was injected.
+    #
+    # Not "the planet's carbon dioxide gained 100,000 within 5": that assertion only passes at the
+    # size it was measured at. The game's mixing moves totals, and takes the composition from
+    # whichever side it is drawing from, so while thousands of cells hold gas that is nearly pure
+    # carbon dioxide and the planet's own mix has shifted under them, the planet trades a little
+    # carbon dioxide for a little of everything else. Nothing is lost: measured here at size 0.01,
+    # carbon dioxide ended 4.9 mol under the 100,000 while oxygen, nitrogen and pollutant each ended
+    # 0.021 % over, which is the same 4.9 mol. The trade is as large as the injection shifts the
+    # planet's own composition, so it is five times larger at size 0.01 than at 0.05, which is why a
+    # flat 5 mol bound on one gas fails on a small planet and passes on a large one.
+    $gain = $after[-1].Sum - $before[-1].Sum
+    $co2Gain = ($after[-1].Co2 + $after[-1].CellCo2) - ($before[-1].Co2 + $before[-1].CellCo2)
     Write-Host ("sum before injection varies by {0:0.000} mol" -f (Get-Spread $before.Sum))
     Write-Host ("sum after injection varies by  {0:0.000} mol across up to {1} outdoor cells" -f (Get-Spread $after.Sum), ($after.Cells | Measure-Object -Maximum).Maximum)
-    Write-Host ("planet CO2 gained {0:0.000} mol of 100000 injected" -f $co2Gain)
+    Write-Host ("the planet and its cells gained {0:0.000} mol of 100000 injected, of which {1:0.000} is CO2; the other gases took {2:0.000} mol of it in trade" -f `
+        $gain, $co2Gain, ($gain - $co2Gain))
     $problems = @()
     if ((Get-Spread $before.Sum) -gt 1) { $problems += 'sum drifts before injection' }
     if ((Get-Spread $after.Sum) -gt 1) { $problems += 'sum drifts after injection: gas is being created or lost' }
-    if ([math]::Abs($co2Gain - 100000) -gt 5) { $problems += 'the planet did not receive what was injected' }
+    if ([math]::Abs($gain - 100000) -gt 1) { $problems += 'the planet did not receive what was injected' }
+    if ($co2Gain -lt $gain * 0.999) { $problems += 'what reached the planet is not the gas that was injected' }
 
     # The console command, run by the driver the way the console would run it.
     $answers = @($log -match 'LiveCheck: cmd ') | ForEach-Object { $_ -replace '.*LiveCheck: cmd ', '' }

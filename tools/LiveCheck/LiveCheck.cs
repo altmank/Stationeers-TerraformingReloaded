@@ -71,10 +71,25 @@ namespace TerraformingReloaded.LiveCheck
         private static readonly bool MenuMix = Environment.GetEnvironmentVariable("TR_LIVECHECK_MENUMIX") == "1";
         private bool _menuMixDone;
 
-        // terraform size <share> confirm on the planet being played: RESCALE is the share to ask for.
+        // terraform size <share> confirm on the planet being played. RESCALE_BY is how many times its
+        // present size to ask for, measured off the planet itself so the share asked for can never be
+        // the share it already is, which would make the scenario a no-op. RESCALE is an absolute share
+        // instead, for asking a particular question.
         private static readonly string RescaleTo = Environment.GetEnvironmentVariable("TR_LIVECHECK_RESCALE");
+        private static readonly double RescaleBy = double.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_RESCALE_BY"), NumberStyles.Float, CultureInfo.InvariantCulture, out double rb) ? rb : 0.0;
         private static readonly uint RescaleTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_RESCALE_TICK"), out uint rs) ? rs : 0u;
+        private static bool RescaleWanted => !string.IsNullOrEmpty(RescaleTo) || RescaleBy > 0.0;
         private bool _rescaleDone;
+
+        // After the measured rescale, the same command again and again from the main thread while the
+        // planet ticks on its own thread. A rescale that did not hold the tank lock would be free to
+        // tear a tick in half here; an even number of them, alternating, ends back at the share the
+        // measured rescale asked for.
+        private const int HammerRescales = 40;
+        private int _hammered;
+        private bool _rescaleReported;
+        private string _shareAsked;
+        private string _shareBefore;
 
         private bool _dumped;
         private bool _commandsRun;
@@ -120,12 +135,6 @@ namespace TerraformingReloaded.LiveCheck
             {
                 _instance._menuMixDone = true;
                 _instance.ReportMenuMix();
-            }
-            if (_instance != null && !_instance._rescaleDone && !string.IsNullOrEmpty(RescaleTo)
-                && RescaleTick > 0 && GameManager.GameTickCount >= RescaleTick)
-            {
-                _instance._rescaleDone = true;
-                _instance.CheckRescale();
             }
             if (_instance == null || _instance._failed || GameManager.GameTickCount % ReportEveryTicks != 0)
             {
@@ -186,6 +195,29 @@ namespace TerraformingReloaded.LiveCheck
             {
                 _stormStarted = true;
                 StartStorm();
+            }
+            // From Update, which is the main thread: a console command reaches the planet from there,
+            // and the planet tick runs on another thread, so this is the only arrangement in which a
+            // rescale that forgot the tank lock could show.
+            if (!_rescaleDone && RescaleWanted && RescaleTick > 0 && GameManager.GameTickCount >= RescaleTick)
+            {
+                _rescaleDone = true;
+                CheckRescale();
+            }
+            if (_rescaleDone && !_rescaleReported && !string.IsNullOrEmpty(_shareAsked))
+            {
+                if (_hammered < HammerRescales)
+                {
+                    _hammered++;
+                    RunCommand("size", _hammered % 2 == 1 ? _shareBefore : _shareAsked, "confirm");
+                }
+                else
+                {
+                    _rescaleReported = true;
+                    RunCommand("status");
+                    Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                        "LiveCheck: rescale done | from the main thread {0} more times | tick {1}", _hammered, GameManager.GameTickCount));
+                }
             }
             if (!_injected && Inject_ && now - _worldSeenAt > SettleSeconds && GameManager.GameTickCount > 10)
             {
@@ -379,32 +411,59 @@ namespace TerraformingReloaded.LiveCheck
         }
 
         /// <summary>
-        /// terraform size &lt;share&gt; confirm on a live planet. Run from the planet tick, where the
-        /// tank, the clouds, the ice caps and both heat stores read live and nothing else is moving,
-        /// so the figures either side of the command differ by the rescale and nothing else.
-        /// The ice caps, the clouds and both heat stores are loaded first (Dirty), or the parts of
-        /// the planet that are not the tank would all be zero and prove nothing.
-        /// The refusals are asked for first: they must answer, not throw, and must not rescale.
+        /// terraform size &lt;share&gt; confirm on a live planet, run from the main thread while the
+        /// planet ticks on its own: that is how the command reaches the planet in a real game, and a
+        /// rescale crossing threads is the hazard worth testing.
+        ///
+        /// The share asked for is measured off the planet itself (RESCALE_BY times its present size),
+        /// so it cannot be the share the planet already is, which the command would rightly refuse.
+        ///
+        /// The two sets of figures are read under the tank lock along with the command, because a tick
+        /// in between melts ice caps into the planet and the two readings would then differ by more
+        /// than the rescale. The unlocked path is exercised straight afterwards, by the hammering in
+        /// Step: forty more rescales from this thread with nothing held.
+        ///
+        /// The ice caps, the clouds and both heat stores are loaded first (Dirty), or the parts of the
+        /// planet that are not the tank would all be zero and prove nothing. The refusals are asked
+        /// for first: they must answer, not throw, and must not rescale.
         /// </summary>
         private void CheckRescale()
         {
             try
             {
                 Dirty();
+                double shipped = WorldSetting.Current.Data.GlobalAtmosphereData.GetVolume().ToDouble();
+                double now = PlanetaryAtmosphereSimulation.GetGlobalGasMix().Volume.ToDouble() / shipped;
+                double target = RescaleBy > 0.0 ? now * RescaleBy : double.Parse(RescaleTo, CultureInfo.InvariantCulture);
+                _shareBefore = now.ToString("0.##########", CultureInfo.InvariantCulture);
+                _shareAsked = target.ToString("0.##########", CultureInfo.InvariantCulture);
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                    "LiveCheck: rescale asking for {0} of shipped at tick {1} | planet is {2} | factor {3:0.##########}",
+                    _shareAsked, GameManager.GameTickCount, _shareBefore, target / now));
+
                 RunCommand("size", "0", "confirm");
                 RunCommand("size", "banana", "confirm");
                 RunCommand("size", "1000", "confirm");
-                RunCommand("size", RescaleTo);              // no confirm: must explain and ask
-                string before = RescaleFigures();
-                RunCommand("size", RescaleTo, "confirm");
-                string after = RescaleFigures();
+                RunCommand("size", _shareAsked);            // no confirm: must explain and ask
+
+                object gate = AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), "GlobalInteraction").GetValue(null);
+                string before;
+                string after;
+                lock (gate)
+                {
+                    before = RescaleFigures();
+                    RunCommand("size", _shareAsked, "confirm");
+                    after = RescaleFigures();
+                }
                 Logger.LogInfo("LiveCheck: rescale before " + before);
                 Logger.LogInfo("LiveCheck: rescale after " + after);
                 RunCommand("status");
             }
             catch (Exception e)
             {
+                _rescaleReported = true;
                 Logger.LogInfo("LiveCheck: rescale FAIL " + e);
+                Logger.LogInfo("LiveCheck: rescale done | failed before it could ask");
             }
         }
 
@@ -430,8 +489,11 @@ namespace TerraformingReloaded.LiveCheck
                     gases.AppendFormat(CultureInfo.InvariantCulture, " {0}={1:0.000000}", type, moles / cells);
                 }
             }
+            // Six decimals, not three: these are compared either side of a rescale against a factor,
+            // and on a planet shrunk to a third of its size three decimals is coarser than the
+            // agreement being asked for.
             return string.Format(CultureInfo.InvariantCulture,
-                "volume {0:0.000} | mol {1:0.000} | cells {2:0.000} | P {3:0.00000} | caps {4:0.000} | clouds {5:0.000} | capsVolume {6:0.000} | latentK {7:0.00000} | extK {8:0.00000} | gases{9}",
+                "volume {0:0.000000} | mol {1:0.000000} | cells {2:0.000000} | P {3:0.00000} | caps {4:0.000000} | clouds {5:0.000000} | capsVolume {6:0.000000} | latentK {7:0.00000} | extK {8:0.00000} | gases{9}",
                 tank.Volume.ToDouble(), tank.TotalQuantity().ToDouble(), cells,
                 IdealGas.Pressure(tank.TotalQuantityGas(), PlanetaryAtmosphereSimulation.AggregateTemperature, tank.VolumeForGas()).ToDouble(),
                 caps.TotalQuantity().ToDouble(), liquid.TotalQuantity().ToDouble() + ice.TotalQuantity().ToDouble(),
@@ -789,14 +851,21 @@ namespace TerraformingReloaded.LiveCheck
                 return;
             }
             double inTank = tank.TotalQuantity().ToDouble();
-            double tankCo2 = tank.Get(Chemistry.GasType.CarbonDioxide).ToDouble();
+            // Gas and liquid, so carbon dioxide that condenses is still counted where it is.
+            double tankCo2 = tank.Get(Chemistry.GasType.CarbonDioxide).ToDouble() + tank.Get(Chemistry.GasType.LiquidCarbonDioxide).ToDouble();
             double inCells = 0.0;
+            // The injected gas that has not reached the planet yet. Outdoor cells rest at the planet's
+            // own density, so the denser the injection leaves the planet the more they hold back, and
+            // on a small planet the same injection is a much larger density rise. Counted here, what
+            // was injected is the rise in tank plus cells, which is the same at any planet size.
+            double cellCo2 = 0.0;
             int cells = 0;
             AtmosphericsManager.AllAtmospheres.ForEach((Action<Atmosphere>)(a =>
             {
                 if (a != null && a.Mode == AtmosphereHelper.AtmosphereMode.World)
                 {
                     inCells += a.GasMixture.GetTotalMolesGassesAndLiquids.ToDouble();
+                    cellCo2 += a.GasMixture.CarbonDioxide.Quantity.ToDouble() + a.GasMixture.LiquidCarbonDioxide.Quantity.ToDouble();
                     cells++;
                 }
             }));
@@ -805,16 +874,27 @@ namespace TerraformingReloaded.LiveCheck
                 ReportObserve(tank);
             }
             PlanetaryAtmosphereSaveData state = PlanetaryAtmosphereSimulation.Save();
+            // The planet gas by gas as well as in total. A total that holds while one gas falls and
+            // another rises is a different thing from a leak, and only this line can tell them apart.
+            System.Text.StringBuilder gases = new System.Text.StringBuilder();
+            foreach (Chemistry.GasType type in (Chemistry.GasType[])Enum.GetValues(typeof(Chemistry.GasType)))
+            {
+                double moles = Mole.MatterState(type) == AtmosphereHelper.MatterState.None ? 0.0 : tank.Get(type).ToDouble();
+                if (moles != 0.0)
+                {
+                    gases.AppendFormat(CultureInfo.InvariantCulture, " {0}={1:0.000}", type, moles);
+                }
+            }
             Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
-                "LiveCheck: state tick {0} | caps {1:0.000} | clouds {2:0.000} | latentJ {3:0.###} | externalJ {4:0.###}",
+                "LiveCheck: state tick {0} | caps {1:0.000} | clouds {2:0.000} | latentJ {3:0.###} | externalJ {4:0.###} | tank gases{5}",
                 GameManager.GameTickCount, Total(state.IceCaps), Total(state.LiquidClouds) + Total(state.IceClouds),
-                state.LatentOffset?.Value ?? 0.0, state.ExternalOffset?.Value ?? 0.0));
+                state.LatentOffset?.Value ?? 0.0, state.ExternalOffset?.Value ?? 0.0, gases));
             Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
-                "LiveCheck: tick {0,5} | tank {1:0.000} | tank CO2 {2:0.000} | outdoor cells {3,5} holding {4:0.000} | SUM {5:0.000} | T {6:0.00} K | P {7:0.0000} kPa | ext {8:0.###} K",
+                "LiveCheck: tick {0,5} | tank {1:0.000} | tank CO2 {2:0.000} | outdoor cells {3,5} holding {4:0.000} | cell CO2 {9:0.000} | SUM {5:0.000} | T {6:0.00} K | P {7:0.0000} kPa | ext {8:0.###} K",
                 GameManager.GameTickCount, inTank, tankCo2, cells, inCells, inTank + inCells,
                 PlanetaryAtmosphereSimulation.AggregateTemperature.ToDouble(),
                 PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble(),
-                PlanetaryAtmosphereSimulation.ExternalInputOffset.ToDouble()));
+                PlanetaryAtmosphereSimulation.ExternalInputOffset.ToDouble(), cellCo2));
         }
     }
 }
