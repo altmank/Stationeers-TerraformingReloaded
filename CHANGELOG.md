@@ -17,7 +17,9 @@ but nobody has played a world through on it yet.
 - Planet size sets how long it takes and nothing else: Short, Standard (default, about 85 hours for a mega
   base on Mars), Long, Unmodded baseline, or a custom share.
 - `terraform` console command: status, `size <share> confirm`, `reset confirm`, `curves export`,
-  `curves reload`. The reset puts the planet back as the world ships and is the clean way to remove the mod.
+  `curves reload`. The status shows where gas that has frozen out of the air is being held, in the clouds
+  and in the ice caps, and how close a cloud is to raining or snowing it back. The reset puts the planet
+  back as the world ships and is the clean way to remove the mod.
 - `terraform size <share> confirm` changes how big the planet you are playing is, and so how long
   terraforming it takes, without touching its air: pressure, mix and temperature come out exactly where
   they were, because the planet, its clouds and its ice caps all move together, and the air in your base

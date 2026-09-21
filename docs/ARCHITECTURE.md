@@ -117,6 +117,16 @@ it prints size, cells, moles and pressure either side of itself;
 the pressure there is computed from the tank, not read from the game's per-tick planet readout,
 which inside one command would be the same reading twice.
 
+Status ends with the three reservoirs the game keeps beside the tank, through the field refs
+`Planet` already holds: moles, the gases in each, and for the two clouds the litres of liquid they
+hold against their own volume, which is the pair the tick compares (`_liquidClouds.VolumeOfLiquid()
+>= _liquidClouds.Volume`) before it empties the cloud into the planet and schedules rain or snow.
+The ice caps get no such pair: they carry a volume, and the mod keeps it in proportion with the
+planet, but no game code ever compares their contents with it, so a capacity there would show a
+limit that does not exist. The list steps over `Air` and `Fuel` by matter state, as the per-cell
+list above it does; the game's own World Setting Tools window does not, and throws part way through
+drawing because `GlobalGasMix.Get` has no case for them. That is the game's bug and is left alone.
+
 ## Settings
 
 `PlanetSize` preset and `CustomPlanetSize`; `Enabled`, `DynamicSky` (restart); `GhgResponseScale`,
