@@ -71,7 +71,7 @@ Gas `Quantity` is moles per 8000 L outdoor cell. The shipped Mars world file
 curves, and `terraform curves export` writes the mod's default greenhouse and density curves in the
 same shape, ready to paste into a world and adjust.
 
-Note that a world which ships its own `GHGTemperatureOffset` gets exactly that curve and nothing
+A world that ships its own `GHGTemperatureOffset` gets exactly that curve and nothing
 more: the hot-world treatment above applies only to the mod's filled-in response.
 
 ## Things to get right

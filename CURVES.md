@@ -31,14 +31,14 @@ terraform curves reload
 ```
 
 The change applies at once. `terraform` shows the planet temperature and, on its "temperature
-response" line, "adding N K now": the kelvin these curves are contributing, so you can see what your
+response" line, "adding N K now": the kelvin these curves add, so you can see what your
 edit did. (The `greenhouse` and `density` parts it also lists are the game's own and read 0 on these
 worlds.) To go back to the
 built-in curves, delete the file and reload.
 
 If the file cannot be read, the mod says so in the log and uses the built-in curves.
 
-For a simple stronger or weaker response you do not need this file at all: the
+For a stronger or weaker response you do not need this file at all: the
 **Greenhouse strength** and **Air density strength** settings in the mod's config apply at once.
 Greenhouse strength multiplies the greenhouse response (on Venus and Vulcan only its cooling side,
 see below). Air density strength sets how quickly thickening air evens out day and night: 0 is off,
@@ -94,7 +94,7 @@ In millimoles per litre. For scale: Mars starts near 1.1, Vulcan near 7, Venus n
 near 43, the Moon at 0.
 
 Built in: thin air swings hard (+50 K by day, -60 K by night at zero) and thick air evens out
-(the two cross near 34). That is the whole reason a thin atmosphere has brutal nights and a thick
+(the two cross near 34). That is why a thin atmosphere has brutal nights and a thick
 one does not.
 
 What the mod takes from this curve is the **gap between `Day` and `Night`** at the current density,
