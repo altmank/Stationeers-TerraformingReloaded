@@ -63,9 +63,9 @@ These omit composters and in-place CO2 to O2 conversion, so they are a **lower b
 clever base can do. Combustion is priced further down, in ices, and agrees with them. The two values
 that would tighten them most: how fast a farm can feed composters, and quarry throughput on ice veins.
 
-## Cost to reach shirt-sleeve air
+## Cost to reach air you can breathe without a suit
 
-Shirt sleeves = ppO2 at least 16 kPa, toxins under 0.5 kPa, 273-323 K at the coldest and hottest the
+No suit needed = ppO2 at least 16 kPa, toxins under 0.5 kPa, 273-323 K at the coldest and hottest the
 planet gets over every sun angle and both ends of its orbit, 20-304 kPa, and every gas in the air
 stable against freezing and rain (TEMPERATURE.md). "End state" is `solve.py`; "path" is `path.py`,
 which has to get there step by step under the game's phase change and is an upper bound (greedy
@@ -100,9 +100,9 @@ holds at the outdoor temperature. At Standard size:
 | Vulcan2 | volatiles 27, pollutant 14, hydrogen 3 | 45 M mol to take out 11 M: x4.2 | 62 h | 33 h |
 
 Venus's penalty is small because what it has to lose is 93 % of its air, and its dense air comes in
-fast. So vents are not what limits a removal world. What does is everything behind them, which is
-not the filters either (a filter wears by hours in use, not by moles, and a Filtration unit outruns
-the vents; ASSUMPTIONS.md S12) but somewhere to put 66 million moles. A big tank holds about
+fast. So vents are not what limits a removal world, and neither are the filters (a filter wears by
+hours in use, not by moles, and a Filtration unit outruns the vents; ASSUMPTIONS.md S12). What
+limits it is somewhere to put 66 million moles. A big tank holds about
 1.2 M mol of gas at the pipe limit, or as liquid 1.25 M mol of CO2 or 1.8 M mol of acid, so Venus at Standard size is about 47
 big tanks and at Short about 10. There is no dumping it: gas released above the 1,000 m space line
 goes back to the planet. That tank farm is the real price of a removal world. ASSUMPTIONS.md S9, S12.
