@@ -129,24 +129,63 @@ namespace TerraformingReloaded
             {
                 return string.Format(c, "This planet is already {0:0.####} of the size this world ships at; nothing was changed.", now);
             }
+            // Asked here as well as inside the rescale, so the prompt never promises something that
+            // would then be turned away.
+            string refused = Planet.RescaleRefusal();
+            if (refused != null)
+            {
+                return refused;
+            }
             // It changes how much work is left, so it asks once, like the reset does.
             if (args.Length < 3 || args[2].ToLowerInvariant() != "confirm")
             {
                 return string.Format(c, "This rescales the planet you are playing, from {0:0.####} to {1:0.####} of the size this world ships at: it ends up {2:0.###} times its present size, so terraforming it takes {2:0.###} times as long. "
-                    + "Your air is kept exactly as it is: pressure, mix and temperature come out where they are now, and your base and every outdoor cell are untouched. "
-                    + "To go ahead: terraform size {1:0.####} confirm", now, share, factor);
+                    + "Your air is kept exactly as it is: pressure, mix and temperature come out where they are now, and the air in your base and in every outdoor cell is left alone.{3} "
+                    + "To go ahead: terraform size {1:0.####} confirm", now, share, factor, SeaPart(tank, factor));
             }
 
-            string before = SizeLine(tank, shipped);
-            string problem = Planet.Rescale(factor);
+            // Both readings and the rescale under one hold of the tank lock. A planet tick moves gas
+            // in and out of the tank, so read outside it the two figures can straddle one.
+            string before = null;
+            string after = null;
+            string problem = null;
+            Planet.UnderTankLock(() =>
+            {
+                before = SizeLine(tank, shipped);
+                problem = Planet.Rescale(factor);
+                after = SizeLine(tank, shipped);
+            });
             if (problem != null)
             {
                 return problem;
             }
             return "Planet rescaled. Every outdoor cell holds the air it held a moment ago; what changed is how much planet is behind it." + Environment.NewLine
                 + "  before  " + before + Environment.NewLine
-                + "  now     " + SizeLine(tank, shipped) + Environment.NewLine
+                + "  now     " + after + Environment.NewLine
                 + string.Format(c, "  The planet size setting is still {0:0.####} and still applies to a new world, not to this one.", Settings.PlanetSize);
+        }
+
+        /// <summary>
+        /// The one thing a rescale does not leave where it was. The game floods the outdoors with a
+        /// sea 2 to 10 m deep once the planet holds more liquid than
+        /// GlobalAtmosphereLiquid.RenderThreshold, which is a fixed number of litres and does not
+        /// follow planet size, and everything outdoors under that sea counts as under water.
+        /// Multiplying the planet's liquid can put it on the other side of that line. How deep the sea
+        /// is does not move, being a share of the planet's own volume. Rescaling back undoes it, so
+        /// this is said in the prompt rather than used to refuse. Empty on an ordinary dry planet.
+        /// </summary>
+        private static string SeaPart(GlobalGasMix tank, double factor)
+        {
+            double threshold = GlobalAtmosphereLiquid.RenderThreshold.ToDouble();
+            double litres = tank.VolumeOfLiquid().ToDouble();
+            if ((litres > threshold) == (litres * factor > threshold))
+            {
+                return "";
+            }
+            return string.Format(CultureInfo.InvariantCulture,
+                " IT WOULD {0} THE SEA: this planet's liquid goes from {1:N0} to {2:N0} litres, and the game floods the outdoors above {3:N0} litres whatever size the planet is, so {4}. Rescaling back undoes it.",
+                litres * factor > threshold ? "RAISE" : "DRAIN", litres, litres * factor, threshold,
+                litres * factor > threshold ? "everything outdoors below 2 to 10 m would end up under water" : "the sea outside would go away");
         }
 
         /// <summary>

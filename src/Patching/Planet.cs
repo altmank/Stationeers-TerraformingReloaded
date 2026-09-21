@@ -102,6 +102,12 @@ namespace TerraformingReloaded.Patching
 
         public static bool ReservoirsKnown => ReservoirRefs[0] != null && ReservoirRefs[1] != null && ReservoirRefs[2] != null;
 
+        /// <summary>
+        /// This world's clouds and ice caps were measured at its start, so their volumes can be put
+        /// back in proportion whenever the planet's size changes. Implies ReservoirsKnown.
+        /// </summary>
+        public static bool ReservoirsRecorded => _reservoirsSeen;
+
         /// <summary>World start, straight after the game has built fresh reservoirs and before a save is loaded over them.</summary>
         internal static void NoteShippedReservoirs()
         {
@@ -175,6 +181,11 @@ namespace TerraformingReloaded.Patching
         /// </summary>
         public static string Rescale(double factor)
         {
+            string refused = RescaleRefusal();
+            if (refused != null)
+            {
+                return refused;
+            }
             GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
             if (tank == null)
             {
@@ -184,18 +195,78 @@ namespace TerraformingReloaded.Patching
             {
                 return "That is not a size a planet can be; nothing was changed.";
             }
+
+            string problem = null;
+            bool started = false;
+            // The planet tick and every take and give hold this lock, so nothing sees half a rescale.
+            UnderTankLock(() =>
+            {
+                try
+                {
+                    started = true;
+                    SetVolume.Invoke(tank, new object[] { tank.Volume * factor });
+                    tank.Scale(factor);
+                    foreach (AccessTools.FieldRef<GlobalGasMix> reservoir in ReservoirRefs)
+                    {
+                        reservoir?.Invoke()?.Scale(factor);
+                    }
+                    PlanetaryAtmosphereSimulation.LatentEnergyOffset =
+                        new MoleEnergy(PlanetaryAtmosphereSimulation.LatentEnergyOffset.ToDouble() * factor);
+                    PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset =
+                        new MoleEnergy(PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset.ToDouble() * factor);
+                    // Cloud and ice cap volumes and the phase rates, now rather than a tick later.
+                    KeepPhaseChangeInProportion();
+                }
+                catch (Exception e)
+                {
+                    Log.Error("Rescaling the planet failed. " + e);
+                    // Say which of the two it was. Once the first write has gone in, the planet can be
+                    // part way between the two sizes, and a player told it was "not rescaled" would
+                    // carry on playing a planet whose air no longer matches what is behind it.
+                    problem = started
+                        ? "The rescale failed part way through, so this planet may now be between the two sizes: " + e.Message
+                            + " Load your last save. The log has the detail."
+                        : "The planet could not be rescaled: " + e.Message;
+                }
+            });
+            return problem;
+        }
+
+        /// <summary>
+        /// Why a rescale would be turned away right now, or null if it can go ahead.
+        ///
+        /// A rescale is only sound while the mod is running this planet. The clouds, the ice caps and
+        /// the melt and freeze rates follow the planet's size from the tick upkeep, and the sizes they
+        /// are measured against are recorded at world start; with the mod standing down neither
+        /// happens, so the contents would scale while the volumes did not, which is the disproportion
+        /// this refuses to create. Writing the game's melt and freeze rates while the mod is meant to
+        /// be leaving the game alone would be wrong on its own terms as well.
+        /// </summary>
+        public static string RescaleRefusal()
+        {
             if (SetVolume == null)
             {
                 return "This game build's planet volume cannot be set; nothing was changed.";
             }
-            // Resolved before anything is changed: scaling the tank without its clouds and ice caps
-            // would leave them out of proportion, which is worse than refusing.
-            if (!ReservoirsKnown)
+            if (!Gate.Enabled())
             {
-                return "This game build's cloud and ice cap fields were not found, so a rescale would leave them out of proportion; nothing was changed.";
+                return "Terraforming Reloaded is not running this planet (" + Gate.Describe() + "), so its size was left alone.";
             }
+            if (!ReservoirsRecorded)
+            {
+                return "This planet's clouds and ice caps were not measured when the world started, so a rescale would leave them out of proportion; nothing was changed.";
+            }
+            return null;
+        }
 
-            // The planet tick and every take and give hold this lock, so nothing sees half a rescale.
+        /// <summary>
+        /// Runs <paramref name="body"/> holding the lock the planet tick and every take and give hold.
+        /// A rescale is asked for from the console while the simulation is running, so figures read
+        /// either side of one straddle a tick's own changes unless the whole thing is held. The lock
+        /// is reentrant, so a Rescale inside may take it again.
+        /// </summary>
+        public static void UnderTankLock(Action body)
+        {
             object tankLock = Guards.TankLock;
             bool locked = false;
             try
@@ -204,23 +275,7 @@ namespace TerraformingReloaded.Patching
                 {
                     Monitor.Enter(tankLock, ref locked);
                 }
-                SetVolume.Invoke(tank, new object[] { tank.Volume * factor });
-                tank.Scale(factor);
-                foreach (AccessTools.FieldRef<GlobalGasMix> reservoir in ReservoirRefs)
-                {
-                    reservoir?.Invoke()?.Scale(factor);
-                }
-                PlanetaryAtmosphereSimulation.LatentEnergyOffset =
-                    new MoleEnergy(PlanetaryAtmosphereSimulation.LatentEnergyOffset.ToDouble() * factor);
-                PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset =
-                    new MoleEnergy(PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset.ToDouble() * factor);
-                // Cloud and ice cap volumes and the phase rates, now rather than a tick later.
-                KeepPhaseChangeInProportion();
-            }
-            catch (Exception e)
-            {
-                Log.Error("Rescaling the planet failed. " + e);
-                return "The planet could not be rescaled: " + e.Message;
+                body();
             }
             finally
             {
@@ -229,7 +284,6 @@ namespace TerraformingReloaded.Patching
                     Monitor.Exit(tankLock);
                 }
             }
-            return null;
         }
 
         /// <summary>
@@ -268,14 +322,8 @@ namespace TerraformingReloaded.Patching
             }
 
             // The planet tick and every take and give hold this lock, so nothing sees a half reset.
-            object tankLock = Guards.TankLock;
-            bool locked = false;
-            try
+            UnderTankLock(() =>
             {
-                if (tankLock != null)
-                {
-                    Monitor.Enter(tankLock, ref locked);
-                }
                 PlanetaryAtmosphereSimulation.RegenerateGlobalFromData(data);
                 foreach (GlobalGasMix reservoir in reservoirs)
                 {
@@ -283,14 +331,7 @@ namespace TerraformingReloaded.Patching
                 }
                 PlanetaryAtmosphereSimulation.LatentEnergyOffset = MoleEnergy.Zero;
                 PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset = MoleEnergy.Zero;
-            }
-            finally
-            {
-                if (locked)
-                {
-                    Monitor.Exit(tankLock);
-                }
-            }
+            });
             return null;
         }
     }

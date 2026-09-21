@@ -4,9 +4,13 @@
 
 - New `terraform size <share> confirm`: changes how big the planet you are playing is, and so how
   long terraforming it takes, without touching its air. Pressure, mix and temperature come out
-  exactly where they were, because the planet, its clouds and its ice caps all move together; your
-  base and every outdoor cell are untouched. It prints the size, outdoor cells, moles and pressure
-  before and after. Planet size is a number you have to pick before you have any feel for it, and
+  exactly where they were, because the planet, its clouds and its ice caps all move together; the air
+  in your base and in every outdoor cell is left alone. It prints the size, outdoor cells, moles and
+  pressure before and after. On a planet wet enough to be near a sea it warns first that the rescale
+  would raise one or drain one: the amount of liquid the game floods the outdoors at is fixed and
+  does not follow planet size. It is turned away while the mod is not running the planet, because
+  then nothing keeps the clouds and the ice caps in proportion to it.
+  Planet size is a number you have to pick before you have any feel for it, and
   until now the only way to change your mind was `terraform reset confirm`, which throws away
   everything you have done. The planet size setting is left alone: it is still the default for a
   new world, and a saved planet still keeps its own size.

@@ -109,8 +109,11 @@ nothing on a planet you have not touched yet).
 If the size turns out wrong once you have a feel for it, `terraform size <share> confirm` rescales
 the planet you are playing without touching its air. The planet, its clouds and its ice caps all
 move together, so pressure, mix and temperature come out exactly where they were and the only thing
-that changes is how much is left to do. Your base and every outdoor cell are untouched. The setting
-is left alone: it stays the default for the next new world.
+that changes is how much is left to do. The air in your base and in every outdoor cell is left
+alone. One thing does not move with the planet: the amount of liquid the game raises a sea at is
+fixed, so on a wet planet a rescale can raise a sea or drain one. The command says so before it
+asks you to confirm, and rescaling back undoes it. The setting is left alone: it stays the default
+for the next new world.
 
 At Short size one base is a real share of the planet. Mars's coldest nights sit only about 1.5 K above
 the point where carbon dioxide freezes out, and pulling a tenth of its air into tanks crosses it: the
