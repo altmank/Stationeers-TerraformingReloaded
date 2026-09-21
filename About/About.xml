@@ -2,10 +2,10 @@
 <ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Name>Terraforming Reloaded</Name>
   <Author>XCeled</Author>
-  <Version>0.1.1</Version>
+  <Version>0.9.0</Version>
   <Description>Terraform the planet. The air outside is no longer bottomless: what you vent stays, what your base draws in is taken away, and if you move enough of the right gases the pressure, temperature, sky and weather outside change for good.
 
-ALPHA, AND VERY UNTESTED. Nobody has played this through yet. If you install it you are an alpha tester: back up your save first, expect wrong numbers and odd behaviour, and please report what you find on GitHub (link below) with your Player.log.
+RELEASE CANDIDATE. The mod is finished and every part of it is checked against the game by automated runs, but nobody has played a world all the way through on it yet, so you are the first. Back up your save before its first session, and please report anything that looks wrong on GitHub (link below) with your Player.log.
 
 HOW IT PLAYS
 - This is an endgame project for a base built to move gas: ice-mining rockets, gas traders, big vents, tank farms.
@@ -29,6 +29,7 @@ Hours are to reach shirt-sleeve air on Mars. The Moon is about the same, Venus a
 
 CONSOLE (F3)
 - terraform : the planet's pressure, temperature and gases, and whether the mod is running
+- terraform size &lt;share&gt; confirm : changes how big the planet you are playing is, and so how long terraforming takes, without touching its air
 - terraform reset confirm : puts the whole planet back as the world ships. Your base is untouched
 - terraform curves export / terraform curves reload : for tuning how temperature responds. CURVES.md in the mod's folder explains
 

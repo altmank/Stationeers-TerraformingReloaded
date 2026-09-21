@@ -12,7 +12,7 @@ mod switches it on and fixes what goes wrong when it runs for real.
 Inspired by [Elmotrix's Terraforming Mod](https://github.com/Elmotrix/TerraformingMod), which did
 this by hand before the game had a model of its own. This is a new mod, not a port of that code.
 
-> **Alpha, and barely played.** Automated tests on Mars show gas is conserved, saves load back
+> **Release candidate, barely played.** Automated tests on Mars show gas is conserved, saves load back
 > exactly, and the reset returns a save to stock; the temperatures are checked against the game by
 > automated runs on Venus, Vulcan, Europa, the Moon and Mimas. One session has been played, on Mars:
 > a vent drew planet air into a sealed room and the planet took all of it back, a save and load held,
@@ -20,7 +20,7 @@ this by hand before the game had a model of its own. This is a new mod, not a po
 > creative: with the air set to a finished recipe the planet sat at 273 K where it reads 404 K without
 > the mod. Nobody has played it through, and the sky, multiplayer and every world but Mars have not
 > been played by a person.
-> If you install it you are an alpha tester: back up your save first, expect wrong numbers, and
+> If you install it you are the first to play it: back up your save first, expect wrong numbers, and
 > please open an issue with your `Player.log`.
 
 ## Install
