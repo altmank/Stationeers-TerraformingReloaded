@@ -111,6 +111,11 @@ namespace TerraformingReloaded.LiveCheck
                 _instance._wallVentDone = true;
                 _instance.CheckWallVent();
             }
+            if (_instance != null && !_instance._menuMixDone && MenuMix && GameManager.GameTickCount >= 20)
+            {
+                _instance._menuMixDone = true;
+                _instance.ReportMenuMix();
+            }
             if (_instance == null || _instance._failed || GameManager.GameTickCount % ReportEveryTicks != 0)
             {
                 return;
@@ -170,11 +175,6 @@ namespace TerraformingReloaded.LiveCheck
             {
                 _stormStarted = true;
                 StartStorm();
-            }
-            if (!_menuMixDone && MenuMix && GameManager.GameTickCount > 5)
-            {
-                _menuMixDone = true;
-                ReportMenuMix();
             }
             if (!_injected && Inject_ && now - _worldSeenAt > SettleSeconds && GameManager.GameTickCount > 10)
             {
@@ -290,7 +290,9 @@ namespace TerraformingReloaded.LiveCheck
         /// <summary>
         /// The mix the new-game menu builds to describe a world. It is not the planet being played, so
         /// the planet size must not apply to it: the menu divides its moles by the world's unscaled
-        /// volume to show a pressure (DEFECTS D16). Called from Update, well outside planet building.
+        /// volume to show a pressure (DEFECTS D16). Called from the planet tick, which is outside
+        /// planet building and is where the live figure can be summed at rest: outdoor cells have
+        /// already drawn their share by now, so the tank on its own is short by what they hold.
         /// </summary>
         private void ReportMenuMix()
         {
@@ -302,10 +304,11 @@ namespace TerraformingReloaded.LiveCheck
                 return;
             }
             GlobalGasMix menu = GlobalGasMix.Create(data);
+            double total = TankPlusCells(out int cells);
             Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
-                "LiveCheck: menumix world {0} | menu {1:0.000} mol in {2:0.000} L | live {3:0.000} mol in {4:0.000} L | shipped volume {5:0.000} L",
+                "LiveCheck: menumix world {0} | menu {1:0.000} mol in {2:0.000} L | live {3:0.000} mol in {4:0.000} L | {5} outdoor cells | shipped volume {6:0.000} L",
                 WorldSetting.Current.Id, menu.TotalQuantity().ToDouble(), menu.Volume.ToDouble(),
-                live.TotalQuantity().ToDouble(), live.Volume.ToDouble(), data.GetVolume().ToDouble()));
+                total, live.Volume.ToDouble(), cells, data.GetVolume().ToDouble()));
         }
 
         /// <summary>

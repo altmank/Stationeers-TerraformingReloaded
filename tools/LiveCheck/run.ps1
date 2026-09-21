@@ -230,7 +230,7 @@ try {
         Assert-ModLive $log
         $line = @($log -match 'LiveCheck: menumix ')[0] -replace '.*LiveCheck: ', ''
         Write-Host $line
-        if ($line -notmatch 'menu ([\d.]+) mol in ([\d.]+) L \| live ([\d.]+) mol in ([\d.]+) L \| shipped volume ([\d.]+) L') {
+        if ($line -notmatch 'menu ([\d.]+) mol in ([\d.]+) L \| live ([\d.]+) mol in ([\d.]+) L \| \d+ outdoor cells \| shipped volume ([\d.]+) L') {
             throw "LiveCheck FAILED: the driver could not build the menu's mix: $line"
         }
         $menuMoles = [double]$Matches[1]; $menuLitres = [double]$Matches[2]
@@ -243,7 +243,8 @@ try {
         $problems = @()
         if ([math]::Abs($menuMoles - 45594999.269) -gt 1.0) { $problems += 'the menu mix is not the shipped planet' }
         if ([math]::Abs($menuLitres - $shippedLitres) -gt 1.0) { $problems += 'the menu mix is not the shipped volume' }
-        if ([math]::Abs($liveMoles - 45594999.269 * $size) -gt [math]::Max(1.0, 45594999.269 * $size * 1e-6)) { $problems += 'the planet being played is not the size the setting says' }
+        # The live figure is the planet plus its outdoor cells, so it is the whole share, not the tank.
+        if ([math]::Abs($liveMoles - 45594999.269 * $size) -gt 1.0) { $problems += 'the planet being played is not the size the setting says' }
         if ([math]::Abs($liveLitres - $shippedLitres * $size) -gt [math]::Max(1.0, $shippedLitres * $size * 1e-6)) { $problems += 'the played planet is not the volume the setting says' }
         if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: ' + ($problems -join '; ')) }
         Write-Host 'LiveCheck OK: the menu sees the shipped planet while a resized one is played.'
