@@ -2,8 +2,8 @@
 
 ## 0.9.0
 
-First release. Everything is in, and every part of it is checked against the game by automated runs,
-but nobody has played a world through on it yet.
+First release. Everything is in, and every part of it is checked against the game by automated runs
+rather than by long play.
 
 - Outdoor air is finite. Gas vented outdoors stays on the planet, air drawn in is taken from it, and the
   planet's pressure, temperature, sky and weather follow. Progress is saved in the normal save file.
