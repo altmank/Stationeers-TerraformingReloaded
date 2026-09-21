@@ -36,22 +36,26 @@ Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they 
 [hr][/hr]
 [h2]How long it takes[/h2]
 One setting: [b]Planet size[/b].
+At [b]Standard[/b], to the point where you can stand outside with your helmet off:
 [table]
-[tr][th]Size[/th][th]Roughly[/th][/tr]
-[tr][td][b]Short[/b][/td][td]17 hours[/td][/tr]
-[tr][td][b]Standard[/b][/td][td]85 hours[/td][/tr]
-[tr][td][b]Long[/b][/td][td]410 hours[/td][/tr]
-[tr][td][b]Shipped[/b], the game's real planet[/td][td]1,650 hours[/td][/tr]
+[tr][th]World[/th][th]Roughly[/th][/tr]
+[tr][td]The Moon[/td][td]80 hours[/td][/tr]
+[tr][td]Mars[/td][td]83 hours[/td][/tr]
+[tr][td]Venus[/td][td]208 hours[/td][/tr]
+[tr][td]Vulcan[/td][td]225 hours[/td][/tr]
+[tr][td]Mimas[/td][td]516 hours[/td][/tr]
+[tr][td]Europa[/td][td]748 hours[/td][/tr]
 [/table]
+[b]Short[/b] is a fifth of those. [b]Long[/b] is five times. [b]Shipped[/b], the game's real planet, is twenty times.
 [b]Treat these as rough scale, not a promise.[/b] They are calculated from how much gas a large, heavily automated base can move in an hour, not measured from a real playthrough, because nobody has finished one yet. A smaller or more hands-on base will take considerably longer.
 
-Hours are for making Mars breathable, meaning you can stand outside with your helmet off. The Moon is similar, Venus and Vulcan roughly three times longer, Mimas six, Europa nine. Size changes nothing else. A save made before you installed the mod carries the full-size planet until you rescale it.
+Size changes nothing else about the world: the air, pressure and temperature you start with are the same at every size. A save made before you installed the mod carries the full-size planet until you rescale it.
 
 [hr][/hr]
 [h2]Console (F3)[/h2]
 [list]
 [*][b]terraform[/b] : pressure, temperature, gases, and whether the mod is running
-[*][b]terraform size &lt;share&gt; confirm[/b] : rescale the planet you are on without touching its air
+[*][b]terraform size &lt;share&gt; confirm[/b] : change how much air the planet holds, and so how long it takes. Pressure, mix and temperature stay where they are
 [*][b]terraform reset confirm[/b] : put the planet back as the world ships. Your base is untouched
 [*][b]terraform curves export[/b] / [b]reload[/b] : tune the temperature response. See CURVES.md
 [/list]
