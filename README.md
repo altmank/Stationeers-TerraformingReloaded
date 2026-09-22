@@ -136,6 +136,7 @@ F3 opens the console.
 | --- | --- |
 | `terraform` | Whether the mod is live and why not if it is not, the self-test result, planet pressure and temperature, how many kelvin the mod is adding, gases per outdoor cell, and what the clouds and the ice caps are holding |
 | `terraform size <share> confirm` | Rescales the planet you are playing to that share of the size the world ships at, which changes how long terraforming takes and nothing else. Prints the size, cells, moles and pressure before and after. Host only. `terraform size <share>` alone explains and asks |
+| `terraform ceiling <kPa> confirm` | Sets the pressure ceiling for the world you are playing, which no other world shares. 0 means no ceiling. **Destructive when it bites**: the prompt names the planet's pressure now and how much air the first tick would delete. Host only. `terraform ceiling` alone reports the ceiling in force |
 | `terraform reset confirm` | Puts the whole planet back exactly as the world ships: starting air, empty clouds and ice caps, no stored heat. Host only. `terraform reset` alone explains and asks |
 | `terraform curves export` | Writes the built-in temperature curves to `BepInEx\config\TerraformingReloaded.curves.xml`. Never overwrites |
 | `terraform curves reload` | Applies that file at once, no restart |
@@ -156,6 +157,10 @@ To go back to stock: `terraform reset confirm`, save, quit, disable the mod. Thi
 unmodded game then loads a planet within 1 mol and 0.01 K of stock. Your base
 and the air inside it are untouched.
 
+Each world also keeps a small `terraforming-reloaded.xml` beside its save, holding the settings that
+belong to that world rather than to your config. The game ignores it, so it is harmless to leave. You
+can delete it by hand; the world then starts again from your config, with its pressure ceiling off.
+
 ## Multiplayer
 
 The host needs the mod. Clients with it receive the planet from the host every few seconds.
@@ -174,7 +179,13 @@ The few worth knowing before you start:
 
 - **`PlanetSize`** decides how long terraforming takes and nothing else. See Pace above.
 - **`MaxPressureKPa`** is **destructive**. 0 means no ceiling, which is the default. Set it, and air
-  above it is deleted for good at the planet's hottest hour, and the loss is saved.
+  above it is deleted for good at the planet's hottest hour, and the loss is saved. It sets what a
+  **new** world starts with; each world then keeps its own, and `terraform ceiling <kPa> confirm`
+  changes the one you are playing. A world made before this version loads with no ceiling whatever
+  the config says, deliberately, so that tuning one save can never eat another.
+- **Six settings belong to a world rather than to your config**: the pressure ceiling, both response
+  strengths, the airless reflectivity and both heat settings. Change one while playing and it takes
+  effect at once and is recorded for that world only.
 - **`GhgResponseScale`** and **`DensityResponseScale`** tune the temperature response on worlds that
   ship without their own curves. To reshape it rather than scale it, see [CURVES.md](CURVES.md),
   which also ships in the mod's folder.
