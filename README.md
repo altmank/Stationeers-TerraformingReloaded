@@ -165,26 +165,22 @@ Clients without it can still join; they miss the changed outdoor readings and sk
 
 Every setting shows in the StationeersLaunchPad config editor with a label and a range, and is
 also in `BepInEx/config/xceled.stationeers.terraformingreloaded.cfg`. All apply at once except
-those marked.
+those marked as needing a restart.
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `PlanetSize` | Standard | How long terraforming takes. See Pace |
-| `CustomPlanetSize` | 0.05 | Share of the shipped planet, when `PlanetSize` is Custom |
-| `Enabled` | true | Master switch. Off leaves the game as shipped. Needs a restart |
-| `DynamicSky` | true | Sky follows the air. Needs a restart |
-| `GhgResponseScale` | 1 | Greenhouse strength on worlds without their own curve. On Venus and Vulcan it changes only the cooling side. 0 is off. 0 to 5 |
-| `DensityResponseScale` | 1 | How quickly thickening air evens out day and night on worlds without their own curve. 0 is off, higher is sooner. 0 to 5 |
-| `AirlessAlbedo` | 0.3 | Reflectivity used for the settle temperature of the Moon and Mimas. Lower is warmer |
-| `MaxPressureKPa` | 0 | Planet pressure ceiling. 0 is none. **Destructive**: air above it, measured at the hottest hour, is deleted for good. Needs a restart |
-| `WeatherOnWeatherlessWorlds` | false | Let filled clouds rain on worlds that ship with no weather |
-| `ExternalHeatHalfLifeMinutes` | 60 | How fast heat added to the planet fades. 0 never |
-| `MaxExternalOffsetKelvin` | 50 | Most that added heat can shift the planet. Mimas cannot be started without it |
-| `SyncIntervalSeconds` | 5 | Host to client update interval |
-| `StatusLogSeconds` | 0 | Write the `terraform` readout to the log this often. 0 is off |
+**[docs/SETTINGS.md](docs/SETTINGS.md) is the full list**, generated from the source, with every
+key, its label, its description and its default.
 
-The two strength settings tune the temperature response. To reshape it, see [CURVES.md](CURVES.md),
-which also ships in the mod's folder.
+The few worth knowing before you start:
+
+- **`PlanetSize`** decides how long terraforming takes and nothing else. See Pace above.
+- **`MaxPressureKPa`** is **destructive**. 0 means no ceiling, which is the default. Set it, and air
+  above it is deleted for good at the planet's hottest hour, and the loss is saved.
+- **`GhgResponseScale`** and **`DensityResponseScale`** tune the temperature response on worlds that
+  ship without their own curves. To reshape it rather than scale it, see [CURVES.md](CURVES.md),
+  which also ships in the mod's folder.
+- **The `Storms` section** decides when a world stops getting its own storms: once its air is mostly
+  gone, or once that air is mild. Both are on by default and neither does anything to a world you
+  have not changed.
 
 ## If a game update breaks it
 
