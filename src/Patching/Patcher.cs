@@ -296,14 +296,28 @@ namespace TerraformingReloaded.Patching
                 {
                     Log.Warn("This world's GlobalAtmosphere has no usable Volume, so its planet is left as shipped.");
                 }
-                Gate.SetWorldAllowed(world != null && !world.IsTutorial && sized);
+                // One reason, named, so the status readout says which of the three applies (D19).
+                string refusal = null;
+                if (world == null)
+                {
+                    refusal = "no world started";
+                }
+                else if (world.IsTutorial)
+                {
+                    refusal = "a tutorial world";
+                }
+                else if (!sized)
+                {
+                    refusal = "this world's planet has no usable volume";
+                }
+                Gate.SetWorldAllowed(refusal == null, refusal);
                 Climate.Invalidate();
                 SelfTest.Arm();
                 Planet.NoteShippedReservoirs();
             }
             catch (Exception e)
             {
-                Gate.SetWorldAllowed(false);
+                Gate.SetWorldAllowed(false, "the world start check failed");
                 Log.Error("World start check failed, planet left as shipped for this world. " + e.Message);
             }
         }

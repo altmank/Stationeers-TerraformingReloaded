@@ -511,6 +511,14 @@ namespace TerraformingReloaded.Patching
 
         public static string Describe()
         {
+            // A world the mod is not running at all: say which reason, rather than name the curves it
+            // would fill in for a planet it is leaving alone (D19). A client is not refused here, so it
+            // still reads its own response, which is the one it evaluates.
+            string refusal = Gate.WorldRefusal;
+            if (refusal != null)
+            {
+                return "off: " + refusal;
+            }
             Entry entry = _entry;
             if (entry == null)
             {

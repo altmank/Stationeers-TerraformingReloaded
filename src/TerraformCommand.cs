@@ -253,8 +253,15 @@ namespace TerraformingReloaded
                         ? string.Format(c, "; the setting is {0:0.####} and applies to a new world or after terraform reset confirm", Settings.PlanetSize)
                         : ""));
             }
-            text.AppendLine(string.Format(c, "  pressure {0:0.###} kPa, temperature {1:0.#} K, gas {2:0.000} mol, liquid {3:0.000} mol",
-                PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble(),
+            // A planet of no volume has no pressure: the game divides by that volume and the figure
+            // comes out NaN (D19). Say what is wrong instead of printing it; the rest of the line is
+            // still real.
+            double pressure = PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble();
+            string pressurePart = double.IsNaN(pressure) || double.IsInfinity(pressure)
+                ? "no pressure (this world's planet has no usable volume)"
+                : string.Format(c, "pressure {0:0.###} kPa", pressure);
+            text.AppendLine(string.Format(c, "  {0}, temperature {1:0.#} K, gas {2:0.000} mol, liquid {3:0.000} mol",
+                pressurePart,
                 PlanetaryAtmosphereSimulation.AggregateTemperature.ToDouble(),
                 tank.TotalQuantityGas().ToDouble(), tank.TotalQuantityLiquid().ToDouble()));
             text.AppendLine(string.Format(c, "  temperature parts (K): sun angle {0:0.#}, sun distance {1:0.#}, greenhouse {2:0.#}, density {3:0.#}, weather {4:0.#}, latent {5:0.##}, external {6:0.##}",

@@ -20,6 +20,7 @@ namespace TerraformingReloaded.Patching
     {
         private static volatile bool _armed;
         private static volatile bool _worldAllowed;
+        private static volatile string _worldRefusal;
         private static volatile string _fault;
 
         /// <summary>Call sites rewritten so far, keyed by method, so a miss can be told from a hit.</summary>
@@ -32,10 +33,24 @@ namespace TerraformingReloaded.Patching
 
         internal static void Arm(bool armed) => _armed = armed;
 
-        /// <summary>Set at world start. Tutorials script their atmosphere, so they stay vanilla.</summary>
-        internal static void SetWorldAllowed(bool allowed) => _worldAllowed = allowed;
+        /// <summary>
+        /// Set at world start. Tutorials script their atmosphere, so they stay vanilla, and a world
+        /// can also be refused for its own reasons (a planet of no volume). The reason is carried so
+        /// that every readout names the one that applies rather than guessing at a tutorial.
+        /// </summary>
+        internal static void SetWorldAllowed(bool allowed, string refusal = null)
+        {
+            _worldRefusal = refusal;
+            _worldAllowed = allowed;
+        }
 
         public static bool WorldAllowed => _worldAllowed;
+
+        /// <summary>
+        /// Why this world is not one the mod runs, or null while it is. For readouts only; the hot
+        /// path reads <see cref="WorldAllowed"/>.
+        /// </summary>
+        public static string WorldRefusal => _worldAllowed ? null : (_worldRefusal ?? "no world started, or a tutorial");
 
         /// <summary>
         /// Something the mod depends on answered wrongly (SelfTest). The planet goes back to shipped
@@ -74,7 +89,7 @@ namespace TerraformingReloaded.Patching
             if (!_armed) return "off: patches not applied";
             if (_fault != null) return "off: " + _fault;
             if (!Settings.Enabled) return "off: disabled in config";
-            if (!_worldAllowed) return "off: no world started, or a tutorial";
+            if (!_worldAllowed) return "off: " + WorldRefusal;
             if (NetworkManager.IsClient) return "off: client, planet comes from the host";
             GameState state = GameManager.GameState;
             if (state != GameState.Running && state != GameState.Paused) return "off: game state is " + state;
