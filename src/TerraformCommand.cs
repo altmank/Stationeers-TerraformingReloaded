@@ -469,6 +469,9 @@ namespace TerraformingReloaded
                 }
             }
             Reservoirs(text, c);
+            // After the reservoirs, because the line about rain being held back is about the clouds
+            // printed just above it.
+            Storms.Describe(text, c);
             if (Guards.RejectedGives > 0)
             {
                 text.AppendLine("  bad mixtures refused: " + Guards.RejectedGives);

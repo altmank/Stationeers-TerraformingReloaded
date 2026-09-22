@@ -260,6 +260,36 @@ namespace TerraformingReloaded.Patching
                 harmony.Patch(Need(schedule), prefix: Body(typeof(Guards), nameof(Guards.ScheduleWeatherPrefix)));
             });
 
+            // The storm rules (docs/STORMS.md). Its own patch and its own Extra, because it is the
+            // predicate the scheduler asks before it picks an event, and answering that is what
+            // stops a suppressed world rolling the game's shared Random every frame for ever. The
+            // rules still hold without it, through the prefix above; what is lost is only that cost.
+            Extra(report, "storm scheduling", () =>
+            {
+                MethodInfo can = AccessTools.DeclaredMethod(typeof(WeatherManager), "CanScheduleWeatherEvent", Type.EmptyTypes);
+                harmony.Patch(Need(can), prefix: Body(typeof(Guards), nameof(Guards.CanScheduleWeatherPrefix)));
+            });
+
+            // The toxin bound of the mild rule measures a list the game hand-writes in one property
+            // and publishes nowhere. If that property no longer reads all five, the bound stands
+            // down and the other four still apply: a stale list would judge air by gases the game
+            // has stopped calling toxic. Not an Extra, because nothing is patched either way.
+            try
+            {
+                string toxins = SelfTest.CheckToxinList();
+                if (toxins != null)
+                {
+                    Storms.StandDownToxinBound(toxins);
+                    SelfTest.Notes.Add("the toxin bound of the mild storm rule is off: " + toxins);
+                    Log.Warn("This game build no longer counts the same gases as toxic, so the storm rules judge air without a toxin bound: " + toxins);
+                }
+            }
+            catch (Exception e)
+            {
+                Storms.StandDownToxinBound("the game's toxin list could not be read");
+                Log.Warn("The game's toxin list could not be read, so the storm rules judge air without a toxin bound. " + e.Message);
+            }
+
             applyTemperature();
 
             // An extra, so it fails soft: a world that could not record its settings when its folder
@@ -374,6 +404,7 @@ namespace TerraformingReloaded.Patching
                 }
                 Gate.SetWorldAllowed(refusal == null, refusal);
                 Climate.Invalidate();
+                Storms.Invalidate();
                 SelfTest.Arm();
                 Planet.NoteShippedReservoirs();
             }

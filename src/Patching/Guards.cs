@@ -113,6 +113,10 @@ namespace TerraformingReloaded.Patching
                     PlanetaryAtmosphereSimulation.GetGlobalGasMix()?.Scale(cap / pressure);
                 }
             }
+
+            // Last, after the phase change has been put back in proportion and after the ceiling has
+            // scaled the tank, or it would forecast air this same tick is about to change.
+            Storms.Update();
         }
 
         /// <summary>One tick of fading toward zero, then the bound on the kelvin it may apply.</summary>
@@ -262,26 +266,60 @@ namespace TerraformingReloaded.Patching
         // ---- WeatherManager.ScheduleWeatherEvent --------------------------------------------------
 
         /// <summary>
-        /// When a cloud bucket fills, the tick schedules rain or snow without checking whether other
-        /// weather is already scheduled or running, which overwrites the current event mid-flight.
-        /// The clouds have already been returned to the planet by then, so skipping the event loses
-        /// nothing. Only calls made from inside the tick are filtered.
+        /// Two unrelated jobs on one method, told apart by which thread called it.
+        ///
+        /// In the tick (D6): when a cloud bucket fills, the tick schedules rain or snow without
+        /// checking whether other weather is already scheduled or running, which overwrites the
+        /// current event mid-flight. The clouds have already been returned to the planet by then, so
+        /// skipping the event loses nothing.
+        ///
+        /// Out of the tick, which is the game's own scheduler on the main thread: turn away an event
+        /// a suppressed world may not have (docs/STORMS.md). The flag above is thread static and the
+        /// planet tick runs on a worker, so the D6 branch never sees an ordinary storm being
+        /// scheduled and the two cannot be merged. This branch checks the gate; the one above does
+        /// not need to, because being in the tick already means it is open.
         /// </summary>
         public static bool ScheduleWeatherPrefix(WeatherEvent weatherEvent)
         {
-            if (!_inTick)
+            if (_inTick)
+            {
+                if (weatherEvent == null)
+                {
+                    return false;
+                }
+                if (WeatherManager.IsWeatherEventRunning || WeatherManager.IsWeatherEventScheduled)
+                {
+                    return false;
+                }
+                return WeatherManager.WorldHasWeather || Settings.WeatherOnWeatherlessWorlds;
+            }
+            if (!Gate.Enabled())
             {
                 return true;
             }
-            if (weatherEvent == null)
+            return !Storms.Suppresses(weatherEvent);
+        }
+
+        // ---- WeatherManager.CanScheduleWeatherEvent ------------------------------------------------
+
+        /// <summary>
+        /// The game evaluates GetNextWeatherEvent() as the argument to ScheduleWeatherEvent, so
+        /// turning the pick away in the prefix above still rolls the game's shared static Random
+        /// about sixty times a second, for ever, on a world that will never be allowed a storm.
+        /// This predicate is the one caller's own guard and has no side effects, so answering it
+        /// stops the pick being evaluated at all.
+        ///
+        /// Only answered when every event this world ships is suppressed. A world with a solar storm
+        /// beside an ordinary one goes on picking, and the prefix above turns away the picks it must.
+        /// </summary>
+        public static bool CanScheduleWeatherPrefix(ref bool __result)
+        {
+            if (!Gate.Enabled() || !Storms.SuppressesEverything())
             {
-                return false;
+                return true;
             }
-            if (WeatherManager.IsWeatherEventRunning || WeatherManager.IsWeatherEventScheduled)
-            {
-                return false;
-            }
-            return WeatherManager.WorldHasWeather || Settings.WeatherOnWeatherlessWorlds;
+            __result = false;
+            return false;
         }
 
         // ---- AtmosphericScattering.UpdateAtmosphericScatteringToGlobalAtmosphere ------------------

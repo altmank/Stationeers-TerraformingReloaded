@@ -149,6 +149,49 @@ namespace TerraformingReloaded.Patching
             + "</TerraformingReloaded>";
 
         /// <summary>
+        /// The toxin bound of the mild storm rule measures the five gases the game counts as toxic
+        /// to a human, and the game has no data source for that list: it is hand-written inside
+        /// Atmosphere.PartialPressureHumanToxins. So the list is hand-written in
+        /// <see cref="Storms.ToxinGases"/> too, and this checks the property still reads every one
+        /// of them. Returns the problem, or null.
+        ///
+        /// Fields, not calls: GasMixture holds each gas as a public field, so this reads the field
+        /// references out of the property's own IL rather than its call list.
+        /// </summary>
+        public static string CheckToxinList()
+        {
+            MethodInfo getter = AccessTools.PropertyGetter(typeof(Assets.Scripts.Atmospherics.Atmosphere),
+                nameof(Assets.Scripts.Atmospherics.Atmosphere.PartialPressureHumanToxins));
+            if (getter == null)
+            {
+                return "Atmosphere.PartialPressureHumanToxins is gone";
+            }
+            HashSet<string> read = new HashSet<string>();
+            foreach (CodeInstruction instruction in PatchProcessor.GetOriginalInstructions(getter))
+            {
+                if (instruction.operand is FieldInfo field && field.DeclaringType == typeof(GasMixture))
+                {
+                    read.Add(field.Name);
+                }
+            }
+            List<string> missing = new List<string>();
+            foreach (Chemistry.GasType type in Storms.ToxinGases)
+            {
+                // The enum name and the field name are the same on every one of the five; that is
+                // the thing being checked, so a rename shows up here rather than being papered over.
+                if (!read.Contains(type.ToString()))
+                {
+                    missing.Add(type.ToString());
+                }
+            }
+            if (missing.Count > 0)
+            {
+                return "it no longer counts " + string.Join(", ", missing.ToArray());
+            }
+            return null;
+        }
+
+        /// <summary>
         /// True when <paramref name="method"/> still calls every one of <paramref name="callees"/>.
         /// Used to confirm the temperature formula still adds up the parts the mod adjusts.
         /// </summary>
