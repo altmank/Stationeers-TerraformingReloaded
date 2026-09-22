@@ -6,5 +6,5 @@ dotnet build (Join-Path $root "src\TerraformingReloaded.csproj") -c Release -p:G
 if ($LASTEXITCODE -ne 0) { throw "Mod build failed." }
 dotnet build (Join-Path $PSScriptRoot "PatchCheck.csproj") -c Release -p:GameDir="$GameDir" --nologo -v quiet
 if ($LASTEXITCODE -ne 0) { throw "PatchCheck build failed." }
-& (Join-Path $PSScriptRoot "bin\Release\PatchCheck.exe") $GameDir (Join-Path $root "srcin\Release")
+& (Join-Path $PSScriptRoot "bin\Release\PatchCheck.exe") $GameDir (Join-Path $root "src\bin\Release")
 exit $LASTEXITCODE
