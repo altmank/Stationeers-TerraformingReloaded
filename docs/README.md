@@ -14,6 +14,8 @@ what was found, what was decided and why, how it is verified, and what is still 
 | [BALANCE.md](BALANCE.md) | Pacing research: machine rates, habitability thresholds, cost per world, the planet-size presets |
 | [ASSUMPTIONS.md](ASSUMPTIONS.md) | Every assumption and simplification in the models and the design, with its justification, what breaks if it is wrong, and how to settle it. Nothing is left out of a model without an entry here |
 | [TEMPERATURE.md](TEMPERATURE.md) | The temperature rule: the gap in the game's formula, the options weighed, the rule as built, the reviews that changed it, and what the game says when it runs |
+| [SETTINGS.md](SETTINGS.md) | Every config entry the mod binds, generated from `src/Plugin.cs`: section, key, label, full description, default |
+| [STORMS.md](STORMS.md) | How storms respond to terraforming: the two rules, every threshold and where its number comes from, and why the measure is what it is |
 | [ROADMAP.md](ROADMAP.md) | Open work in priority order, open questions, things deliberately not done |
 
 Conventions used throughout:

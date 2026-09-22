@@ -83,6 +83,11 @@ more: the hot-world treatment above applies only to the mod's filled-in response
 - The game freezes a gas out of the air, all of it, the moment the planet is colder than that gas's
   freezing point plus 2 K, and rains it out below its boiling point. Carbon dioxide needs 220 K. A
   world whose nights are colder than that cannot hold CO2 in its starting air either.
+- **A world that both declares a storm and ships a mild atmosphere loses that storm straight away.**
+  A mild atmosphere stops a world's own storms, and a world whose starting air is already temperate,
+  thick and clean qualifies on turn one. Turn off *Mild air stops storms* in the config to keep it.
+  Stripping does not have this problem: an untouched world is at 100 % of its own starting air, so
+  that rule never fires until a player removes something.
 
 ## Players: tuning without a world edit
 
