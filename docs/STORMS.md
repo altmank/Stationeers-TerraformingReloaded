@@ -75,8 +75,8 @@ At the current season, across a full day, five bounds on three axes all hold.
 | --- | --- | --- |
 | Temperature | above the floor | coldest point of the day |
 | Temperature | below the ceiling | hottest point of the day |
-| Pressure | above the minimum | |
-| Pressure | below the maximum | |
+| Pressure | above the minimum | coldest point, where the air is thinnest |
+| Pressure | below the maximum | hottest point, where it is thickest |
 | Toxins | below the ceiling | hottest point, because heat raises partial pressures |
 
 - **Seasonal, not year round.** Evaluated at the current orbital position. A marginal world is calm in
@@ -93,8 +93,29 @@ At the current season, across a full day, five bounds on three axes all hold.
 Take the current tank. Evaluate planet temperature at 37 sun angles, 0 to 180 in steps of 5, at the
 current orbital position. Minimum and maximum are the day's coldest and hottest.
 
-Cache it. Recompute only when the air has moved by more than a small share. Terraforming takes tens of
-hours, so the answer does not change minute to minute.
+Call the three-argument `GetGlobalGasMixTemperature(data, solarAngle, solarEnergyPercent)`. The
+one-argument overload recomputes the angle and the percent from the sun on every call, which is wrong
+for a sweep.
+
+**Caching on the air alone is not enough.** Three inputs move the forecast without the air moving:
+
+- **The two heat offsets.** Latent and external are both added unconditionally, and `Guards.Upkeep`
+  itself decays external every tick. `MaxExternalOffsetKelvin` defaults to 50, so this term is worth
+  up to ±50 K against a 60 K temperature window.
+- **The orbital position.** The whole point of the rule being seasonal. A cache keyed on air alone
+  would report last season's verdict for ever.
+- **A running storm.** Its offset is added whenever one is running, so a forecast taken during a storm
+  stays storm-shifted after it ends.
+
+The split is clean, because latent and external are angle-independent constants across the sweep.
+Cache the 37-angle sweep on the air; recompute the two heat offsets every tick, which is free since
+`Upkeep` already reads both energies and the heat capacity. Key the cache additionally on the orbit
+percent within about a percentage point, and on whether weather is running.
+
+**Key the air on what the temperature actually consumes**, the greenhouse index and the gas density,
+plus the toxin moles. Not on total moles: swapping Vulcan's 42 mol of methane and pollutant for 42 mol
+of nitrogen leaves the total untouched and changes both, which is this design's own argument for the
+toxin bound.
 
 The greenhouse index depends on the air and not on the angle, so compute it once per sweep. The
 temperature postfix currently recomputes it on every call, which is already flagged as a performance
@@ -149,6 +170,12 @@ and when it is not suppressed:
 
 All from the analysis pass on rule one, with citations in Part two.
 
+- **Hook `CanScheduleWeatherEvent`, not `ScheduleWeatherEvent`.** The game evaluates
+  `GetNextWeatherEvent()` as the *argument* to `ScheduleWeatherEvent`, so prefixing that call still
+  rolls a random pick off a shared static `Random` about 60 times a second, for ever, on any suppressed
+  world. `CanScheduleWeatherEvent` is public static, a pure predicate, and has exactly one caller, so
+  returning false there stops the pick being evaluated at all. Costs one more patched method and one
+  more `Extra` in `Patcher`.
 - **The existing hook does not see ordinary storms.** The planet tick runs on a thread pool worker, the
   scheduler runs on the main thread, and the flag gating the current guard is thread static. Needs a
   new out-of-tick branch in `Guards.ScheduleWeatherPrefix`, with the D6 branch kept first and byte
@@ -162,7 +189,35 @@ All from the analysis pass on rule one, with citations in Part two.
 - **Nothing is persisted.** The rule is a pure function of live state and the game already saves its
   own weather state.
 - **Forced storms cannot test this.** `ImmediatelyActivateWeatherEvent` bypasses the scheduler, so the
-  existing `-Storm` and `-Weather` scenarios do not reach the new branch.
+  existing `-Storm` and `-Weather` scenarios do not reach the new branch. Waiting does not work either:
+  scheduling needs both a world-start cooldown in days and an event cooldown, and no headless run
+  reaches either. The harness needs a `-Schedule` switch that calls the scheduler from the main thread
+  and reads back whether an event was set, and an `-Orbit` switch, because moving the season needs
+  `OrbitalSimulation.SetAllBodies` and writing `SimulationTimeSeconds` alone does not recompute the
+  distances the percent derives from.
+
+Mild rule, from its own analysis pass:
+
+- **It shares `Guards.Upkeep` with the strip rule and adds no new locks.** `Guards.TankLock` and
+  `PAS.GlobalInteraction` are the same object, set by reflection in `Patcher`. The forecast touches no
+  atmosphere pool, so it does not have the lock-order hazard the strip measure's walk would have had.
+  `Climate.BuildLock` can be taken on first use, and cannot invert, because `BuildEntry` takes no lock
+  and never touches the tank.
+- **Run it last in `Upkeep`**, after `KeepPhaseChangeInProportion` and after the pressure-ceiling
+  scale, or it forecasts air the same tick is about to change.
+- **Fail open before the first `Upkeep`.** Nothing can schedule that early anyway.
+- **Partial pressures at a forecast temperature** are not on `GlobalGasMix`; build them with
+  `IdealGas.Pressure(tank.Get(type), new TemperatureKelvin(hot), tank.VolumeForGas())`. Use
+  `VolumeForGas()`, not a flat 8,000 L, because the two separate as soon as the tank holds liquid.
+  `Get` throws on `Air` and `Fuel`, so skip any type whose `Mole.MatterState` is `None`, which is the
+  guard `TerraformCommand` already uses.
+- **The toxin list has no data source in the game**; it is hand-written inside
+  `Atmosphere.PartialPressureHumanToxins`. Hardcode the five and add a self-test that the property
+  still references all five, standing the bound down if a game update changes it. The 1.0 kPa default
+  is the game's own `Entity.ToxicPartialPressureForDamage`.
+- **Methane is called Volatiles in player-facing text**, which is its own XML name.
+- **On a client the verdict would differ from the host's**, because the temperature postfix gates only
+  on `Settings.Enabled` while the rule gates on `Gate.Enabled()`. Print the host's or print nothing.
 
 ---
 
@@ -314,9 +369,29 @@ that temperature is acceptable, and a hidden rule should not override them.
 
 ## Known gaps
 
-**The mild rule has had no analysis pass.** Rule one was analysed in full, with file:line citations,
-and everything under Implementation constraints comes from it. Everything written about rule two is
-reasoning, not evidence. Analyse before building it.
+**The forecast does not model phase change, and that is accepted.** It evaluates the current mix at 37
+angles, so at the coldest angle a gas may in fact be on the ground rather than in the air.
+
+The cold floor closes it at the default. For the gap to bite, the forecast's coldest point must be at
+or above the floor while a gas drops out at that temperature, and every gas freezes below 251.42 K
+except steam at 273.15. At the 263.15 default the only thing that can leave is steam, and that is rain.
+The same argument removed the freeze and condense check, which is two independent routes to the same
+boundary. The measured Mars collapse, all 5.5 mol per cell leaving the air in one tick, sits at 217 to
+222 K and fails the cold floor by more than 40 K before the gap could matter.
+
+It opens only if a player lowers the cold floor: below about 251 K for nitrous oxide, hydrochloric acid
+and hydrazine, below 217.8 K for CO2. There the forecast reads a warmer coldest point than reality,
+because it does not model the greenhouse index collapsing as the gas leaves, and a pressure that still
+counts gas on the ground. The toxin bound errs the safe way, since a toxin that would have condensed is
+still counted. That is a player having said such a temperature is acceptable.
+
+It remains a second reason the mod and `tools/Balance` will not agree.
+
+**A shared greenhouse index cache is worth taking independently of this feature.** It halves the index
+work on every one of the per-cell-per-tick calls defect D10 describes. It must be keyed on mix
+identity, used only when the mix being evaluated is the tank itself, or it would corrupt the new-world
+menu's temperature range and the dev window, both of which evaluate the formula against a freshly built
+shipped mix.
 
 **The mod and `tools/Balance` will not agree.** An earlier claim that they would, by construction, is
 false: the offline model sweeps both ends of the orbit and the mild rule sweeps only the current
