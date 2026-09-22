@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Live tests: run the mod in a headless throwaway Mars world and check that gas is conserved.
 
@@ -42,6 +42,20 @@
                snow is still the running event. With -Vanilla snow must be replaced by rain instead.
                -WeatherEvent picks what is running when the bucket fills; snow is the case that
                reaches the defect, because the game's own guard only steps aside for storm and rain.
+    -Strip     The other direction: planet air taken OUT through outdoor cells, which is what a
+               player with vents does and what the injection scenario does not cover. A headless run
+               cannot build a vent, so the driver does what an inward ActiveVent does (clone the
+               outdoor cell at its own grid, remove gas from it) at -StripCells grids every tick for
+               -StripTicks ticks, and discards what it takes. Not judged as a conservation test: it
+               reports what share of the planet outdoor cells hold while air is leaving, which is the
+               number the storm rule's measure turns on. -StripPerCell caps what one draw point may
+               take in a tick; the default takes everything above -StripFloor, which is the fastest a
+               cell can be emptied and still be there next tick. The floor stands in for the vent
+               itself: a cell with a structure on it is kept instantiated, and a cell taken to zero
+               without one is cleaned up and its draw point goes dead.
+    -WalkCost  Times a walk over every atmosphere from the planet tick, where a per-tick measure of
+               the planet's air would sit, and prints microseconds against the cell count. Add it to
+               the default scenario (which sweeps from 1 cell to about 4,300 and back) or to -Strip.
     -MenuPressure  The mix the new-game menu builds to describe a world must be the shipped planet,
                not the resized one it is playing.
     -Rescale   'terraform size <share> confirm' on the planet being played, with the ice caps, the
@@ -100,6 +114,13 @@ param(
     [switch]$CustomWorld,
     [switch]$ZeroVolume,
     [switch]$Weather,
+    [switch]$Strip,
+    [int]$StripTicks = 150,
+    [int]$StripCells = 100,
+    [double]$StripPerCell = 0,
+    [double]$StripFloor = 0,
+    [double]$StripShare = 0,
+    [switch]$WalkCost,
     [string]$WeatherEvent = 'Snow',
     [double]$RescaleTo = 0,
     [double]$RescaleBy = 2.5,
@@ -124,7 +145,10 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
-if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $CustomWorld | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather and -CustomWorld.' }
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $CustomWorld, $Strip | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -CustomWorld and -Strip.' }
+if (($StripTicks -le 0) -or ($StripCells -le 0)) { throw '-StripTicks and -StripCells are how many ticks to draw for and how many draw points to draw from; both must be positive.' }
+if ($StripPerCell -lt 0) { throw '-StripPerCell is how many moles one draw point may take in a tick; 0 means take everything.' }
+if (($StripShare -lt 0) -or ($StripShare -gt 1)) { throw '-StripShare is the share of what a cell holds that one draw takes, between 0 and 1; 0 leaves the driver default.' }
 if ($Rescale -and -not (($RescaleTo -gt 0) -or ($RescaleBy -gt 0))) { throw 'Give -RescaleBy, how many times its present size the planet should end up, or -RescaleTo, an absolute share of the shipped planet.' }
 if ($Rescale -and ($RescaleTo -le 0) -and ([math]::Abs($RescaleBy - 1) -lt 1e-9)) { throw '-RescaleBy 1 is not a rescale.' }
 if ($Storm -and -not ($Observe -or $Model)) { throw '-Storm only applies to -Observe and -Model.' }
@@ -173,7 +197,10 @@ $envKeys = @(
     'TR_LIVECHECK_SETAIR2', 'TR_LIVECHECK_SETAIR2_TICK', 'TR_LIVECHECK_STORM', 'TR_LIVECHECK_STORM_TICK',
     'TR_LIVECHECK_WALLVENT_TICK', 'TR_LIVECHECK_MENUMIX', 'TR_LIVECHECK_RESCALE', 'TR_LIVECHECK_RESCALE_BY',
     'TR_LIVECHECK_RESCALE_TICK', 'TR_LIVECHECK_BUILDOVER_TICK', 'TR_LIVECHECK_BUILDOVER_UNGUARD',
-    'TR_LIVECHECK_WEATHER_TICK', 'TR_LIVECHECK_WEATHER_EVENT', 'TR_LIVECHECK_STATUS_TICK')
+    'TR_LIVECHECK_WEATHER_TICK', 'TR_LIVECHECK_WEATHER_EVENT', 'TR_LIVECHECK_STATUS_TICK',
+    'TR_LIVECHECK_STRIP_TICK', 'TR_LIVECHECK_STRIP_TICKS', 'TR_LIVECHECK_STRIP_CELLS',
+    'TR_LIVECHECK_STRIP_PER_CELL', 'TR_LIVECHECK_STRIP_FLOOR', 'TR_LIVECHECK_STRIP_SHARE',
+    'TR_LIVECHECK_WALKCOST')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -221,6 +248,62 @@ function Get-Rescale($log, $which) {
         Volume = [double]$Matches[1]; Mol = [double]$Matches[2]; Cells = [double]$Matches[3]; P = [double]$Matches[4]
         Caps = [double]$Matches[5]; Clouds = [double]$Matches[6]; CapsVolume = [double]$Matches[7]
         LatentK = [double]$Matches[8]; ExtK = [double]$Matches[9]; Gases = $Matches[10].Trim()
+    }
+}
+
+# The draw scenario's own line: the same four figures as Get-Rows, every tick rather than every five,
+# plus what was taken out of the cells on that tick.
+function Get-StripRows($log) {
+    foreach ($line in $log) {
+        if ($line -match 'LiveCheck: strip tick (\d+) \| tank ([\d.]+) \| outdoor cells (\d+) holding ([\d.]+) \| SUM ([\d.]+) \| took ([\d.]+) \| took total ([\d.]+) \| made (\d+) \| drew from (\d+)(?: \| planet per cell ([\d.]+) \| planet grid cells (\d+))?') {
+            [pscustomobject]@{ Tick = [int]$Matches[1]; Tank = [double]$Matches[2]; Cells = [int]$Matches[3]
+                Held = [double]$Matches[4]; Sum = [double]$Matches[5]; Took = [double]$Matches[6]
+                TookTotal = [double]$Matches[7]; Made = [int]$Matches[8]; DrewFrom = [int]$Matches[9]
+                PerCell = $(if ($Matches[10]) { [double]$Matches[10] } else { 0 })
+                GridCells = $(if ($Matches[11]) { [double]$Matches[11] } else { 0 }) }
+        }
+    }
+}
+
+function Get-Walks($log) {
+    foreach ($line in $log) {
+        if ($line -match 'LiveCheck: walk tick (\d+) \| pool (\d+) \| cells (\d+) \| sum us ([\d.]+) mean ([\d.]+) \| count us ([\d.]+) mean ([\d.]+) \| tickMs ([\d.]+)') {
+            [pscustomobject]@{ Tick = [int]$Matches[1]; Pool = [int]$Matches[2]; Cells = [int]$Matches[3]
+                SumUs = [double]$Matches[4]; SumMeanUs = [double]$Matches[5]; CountUs = [double]$Matches[6]
+                CountMeanUs = [double]$Matches[7]; TickMs = [double]$Matches[8] }
+        }
+    }
+}
+
+# What a walk costs against how many cells there are, and what that is worth against one tick.
+function Show-Walks($log) {
+    $walks = @(Get-Walks $log)
+    if ($walks.Count -eq 0) {
+        Write-Host 'No walk timings were logged.'
+        return
+    }
+    $walks | Sort-Object Cells | Format-Table Tick, Pool, Cells,
+        @{ n = 'sum us'; e = { '{0:N2}' -f $_.SumUs } }, @{ n = 'sum mean us'; e = { '{0:N2}' -f $_.SumMeanUs } },
+        @{ n = 'count us'; e = { '{0:N2}' -f $_.CountUs } },
+        @{ n = 'ns per cell'; e = { if ($_.Cells -gt 0) { '{0:N1}' -f ($_.SumUs * 1000 / $_.Cells) } else { '' } } },
+        @{ n = '% of tick'; e = { '{0:N4}' -f ($_.SumUs / 1000 / $_.TickMs * 100) } } -AutoSize | Out-String | Write-Host
+    $busiest = ($walks | Sort-Object Cells)[-1]
+    $idle = @($walks | Where-Object { $_.Cells -le 2 })
+    if ($idle.Count -gt 0) {
+        $q = ($idle | Measure-Object SumUs -Minimum).Minimum
+        Write-Host ("walk with {0} cells: {1:N2} us" -f $idle[0].Cells, $q)
+    }
+    Write-Host ("walk with {0} outdoor cells (pool {1}): {2:N2} us best, {3:N2} us mean, {4:N1} ns per cell, {5:N4}% of a {6:N0} ms tick" -f `
+        $busiest.Cells, $busiest.Pool, $busiest.SumUs, $busiest.SumMeanUs,
+        ($(if ($busiest.Cells -gt 0) { $busiest.SumUs * 1000 / $busiest.Cells } else { 0 })),
+        ($busiest.SumUs / 1000 / $busiest.TickMs * 100), $busiest.TickMs)
+    # Cost per cell, fitted over every sample with cells to speak of, so a count can be extrapolated.
+    $fit = @($walks | Where-Object { $_.Cells -ge 100 })
+    if ($fit.Count -ge 2) {
+        $perCellNs = (($fit | Measure-Object -Property SumUs -Sum).Sum * 1000) / (($fit | Measure-Object -Property Cells -Sum).Sum)
+        $budgetUs = $busiest.TickMs * 1000
+        Write-Host ("over {0} samples of 100 cells or more: {1:N1} ns per cell, so 1% of a tick is about {2:N0} cells and a whole tick about {3:N0}" -f `
+            $fit.Count, $perCellNs, ($budgetUs * 0.01 * 1000 / $perCellNs), ($budgetUs * 1000 / $perCellNs))
     }
 }
 
@@ -364,6 +447,81 @@ try {
         }
         if ($line -notmatch '^weather PASS') { throw "LiveCheck FAILED: $line" }
         Write-Host ("LiveCheck OK: a full cloud bucket gave its gas back to the air and left {0} running." -f $was)
+        return
+    }
+
+    if ($Strip) {
+        # Air taken OUT through outdoor cells, the direction a player with vents moves it. What is
+        # measured is the share of the planet its outdoor cells hold while that is happening, which
+        # is what decides whether a measure of how much air a planet has left must count them.
+        $environment = @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_STRIP_TICK = '30'
+            TR_LIVECHECK_STRIP_TICKS = "$StripTicks"; TR_LIVECHECK_STRIP_CELLS = "$StripCells" }
+        if ($StripPerCell -gt 0) { $environment.TR_LIVECHECK_STRIP_PER_CELL = $StripPerCell.ToString([cultureinfo]::InvariantCulture) }
+        if ($StripFloor -gt 0) { $environment.TR_LIVECHECK_STRIP_FLOOR = $StripFloor.ToString([cultureinfo]::InvariantCulture) }
+        if ($StripShare -gt 0) { $environment.TR_LIVECHECK_STRIP_SHARE = $StripShare.ToString([cultureinfo]::InvariantCulture) }
+        if ($WalkCost) { $environment.TR_LIVECHECK_WALKCOST = '1' }
+        if ($TimeoutSeconds -lt ($StripTicks * 0.7 + 240)) { $TimeoutSeconds = [int]($StripTicks * 0.7 + 240) }
+        # Waits for samples taken after the draw stops as well, so the cells can be seen settling back.
+        $log = Invoke-Game @('-new', $World) $environment `
+            { param($l)
+              $done = @($l -match 'LiveCheck: strip done ')
+              if ($done.Count -eq 0) { return $false }
+              $tick = if ($done[0] -match '\| tick (\d+)') { [int]$Matches[1] } else { 0 }
+              @(Get-Rows $l | Where-Object { $_.Tick -ge $tick + 40 }).Count -ge 1 } 'the planet to be drawn down through outdoor cells'
+        Assert-ModLive $log
+        @($log -match 'LiveCheck: strip (starting|done|FAIL)') | ForEach-Object { $_ -replace '^\[[^\]]*\]\s*', '' } | Write-Host
+        if ($log -match 'LiveCheck: strip FAIL') { throw 'LiveCheck FAILED: the driver could not draw the planet down.' }
+        $stripRows = @(Get-StripRows $log)
+        if ($stripRows.Count -eq 0) { throw 'LiveCheck FAILED: the driver never drew any gas out.' }
+
+        $share = { param($r) if (($r.Tank + $r.Held) -gt 0) { $r.Held / ($r.Tank + $r.Held) * 100 } else { 0 } }
+        # Every fifth tick of the draw, so a long run still prints as a page.
+        $stripRows | Where-Object { $_.Tick % 5 -eq 0 } | Format-Table Tick, Cells,
+            @{ n = 'held'; e = { '{0:N3}' -f $_.Held } }, @{ n = 'tank'; e = { '{0:N3}' -f $_.Tank } },
+            @{ n = 'sum'; e = { '{0:N3}' -f $_.Sum } }, @{ n = 'took'; e = { '{0:N3}' -f $_.Took } },
+            @{ n = 'took total'; e = { '{0:N3}' -f $_.TookTotal } }, @{ n = 'made'; e = { $_.Made } },
+            @{ n = 'cell share %'; e = { '{0:N4}' -f (& $share $_) } } -AutoSize | Out-String | Write-Host
+
+        $shares = @($stripRows | ForEach-Object { & $share $_ })
+        $peak = ($shares | Measure-Object -Maximum).Maximum
+        $mean = ($shares | Measure-Object -Average).Average
+        $peakRow = $stripRows[[array]::IndexOf($shares, $peak)]
+        $rows = @(Get-Rows $log)
+        $startTick = $stripRows[0].Tick
+        $endTick = $stripRows[-1].Tick
+        $beforeRows = @($rows | Where-Object { $_.Tick -lt $startTick })
+        $afterRows = @($rows | Where-Object { $_.Tick -gt $endTick + 10 })
+        $beforeShare = if ($beforeRows.Count) { & $share $beforeRows[-1] } else { -1 }
+        $afterShare = if ($afterRows.Count) { & $share $afterRows[-1] } else { -1 }
+        $took = $stripRows[-1].TookTotal
+        # The first row is logged after that tick's draw, so the planet before the draw began is its
+        # sum plus what that tick took. Taking the row as it stands hides the first tick's moles.
+        $fell = ($stripRows[0].Sum + $stripRows[0].Took) - $stripRows[-1].Sum
+        $states = @(Get-States $log)
+        $endState = if ($states.Count) { $states[-1] } else { $null }
+
+        Write-Host ("drew {0:N3} mol out of the planet over {1} ticks from {2} draw points; planet plus cells fell {3:N3} mol, so {4:N3} mol is unaccounted for" -f `
+            $took, $stripRows.Count, $StripCells, $fell, ($fell - $took))
+        if ($endState) { Write-Host ("ice caps {0:N3} mol, clouds {1:N3} mol at the end" -f $endState.Caps, $endState.Clouds) }
+        Write-Host ("cell share before the draw {0:N4}%, peak during it {1:N4}% (tick {2}, {3} cells holding {4:N3} of {5:N3}), mean {6:N4}%, after it settles {7:N4}%" -f `
+            $beforeShare, $peak, $peakRow.Tick, $peakRow.Cells, $peakRow.Held, ($peakRow.Tank + $peakRow.Held), $mean, $afterShare)
+        Write-Host ("most outdoor cells at once: {0}; most held at once: {1:N3} mol" -f `
+            ($stripRows.Cells | Measure-Object -Maximum).Maximum, ($stripRows.Held | Measure-Object -Maximum).Maximum)
+        # The scale the share is set by: the planet is a number of grid cells, and an outdoor cell
+        # resting at the planet's own density is exactly one of them.
+        $dense = @($stripRows | Where-Object { $_.PerCell -gt 0 -and $_.Cells -gt 0 })
+        if ($dense.Count) {
+            $last = $dense[-1]
+            Write-Host ("the planet is {0:N0} grid cells of {1:N3} mol, so one outdoor cell at planet density is {2:N6}% of it; at the end of the draw its cells held {3:N3} mol each, {4:N1}% of planet density" -f `
+                $last.GridCells, $last.PerCell, (100 / $last.GridCells), ($last.Held / $last.Cells), (($last.Held / $last.Cells) / $last.PerCell * 100))
+        }
+        if ($WalkCost) { Show-Walks $log }
+
+        $problems = @()
+        if ($took -lt 100) { $problems += "the draw only took $took mol, which is too little to say anything about" }
+        if ($peakRow.Cells -lt 1) { $problems += 'no outdoor cell was ever there to draw from' }
+        if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: ' + ($problems -join '; ')) }
+        Write-Host 'LiveCheck OK: the planet was drawn down through its outdoor cells and the share they hold is above.'
         return
     }
 
@@ -615,7 +773,9 @@ try {
         return
     }
 
-    $log = Invoke-Game @('-new', 'Mars2') @{} { param($l) $r = @(Get-Rows $l); $r.Count -ge 20 -and $r[-1].Cells -le 5 -and $r[-1].Sum -gt ($r[0].Sum + 50000) } 'the injected gas to drain into the tank'
+    $environment = @{}
+    if ($WalkCost) { $environment.TR_LIVECHECK_WALKCOST = '1' }
+    $log = Invoke-Game @('-new', 'Mars2') $environment { param($l) $r = @(Get-Rows $l); $r.Count -ge 20 -and $r[-1].Cells -le 5 -and $r[-1].Sum -gt ($r[0].Sum + 50000) } 'the injected gas to drain into the tank'
     $rows = @(Get-Rows $log)
     if ($Vanilla) {
         $rows | Format-Table -AutoSize | Out-String | Write-Host
@@ -624,6 +784,12 @@ try {
     }
     Assert-ModLive $log
     $rows | Format-Table -AutoSize | Out-String | Write-Host
+    if ($WalkCost) {
+        # The same sweep the injection makes, 1 cell to thousands and back, timed at each sample.
+        $rows | Format-Table Tick, Cells, @{ n = 'held'; e = { '{0:N3}' -f $_.Held } },
+            @{ n = 'cell share %'; e = { '{0:N4}' -f ($_.Held / $_.Sum * 100) } } -AutoSize | Out-String | Write-Host
+        Show-Walks $log
+    }
     $before = @($rows | Where-Object { $_.Sum -lt ($rows[0].Sum + 50000) })
     $after = @($rows | Where-Object { $_.Sum -ge ($rows[0].Sum + 50000) })
     if ($before.Count -lt 2 -or $after.Count -lt 5) { throw 'Not enough samples either side of the injection.' }

@@ -97,6 +97,58 @@ namespace TerraformingReloaded.LiveCheck
         private float _weatherLengthBefore;
         private double _weatherCloudsVolume;
 
+        // Stripping the planet through outdoor cells, which is the direction a player actually moves
+        // planet air: an inward ActiveVent clones the outdoor cell at its own grid and removes gas
+        // from it (ActiveVent.PumpGasToPipe), and the planet refills that cell through the ordinary
+        // mixing. A headless run cannot build a vent, so the driver does exactly what the vent does,
+        // at as many grids as asked for, from the planet tick where every mole reads live. What is
+        // taken is discarded, which is where a player's gas goes: into storage, off the planet.
+        private static readonly uint StripTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_STRIP_TICK"), out uint st) ? st : 0u;
+        private static readonly uint StripTicks = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_STRIP_TICKS"), out uint stn) ? stn : 150u;
+        private static readonly int StripCells = int.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_STRIP_CELLS"), out int sc) ? sc : 100;
+        // How much one draw point may take in one tick. The default is larger than a cell can hold,
+        // which is a vent whose pressure per tick is never the limit: the fastest a cell can be
+        // emptied, and so the largest share outdoor cells can ever be holding while air is leaving.
+        private static readonly double StripPerCell = double.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_STRIP_PER_CELL"), NumberStyles.Float, CultureInfo.InvariantCulture, out double spc) ? spc : 1.0e9;
+        // What is left behind in a cell, and it matters. A real vent sits on a grid with a structure
+        // on it, and a cell with a structure is kept instantiated (Atmosphere.IsLive asks the centre
+        // structure's AlwaysInstanceWorldAtmosphere). A headless run cannot build one, and a cell
+        // emptied outright is culled: measured twice, 99 of 100 draw points died on the first tick,
+        // once taking everything and once leaving a mole behind, and their air went back to the tank.
+        private static readonly double StripFloor = double.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_STRIP_FLOOR"), NumberStyles.Float, CultureInfo.InvariantCulture, out double sf) ? sf : 1.0;
+        // So the draw takes a SHARE of what a cell holds, which is what a vent does: it is limited by
+        // its pressure per tick and by what the pipe behind it will accept, so it thins the cell
+        // rather than emptying it, and the cell stays instantiated and goes on being refilled.
+        private static readonly double StripShare = double.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_STRIP_SHARE"), NumberStyles.Float, CultureInfo.InvariantCulture, out double ss) ? ss : 0.5;
+        private double _strippedTotal;
+        private double _stripSumAtStart;
+        private uint _stripTicksDone;
+        private bool _stripDone;
+
+        // What a walk over every atmosphere costs, timed where a per-tick measure would sit. Not a
+        // check: it prints microseconds against the cell count so the cost can be read off at the
+        // counts a real base reaches.
+        private static readonly bool WalkCost = Environment.GetEnvironmentVariable("TR_LIVECHECK_WALKCOST") == "1";
+        private const int WalkRepeats = 20;
+        private static double _walkMoles;
+        private static int _walkCells;
+        private static int _walkSeen;
+        private static readonly Action<Atmosphere> WalkSum = a =>
+        {
+            if (a != null && a.Mode == AtmosphereHelper.AtmosphereMode.World)
+            {
+                _walkMoles += a.GasMixture.GetTotalMolesGassesAndLiquids.ToDouble();
+                _walkCells++;
+            }
+        };
+        private static readonly Action<Atmosphere> WalkCount = a =>
+        {
+            if (a != null)
+            {
+                _walkSeen++;
+            }
+        };
+
         // The mix the new-game menu builds to describe a world, which must not carry the planet size.
         private static readonly bool MenuMix = Environment.GetEnvironmentVariable("TR_LIVECHECK_MENUMIX") == "1";
         private bool _menuMixDone;
@@ -173,6 +225,14 @@ namespace TerraformingReloaded.LiveCheck
             {
                 _instance._menuMixDone = true;
                 _instance.ReportMenuMix();
+            }
+            if (_instance != null && !_instance._stripDone && StripTick > 0 && GameManager.GameTickCount >= StripTick)
+            {
+                _instance.StripStep();
+            }
+            if (_instance != null && WalkCost && GameManager.GameTickCount % ReportEveryTicks == 0)
+            {
+                _instance.MeasureWalk();
             }
             if (_instance == null || _instance._failed || GameManager.GameTickCount % ReportEveryTicks != 0)
             {
@@ -454,6 +514,177 @@ namespace TerraformingReloaded.LiveCheck
             catch (Exception e)
             {
                 Logger.LogInfo("LiveCheck: wallvent FAIL " + e);
+            }
+        }
+
+        /// <summary>
+        /// Taking planet air out through outdoor cells, one tick at a time: the direction a player
+        /// moves air, and the direction the injection scenario does not cover.
+        ///
+        /// What an inward ActiveVent does is clone the outdoor cell at its own grid
+        /// (GetWorkingAtmosphere) and remove gas from it (PumpGasToPipe); the planet then refills
+        /// that cell through the ordinary mixing, which is how the planet is drained one cell at a
+        /// time. This does the same at STRIP_CELLS grids in open sky, taking up to STRIP_PER_CELL
+        /// moles from each one each tick, and discards what it takes: a player's gas goes into
+        /// storage, and for the planet that is gone.
+        ///
+        /// Simulation thread, at the top of the planet tick, so tank and cells are read at rest.
+        /// Every tick logs the same four figures the default scenario logs every five, so the share
+        /// outdoor cells hold can be read across the whole draw.
+        /// </summary>
+        private void StripStep()
+        {
+            try
+            {
+                GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+                if (tank == null)
+                {
+                    return;
+                }
+                if (_stripTicksDone == 0)
+                {
+                    _stripSumAtStart = TankPlusCells(out int _);
+                    Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                        "LiveCheck: strip starting at tick {0} | {1} draw points | {2:0.###} of what each holds per tick | up to {3:0.###} mol | leaving {4:0.###} mol behind | for {5} ticks | planet plus cells {6:0.000} mol",
+                        GameManager.GameTickCount, StripCells, StripShare, StripPerCell, StripFloor, StripTicks, _stripSumAtStart));
+                }
+
+                WorldGrid origin = new WorldGrid(new Vector3(0f, 300f, 0f));
+                int side = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(StripCells)));
+                double removedNow = 0.0;
+                int made = 0;
+                int drawnFrom = 0;
+                for (int i = 0; i < StripCells; i++)
+                {
+                    WorldGrid grid = new WorldGrid(origin.Value.x + (i % side), origin.Value.y, origin.Value.z + (i / side));
+                    Atmosphere cell = AtmosphericsManager.Find(grid);
+                    double have = cell == null ? 0.0 : cell.GasMixture.GetTotalMolesGassesAndLiquids.ToDouble();
+                    if (cell == null || have <= StripFloor || cell.BeingDestroyed)
+                    {
+                        // The vent's own call (ActiveVent.GetWorkingAtmosphere): a draw point with no
+                        // cell builds one, and building it draws its air from the planet rather than
+                        // creating any. On a cell that is already there this only marks it active
+                        // again, which is what brings a drained one back into the simulation.
+                        Atmosphere built = AtmosphericsManager.CloneGlobalAtmosphereThreadSafe(grid);
+                        if (built != null && built != cell)
+                        {
+                            made++;
+                        }
+                        cell = built;
+                        have = cell == null ? 0.0 : cell.GasMixture.GetTotalMolesGassesAndLiquids.ToDouble();
+                    }
+                    if (cell == null)
+                    {
+                        continue;
+                    }
+                    // A share of what the cell holds, capped, and never below the floor: the vent's
+                    // behaviour rather than a cell emptied outright, which the game culls.
+                    double take = Math.Min(Math.Min(have * StripShare, have - StripFloor), StripPerCell);
+                    // The first tick only builds the draw points. A cell created inside the planet
+                    // tick has no open neighbours until the next tick's RunOpenNeighboursJobs, and a
+                    // cell with no open neighbours is not live (Atmosphere.IsLive), so draining one
+                    // the moment it is built is what killed the draw points in the first two runs.
+                    if (take <= 0.0 || _stripTicksDone == 0)
+                    {
+                        continue;
+                    }
+                    GasMixture taken = cell.Remove(new MoleQuantity(take), AtmosphereHelper.MatterState.All);
+                    removedNow += taken.GetTotalMolesGassesAndLiquids.ToDouble();
+                    drawnFrom++;
+                }
+                _strippedTotal += removedNow;
+                _stripTicksDone++;
+
+                double inTank = tank.TotalQuantity().ToDouble();
+                double inCells = 0.0;
+                int cells = 0;
+                AtmosphericsManager.AllAtmospheres.ForEach((Action<Atmosphere>)(a =>
+                {
+                    if (a != null && a.Mode == AtmosphereHelper.AtmosphereMode.World)
+                    {
+                        inCells += a.GasMixture.GetTotalMolesGassesAndLiquids.ToDouble();
+                        cells++;
+                    }
+                }));
+                // The planet's own air per outdoor cell, so what the cells hold can be read against
+                // the density they would rest at: a cell at planet density is one grid cell of the
+                // planet, and the planet is (volume / grid volume) of them.
+                double gridCells = (tank.Volume / Chemistry.GridVolume).ToDouble();
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                    "LiveCheck: strip tick {0} | tank {1:0.000} | outdoor cells {2} holding {3:0.000} | SUM {4:0.000} | took {5:0.000} | took total {6:0.000} | made {7} | drew from {8} | planet per cell {9:0.000000} | planet grid cells {10:0}",
+                    GameManager.GameTickCount, inTank, cells, inCells, inTank + inCells, removedNow, _strippedTotal, made, drawnFrom,
+                    gridCells > 0.0 ? inTank / gridCells : 0.0, gridCells));
+
+                if (_stripTicksDone >= StripTicks)
+                {
+                    _stripDone = true;
+                    double left = inTank + inCells;
+                    Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                        "LiveCheck: strip done | tick {0} | took total {1:0.000} mol | planet plus cells {2:0.000} -> {3:0.000} ({4:+0.000;-0.000}) | unaccounted {5:+0.000;-0.000}",
+                        GameManager.GameTickCount, _strippedTotal, _stripSumAtStart, left, left - _stripSumAtStart,
+                        left - _stripSumAtStart + _strippedTotal));
+                }
+            }
+            catch (Exception e)
+            {
+                _stripDone = true;
+                Logger.LogInfo("LiveCheck: strip FAIL " + e);
+            }
+        }
+
+        /// <summary>
+        /// What one walk over every atmosphere costs, timed on the simulation thread at the top of
+        /// the planet tick, which is where a per-tick measure of the planet's air would have to sit.
+        /// Two walks are timed: the one a measure needs (sum the moles in every World-mode cell) and
+        /// a bare one that only counts, which separates the cost of iterating from the cost of
+        /// reading. Not judged: it prints microseconds against the cell count.
+        /// </summary>
+        private void MeasureWalk()
+        {
+            try
+            {
+                // Warm up: the first walk after a tick's work pays for cold cache lines, and the
+                // delegates are cached fields so no allocation is being timed.
+                _walkMoles = 0.0;
+                _walkCells = 0;
+                AtmosphericsManager.AllAtmospheres.ForEach(WalkSum);
+
+                double sumBest = double.MaxValue;
+                double sumTotal = 0.0;
+                for (int i = 0; i < WalkRepeats; i++)
+                {
+                    _walkMoles = 0.0;
+                    _walkCells = 0;
+                    System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+                    AtmosphericsManager.AllAtmospheres.ForEach(WalkSum);
+                    watch.Stop();
+                    double us = watch.Elapsed.TotalMilliseconds * 1000.0;
+                    sumTotal += us;
+                    sumBest = Math.Min(sumBest, us);
+                }
+
+                double countBest = double.MaxValue;
+                double countTotal = 0.0;
+                for (int i = 0; i < WalkRepeats; i++)
+                {
+                    _walkSeen = 0;
+                    System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+                    AtmosphericsManager.AllAtmospheres.ForEach(WalkCount);
+                    watch.Stop();
+                    double us = watch.Elapsed.TotalMilliseconds * 1000.0;
+                    countTotal += us;
+                    countBest = Math.Min(countBest, us);
+                }
+
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                    "LiveCheck: walk tick {0} | pool {1} | cells {2} | sum us {3:0.###} mean {4:0.###} | count us {5:0.###} mean {6:0.###} | tickMs {7:0.###} | moles {8:0.000}",
+                    GameManager.GameTickCount, AtmosphericsManager.AllAtmospheres.ActiveCount, _walkCells,
+                    sumBest, sumTotal / WalkRepeats, countBest, countTotal / WalkRepeats,
+                    GameManager.GameTickSpeedSeconds * 1000.0, _walkMoles));
+            }
+            catch (Exception e)
+            {
+                Logger.LogInfo("LiveCheck: walk FAIL " + e);
             }
         }
 
