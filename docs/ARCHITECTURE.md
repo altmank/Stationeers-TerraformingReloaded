@@ -9,6 +9,7 @@
 | `src/Patching/Gate.cs` | `Enabled()` and the transpiler that swaps the game's eight `get_IsGlobalInteraction` calls for it |
 | `src/Patching/Guards.cs` | Patch bodies for the defects (DEFECTS.md) and the sky throttle |
 | `src/Patching/Climate.cs` | Temperature rule for worlds that ship without curves (anchored greenhouse, proportional swing damping, airless base); the curves file |
+| `src/Patching/Sidecar.cs` | Per-world settings: the file beside each save, what a world may carry, and the fail-closed rule for the pressure ceiling (SIDECAR.md) |
 | `src/Patching/Planet.cs` | Whole-planet operations: planet size at creation, rescaling the planet being played, reset to shipped |
 | `src/Patching/SelfTest.cs` | Game-change alarms: is the game's own switch still off, does the temperature formula still use the parts the mod adjusts, and a once-per-world take-and-give round trip on the live planet |
 | `src/Patching/Patcher.cs` | Applies everything, in an order that cannot leave the game half converted |
@@ -34,6 +35,7 @@ patched and the game runs as shipped:
 | PAS `GiveToGlobal` | prefix | Refuse bad mixtures (D7) |
 | `AtmosphericEventInstance.DivideWorldAtmosphere` | prefix + finalizer | Flag for D2 |
 | `AtmosphericsManager.Deregister(Atmosphere)` | prefix | Empty an already-distributed cell (D2) |
+| PAS `CreateGlobalAtmosphere` | prefix | World start, before the planet exists: read this world's own settings, or fall back with the ceiling off. First in the patch set, and required, because a failure here would leave every world running on raw config |
 | PAS `CreateGlobalAtmosphere` | postfix | World start: allow or disallow (tutorials, a planet with no volume), invalidate the climate cache, arm the self-test |
 | `XmlSaveLoad.GetWorldData` | prefix | Refresh caches before the save reads them (D12). Applied last and on its own, because it reaches Unity native code and PatchCheck must tell that apart from a real failure |
 
@@ -43,6 +45,9 @@ required set stands down, so a planet already terraformed keeps its temperature:
 | Target | Purpose |
 | --- | --- |
 | `WeatherManager.ScheduleWeatherEvent` prefix | D6 |
+| `World.Initialize` prefix + finalizer | Is this a new world or a loaded one? Taken from the game rather than inferred, and live only for that call, so it cannot leak into a later world start |
+| `SaveHelper.CreateSaveDirectory` postfix | Write a new world's settings file. Refuses when no world is in play, because the workshop importer calls it from the main menu |
+| PAS `Clear` postfix | Leaving a world: back to the config, ceiling off, so the new-world screen does not read the last world played |
 | `GlobalGasMix.GetGlobalGasMixTemperature(data, angle, percent)` postfix, `PAS.CacheTemperatureCurveOffsets` postfix | Temperature response and its readout (TEMPERATURE.md). Refused if the formula no longer calls the four part getters, or the one-argument overload no longer calls this one |
 | `GlobalGasMix.Create` postfix, with a prefix and finalizer on PAS `CreateGlobalAtmosphere` and `RegenerateGlobalFromData` | Planet size, applied only while the game builds the planet being played (D16) |
 | `WallVent.OnAtmosphericTick` prefix | A wall vent to outdoors mixes with a real cell, not the read-only copy (D15) |
@@ -105,11 +110,14 @@ reads only. `Gate.Describe()` says which condition is false, for the status read
 | A rescale says when it would raise or drain the global sea, and then goes ahead | `GlobalAtmosphereLiquid.RenderThreshold` is an absolute litre figure, the one planet-scale constant the game does not let follow planet size, so scaling the tank's liquid can cross it and flood or clear the outdoors. A player may want either side of that line, and rescaling back undoes it, so it is said in the prompt rather than refused |
 | Pressure ceiling off by default | It was the old mod's behaviour, not the game's |
 | `terraform reset` needs `confirm` | It cannot be undone except by loading an earlier save |
+| A loaded world's pressure ceiling comes only from its own file, never from the config | It is the one setting that deletes rather than changes. Every other path sets it off, so a bug in the read path costs a player nothing. Enforced by a private field behind three named mutators, and pinned by `tools/ci/check_repo.py` |
+| Settings a world owns are read from `Effective`, not `Settings` | `Settings` is the config and BepInEx writes it whenever a slider moves. Overwriting it would show numbers in the editor that are not in force, and would need restoring when a world is left |
 | Status logging runs from `Update`, not the tick | It must still report when the simulation is paused or the planet is off, which is when it is needed |
 
 ## Console
 
-`terraform` (status), `terraform size <share> confirm`, `terraform reset confirm`,
+`terraform` (status), `terraform size <share> confirm`, `terraform ceiling <kPa> confirm`,
+`terraform reset confirm`,
 `terraform curves export`, `terraform curves reload`. Status totals are read off the simulation
 thread and so lag a tick while gas is moving. The rescale takes the tank lock, so it cannot
 interleave with a planet tick, and it reads its own before and after figures under that same hold;
