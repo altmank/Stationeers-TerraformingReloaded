@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.10.0
+
+- **Each world now keeps its own copy of the settings that belong to it**, in a small
+  `terraforming-reloaded.xml` beside its save. Six settings moved: the pressure ceiling, both
+  response strengths, the airless reflectivity, and both added-heat settings. Until now one global
+  config decided how every world behaved, so tuning it for a new save quietly changed, and in one
+  case damaged, older ones.
+- **An existing world loads with its pressure ceiling off, whatever your config says.** That is
+  deliberate. A world made before this version carries no record of whether it ever had a ceiling,
+  and applying your current one could delete most of its atmosphere in a day. Use
+  `terraform ceiling <kPa> confirm` to set it for the world you are playing; the prompt tells you the
+  planet's pressure now and how much air the first tick would delete.
+- **New: `terraform ceiling <kPa> confirm`.** Sets the ceiling for the world you are playing and no
+  other. `terraform ceiling` on its own reports the one in force. Host only.
+- The config's pressure ceiling is now what a **new** world starts with, rather than something that
+  reaches into worlds that already exist.
+- `terraform` reports which settings the world you are in is running on, and where they came from.
+- Rain and snow now fall on worlds that ship with no weather of their own, such as Mimas, once you
+  have given them enough air for clouds to fill. This was already possible and off by default; it is
+  now on. **Changing a default only reaches new installs**: BepInEx writes your config file the first
+  time it runs, so an existing config keeps the old value until you change it yourself.
+- Building into an occupied outdoor cell, and a cloud filling while other weather is already running,
+  are both now covered by tests that can fail: each has a run that reproduces the defect with the fix
+  taken out.
+- Fixed: on a custom world whose planet declares no volume, the mod stood down correctly but said so
+  three different wrong ways, one of them printing a pressure of NaN.
+- Fixed: choosing a planet-size preset overwrote a custom size you had typed, and saved it over yours.
+
 ## 0.9.1
 
 - The `terraform` readout now shows the clouds and the ice caps: how much gas has frozen or

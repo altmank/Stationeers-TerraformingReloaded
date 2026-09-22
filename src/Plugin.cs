@@ -14,7 +14,7 @@ namespace TerraformingReloaded
     {
         public const string PluginGuid = "xceled.stationeers.terraformingreloaded";
         public const string PluginName = "Terraforming Reloaded";
-        public const string PluginVersion = "0.9.1";
+        public const string PluginVersion = "0.10.0";
 
         /// <summary>The game build the patches were last checked against. Advisory only.</summary>
         private const string TestedGameVersion = "0.2.6428.27798";
