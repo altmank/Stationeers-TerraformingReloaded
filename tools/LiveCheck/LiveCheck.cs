@@ -179,6 +179,23 @@ namespace TerraformingReloaded.LiveCheck
         // temperature response reads "not evaluated yet". This asks for status once more, later.
         private static readonly uint StatusAgainTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_STATUS_TICK"), out uint sa) ? sa : 0u;
         private bool _statusAgain;
+
+        // Per-world settings. The file the mod writes beside the save is rewritten here, one shape
+        // at a time, and the mod's own read prefix is called on each, so what is judged is the real
+        // read path over a real file in a real world folder, not a copy of the rule.
+        //
+        // The config is made to ask for a pressure ceiling throughout, because the question these
+        // cases exist to answer is not "does a bad file parse" but "can any path other than a
+        // world's own file, or the console verb, switch on the one setting that deletes a player's
+        // air". Every line prints the config's ceiling beside the one in force, so a run in which
+        // the config was not asking cannot be mistaken for a pass.
+        private static readonly uint SidecarTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_SIDECAR_TICK"), out uint sdc) ? sdc : 0u;
+        private const double SidecarConfigCeiling = 500.0;
+        private const uint SidecarTicksBetween = 2;
+        private int _sidecarCase;
+        private uint _sidecarNextTick;
+        private bool _sidecarDone;
+        private string _sidecarStation;
         private uint _dirtiedAtTick;
         private bool _dirtied;
         private bool _resetDone;
@@ -302,6 +319,15 @@ namespace TerraformingReloaded.LiveCheck
             {
                 _statusAgain = true;
                 RunCommand("status");
+            }
+            // One case per visit, spaced a couple of ticks apart, so the planet goes on ticking
+            // between them: a ceiling that was wrongly let through would show up as the tank
+            // collapsing in the sampled rows, not only in the line printed here.
+            if (!_sidecarDone && SidecarTick > 0 && GameManager.GameTickCount >= SidecarTick
+                && GameManager.GameTickCount >= _sidecarNextTick)
+            {
+                _sidecarNextTick = GameManager.GameTickCount + SidecarTicksBetween;
+                SidecarStep();
             }
             // From Update, which is the main thread: a console command reaches the planet from there,
             // and the planet tick runs on another thread, so this is the only arrangement in which a
@@ -1216,6 +1242,290 @@ namespace TerraformingReloaded.LiveCheck
                 return null;
             }
             return new Dictionary<string, object> { ["day"] = day, ["night"] = night };
+        }
+
+        // ---- per-world settings ----------------------------------------------------------------
+        //
+        // What this judges is the mod's own read path, called on real files in the real world folder
+        // of the world being played: the file is rewritten one shape at a time and
+        // Sidecar.WorldStartPrefix is invoked on each, which is exactly what the game calls at a
+        // world start. Nothing here reimplements the rule.
+        //
+        // The config is set to ask for a pressure ceiling, and for five other distinctive values,
+        // before the first case. Every line prints the config's ceiling beside the one in force, so
+        // a run where the config was not asking cannot be read as a pass, and the five make a
+        // fallback to the config tell itself apart from a value the file recorded.
+
+        private static string SidecarFolder()
+        {
+            return Path.Combine(StationSaveUtils.GetSavePathSavesSubDir().FullName,
+                Assets.Scripts.Serialization.XmlSaveLoad.Instance.CurrentStationName ?? "");
+        }
+
+        private static Type SidecarType => AccessTools.TypeByName("TerraformingReloaded.Patching.Sidecar");
+
+        private static Type EffectiveType => AccessTools.TypeByName("TerraformingReloaded.Effective");
+
+        private static void SetConfig(string field, double value)
+        {
+            AccessTools.Field(AccessTools.TypeByName("TerraformingReloaded.Settings"), field).SetValue(null, value);
+        }
+
+        private static string Shown(object value)
+        {
+            if (value == null)
+            {
+                return "none";
+            }
+            return value is double d ? d.ToString("R", CultureInfo.InvariantCulture) : value.ToString();
+        }
+
+        private static string EffectiveShown(string member)
+        {
+            System.Reflection.PropertyInfo property = AccessTools.Property(EffectiveType, member);
+            if (property != null)
+            {
+                return Shown(property.GetValue(null, null));
+            }
+            return Shown(AccessTools.Field(EffectiveType, member).GetValue(null));
+        }
+
+        /// <summary>
+        /// A settings file with exactly the elements asked for. null leaves an element out, which is
+        /// what a version that did not have the field would have written; "nil" writes it as not
+        /// recorded; anything else is written literally, so "-5", "NaN" and "-INF" reach the mod's
+        /// reader as the file would really carry them.
+        /// </summary>
+        private static string SidecarXml(int version, string ceiling, string limitK, string halfLife,
+            string ghg, string density, string albedo)
+        {
+            System.Text.StringBuilder x = new System.Text.StringBuilder();
+            x.Append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n");
+            x.Append("<TerraformingReloaded xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" Version=\"")
+                .Append(version.ToString(CultureInfo.InvariantCulture)).Append("\">\r\n");
+            SidecarElement(x, "MaxPressureKPa", ceiling);
+            SidecarElement(x, "MaxExternalOffsetKelvin", limitK);
+            SidecarElement(x, "ExternalHeatHalfLifeMinutes", halfLife);
+            SidecarElement(x, "GhgResponseScale", ghg);
+            SidecarElement(x, "DensityResponseScale", density);
+            SidecarElement(x, "AirlessAlbedo", albedo);
+            x.Append("</TerraformingReloaded>\r\n");
+            return x.ToString();
+        }
+
+        private static void SidecarElement(System.Text.StringBuilder x, string name, string value)
+        {
+            if (value == null)
+            {
+                return;
+            }
+            x.Append(value == "nil"
+                ? "  <" + name + " xsi:nil=\"true\" />\r\n"
+                : "  <" + name + ">" + value + "</" + name + ">\r\n");
+        }
+
+        /// <summary>A file with every field good, so a case can say which one field it is about.</summary>
+        private static string GoodSidecar(string ceiling = "1234", string limitK = "123", string halfLife = "45",
+            string ghg = "2.5", string density = "0.75", string albedo = "0.6", int version = 1)
+        {
+            return SidecarXml(version, ceiling, limitK, halfLife, ghg, density, albedo);
+        }
+
+        private void SidecarStep()
+        {
+            string name = "?";
+            try
+            {
+                if (SidecarType == null || EffectiveType == null)
+                {
+                    Logger.LogInfo("LiveCheck: sidecar FAIL the mod's Sidecar or Effective type was not found");
+                    _sidecarDone = true;
+                    return;
+                }
+                if (_sidecarCase == 0)
+                {
+                    _sidecarStation = Assets.Scripts.Serialization.XmlSaveLoad.Instance.CurrentStationName;
+                    SetConfig("MaxPressureKPa", SidecarConfigCeiling);
+                    SetConfig("MaxExternalOffsetKelvin", 77.0);
+                    SetConfig("ExternalHeatHalfLifeMinutes", 88.0);
+                    SetConfig("GhgResponseScale", 1.5);
+                    SetConfig("DensityResponseScale", 0.25);
+                    SetConfig("AirlessAlbedo", 0.4);
+                    Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                        "LiveCheck: sidecar setup | station {0} | folder {1} | config ceiling {2:0.###} limitK 77 halflife 88 ghg 1.5 density 0.25 albedo 0.4",
+                        _sidecarStation, SidecarFolder(), SidecarConfigCeiling));
+                }
+
+                string folder = SidecarFolder();
+                string path = Path.Combine(folder, "terraforming-reloaded.xml");
+                string salvaged = Path.Combine(folder, "terraforming-reloaded.broken.xml");
+                bool read = true;
+
+                switch (_sidecarCase)
+                {
+                    case 0:
+                        name = "good";
+                        File.WriteAllText(path, GoodSidecar());
+                        break;
+                    case 1:
+                        name = "ceiling-zero";
+                        File.WriteAllText(path, GoodSidecar(ceiling: "0"));
+                        break;
+                    case 2:
+                        name = "ceiling-negative";
+                        File.WriteAllText(path, GoodSidecar(ceiling: "-5"));
+                        break;
+                    case 3:
+                        name = "ceiling-huge";
+                        File.WriteAllText(path, GoodSidecar(ceiling: "99999999"));
+                        break;
+                    case 4:
+                        name = "ceiling-minus-infinity";
+                        File.WriteAllText(path, GoodSidecar(ceiling: "-INF"));
+                        break;
+                    case 5:
+                        name = "every-field-negative";
+                        File.WriteAllText(path, SidecarXml(1, "-5", "-5", "-5", "-5", "-5", "-5"));
+                        break;
+                    case 6:
+                        name = "scales-not-a-number";
+                        File.WriteAllText(path, GoodSidecar(ceiling: "nil", ghg: "NaN", density: "INF", albedo: "NaN"));
+                        break;
+                    case 7:
+                        name = "halflife-zero";
+                        File.WriteAllText(path, GoodSidecar(halfLife: "0"));
+                        break;
+                    case 8:
+                        name = "halflife-not-recorded";
+                        File.WriteAllText(path, GoodSidecar(halfLife: "nil"));
+                        break;
+                    case 9:
+                        name = "only-one-field";
+                        File.WriteAllText(path, SidecarXml(1, null, null, null, "2.5", null, null));
+                        break;
+                    case 10:
+                        name = "missing";
+                        File.Delete(path);
+                        File.Delete(salvaged);
+                        break;
+                    case 11:
+                        name = "broken";
+                        File.Delete(salvaged);
+                        File.WriteAllText(path, "this is not xml at all, and the player hand edited it");
+                        break;
+                    case 12:
+                        name = "no-station-name";
+                        File.WriteAllText(path, GoodSidecar());
+                        Assets.Scripts.Serialization.XmlSaveLoad.Instance.CurrentStationName = "";
+                        break;
+                    case 13:
+                        name = "folder-not-there";
+                        Assets.Scripts.Serialization.XmlSaveLoad.Instance.CurrentStationName = _sidecarStation + "-moved-away";
+                        break;
+                    case 14:
+                        name = "control-armed";
+                        File.WriteAllText(path, GoodSidecar());
+                        break;
+                    case 15:
+                        // The control. Everything above says a ceiling was NOT switched on; this says
+                        // that a ceiling switched on the one way it may be does delete the planet's
+                        // air, so "off" above is a result and not a rule that never runs.
+                        name = "control-bites";
+                        read = false;
+                        RunCommand("ceiling", "0.5", "confirm");
+                        break;
+                    case 16:
+                        name = "control-cleared";
+                        read = false;
+                        RunCommand("ceiling", "0", "confirm");
+                        break;
+                    case 17:
+                        name = "future-version";
+                        File.WriteAllText(path, GoodSidecar(version: SidecarFutureVersion));
+                        break;
+                    case 18:
+                        name = "stood-down";
+                        File.WriteAllText(path, GoodSidecar());
+                        break;
+                    default:
+                        Assets.Scripts.Serialization.XmlSaveLoad.Instance.CurrentStationName = _sidecarStation;
+                        _sidecarDone = true;
+                        Logger.LogInfo("LiveCheck: sidecar done | tick " + GameManager.GameTickCount);
+                        return;
+                }
+
+                if (read)
+                {
+                    AccessTools.DeclaredMethod(SidecarType, "WorldStartPrefix").Invoke(null, null);
+                }
+                ReportSidecar(name, path, salvaged);
+
+                // Anything the case has to say for itself beyond the six values in force.
+                switch (name)
+                {
+                    case "missing":
+                        Logger.LogInfo("LiveCheck: sidecar note missing | rewritten " + File.Exists(path)
+                            + " | salvaged copy " + File.Exists(salvaged));
+                        break;
+                    case "broken":
+                        Logger.LogInfo("LiveCheck: sidecar note broken | salvaged copy " + File.Exists(salvaged)
+                            + " | copy holds the hand edit "
+                            + (File.Exists(salvaged) && File.ReadAllText(salvaged).Contains("hand edited"))
+                            + " | rewritten as xml "
+                            + (File.Exists(path) && File.ReadAllText(path).Contains("<TerraformingReloaded")));
+                        break;
+                    case "no-station-name":
+                    case "folder-not-there":
+                        Assets.Scripts.Serialization.XmlSaveLoad.Instance.CurrentStationName = _sidecarStation;
+                        break;
+                    case "future-version":
+                    case "stood-down":
+                        Logger.LogInfo("LiveCheck: sidecar note " + name + " | file on disk still says version "
+                            + SidecarVersionOnDisk(path) + " | still holds 1234 "
+                            + (File.Exists(path) && File.ReadAllText(path).Contains("1234")));
+                        break;
+                }
+                _sidecarCase++;
+            }
+            catch (Exception e)
+            {
+                _sidecarDone = true;
+                Assets.Scripts.Serialization.XmlSaveLoad.Instance.CurrentStationName = _sidecarStation;
+                Logger.LogInfo("LiveCheck: sidecar FAIL " + name + " " + e);
+            }
+        }
+
+        private const int SidecarFutureVersion = 99;
+
+        private static string SidecarVersionOnDisk(string path)
+        {
+            if (!File.Exists(path))
+            {
+                return "no file";
+            }
+            System.Text.RegularExpressions.Match m =
+                System.Text.RegularExpressions.Regex.Match(File.ReadAllText(path), "Version=\"(\\d+)\"");
+            return m.Success ? m.Groups[1].Value : "none";
+        }
+
+        private void ReportSidecar(string name, string path, string salvaged)
+        {
+            object refusal = AccessTools.DeclaredMethod(SidecarType, "RecordRefusal").Invoke(null, null);
+            object file = AccessTools.Property(SidecarType, "FilePath").GetValue(null, null);
+            object version = AccessTools.Property(SidecarType, "FileVersion").GetValue(null, null);
+            object source = AccessTools.Property(SidecarType, "Source").GetValue(null, null);
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: sidecar {0} | tick {1} | config ceiling {2:0.###} | ceiling {3} | halflife {4} | limitK {5} | ghg {6} | density {7} | albedo {8} | version {9} | tank {10:0.000} | file {11} | refusal {12} | source {13}",
+                name, GameManager.GameTickCount,
+                (double)AccessTools.Field(AccessTools.TypeByName("TerraformingReloaded.Settings"), "MaxPressureKPa").GetValue(null),
+                EffectiveShown("MaxPressureKPa"), EffectiveShown("ExternalHeatHalfLifeMinutes"),
+                EffectiveShown("MaxExternalOffsetKelvin"), EffectiveShown("GhgResponseScale"),
+                EffectiveShown("DensityResponseScale"), EffectiveShown("AirlessAlbedo"),
+                version, tank == null ? 0.0 : tank.TotalQuantity().ToDouble(),
+                file == null ? "none" : file.ToString(),
+                refusal == null ? "none" : refusal.ToString().Replace("|", "/"),
+                source == null ? "none" : source.ToString().Replace("|", "/")));
         }
 
         /// <summary>Runs the mod console command the way the console would and logs what it answered.</summary>

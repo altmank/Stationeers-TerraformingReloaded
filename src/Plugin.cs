@@ -102,6 +102,10 @@ namespace TerraformingReloaded
         /// </summary>
         private void Update()
         {
+            // A live config edit writes through to the world's own settings file, debounced here so
+            // a dragged slider does not write sixty times a second. Cheap when nothing has changed.
+            Sidecar.Flush();
+
             double seconds = Settings.StatusLogSeconds;
             if (seconds <= 0.0 || _statusFailed || UnityEngine.Time.unscaledTime < _nextStatus)
             {
@@ -171,26 +175,31 @@ namespace TerraformingReloaded
 
             Bind("Climate", "GhgResponseScale", Settings.GhgResponseScale,
                 "Strength of the greenhouse response on worlds that ship without one. 0 turns it off. Mars is not affected by this. On worlds that start hot under greenhouse air (Venus, Vulcan) the warming side is fixed by where the world starts and where bare rock would be, so this only changes their cooling side. Takes effect at once.",
-                v => Settings.GhgResponseScale = v, new AcceptableValueRange<double>(0.0, 5.0), "Greenhouse strength", 10, "%.2f");
+                v => { Settings.GhgResponseScale = v; Sidecar.ConfigChanged(() => Effective.GhgResponseScale = v); },
+                Bounds(Limits.GhgResponseScale), "Greenhouse strength", 10, "%.2f");
             Bind("Climate", "DensityResponseScale", Settings.DensityResponseScale,
                 "How quickly thickening air evens out day and night on worlds that ship without a density response. 0 turns it off, above 1 it bites sooner. Air thick enough to end the swing ends it at any strength. Mars is not affected by this. Takes effect at once.",
-                v => Settings.DensityResponseScale = v, new AcceptableValueRange<double>(0.0, 5.0), "Air density strength", 11, "%.2f");
+                v => { Settings.DensityResponseScale = v; Sidecar.ConfigChanged(() => Effective.DensityResponseScale = v); },
+                Bounds(Limits.DensityResponseScale), "Air density strength", 11, "%.2f");
             Bind("Climate", "AirlessAlbedo", Settings.AirlessAlbedo,
                 "Share of sunlight an airless world (Moon, Mimas) reflects. Sets the temperature its first air settles toward: lower is warmer.",
-                v => Settings.AirlessAlbedo = v, new AcceptableValueRange<double>(0.0, 0.95), "Airless world reflectivity", 12, "%.2f");
+                v => { Settings.AirlessAlbedo = v; Sidecar.ConfigChanged(() => Effective.AirlessAlbedo = v); },
+                Bounds(Limits.AirlessAlbedo), "Airless world reflectivity", 12, "%.2f");
             Bind("Climate", "MaxPressureKPa", Settings.MaxPressureKPa,
                 "Ceiling on the planet air pressure. 0 means no ceiling. DESTRUCTIVE: whenever the planet is above it, at its hottest hour, the excess air is deleted for good and the loss is saved. Set it below a world's starting pressure and most of its air is gone within a day.",
-                v => Settings.MaxPressureKPa = v, new AcceptableValueRange<double>(0.0, 10000.0), "Pressure ceiling (kPa)", 13, "%.0f", restart: true);
+                v => Settings.MaxPressureKPa = v, Bounds(Limits.MaxPressureKPa), "Pressure ceiling (kPa)", 13, "%.0f", restart: true);
             Bind("Climate", "WeatherOnWeatherlessWorlds", Settings.WeatherOnWeatherlessWorlds,
                 "Let filled clouds rain and snow on worlds that ship with no weather of their own, such as Mimas. Clouds only fill once you have given the world air.",
                 v => Settings.WeatherOnWeatherlessWorlds = v, null, "Rain or snow on worlds with no weather", 14);
 
             Bind("Heat", "ExternalHeatHalfLifeMinutes", Settings.ExternalHeatHalfLifeMinutes,
                 "Heat your base and vented gas add to the planet fades like a planet radiating to space. Real-time minutes for it to halve. 0 never fades, which lets it build without limit.",
-                v => Settings.ExternalHeatHalfLifeMinutes = v, new AcceptableValueRange<double>(0.0, 10000.0), "Added heat half-life (min)", 20, "%.0f");
+                v => { Settings.ExternalHeatHalfLifeMinutes = v; Sidecar.ConfigChanged(() => Effective.ExternalHeatHalfLifeMinutes = v > 0.0 ? (double?)v : null); },
+                Bounds(Limits.ExternalHeatHalfLifeMinutes), "Added heat half-life (min)", 20, "%.0f");
             Bind("Heat", "MaxExternalOffsetKelvin", Settings.MaxExternalOffsetKelvin,
                 "Most that added heat may shift the planet temperature, in kelvin, either way.",
-                v => Settings.MaxExternalOffsetKelvin = v, new AcceptableValueRange<double>(0.0, 500.0), "Added heat limit (K)", 21, "%.0f");
+                v => { Settings.MaxExternalOffsetKelvin = v; Sidecar.ConfigChanged(() => Effective.MaxExternalOffsetKelvin = v); },
+                Bounds(Limits.MaxExternalOffsetKelvin), "Added heat limit (K)", 21, "%.0f");
 
             // Storms. Two independent rules, either of which stops a world scheduling its own storm,
             // and every threshold one of them uses (docs/STORMS.md). Their own section because Climate
@@ -230,6 +239,24 @@ namespace TerraformingReloaded
             Bind("Diagnostics", "StatusLogSeconds", Settings.StatusLogSeconds,
                 "Write the terraform status to the log this often, in seconds. 0 is off. The console command shows the same thing.",
                 v => Settings.StatusLogSeconds = v, new AcceptableValueRange<double>(0.0, 3600.0), "Status to log every (s)", 40, "%.0f");
+
+            // The values in force start as the config, said here rather than left to happen because
+            // Bind calls each apply eagerly. That is a side effect, not a promise: drop one
+            // ConfigChanged from one lambda and the world-scoped values would silently fall back to
+            // the field literals in Effective instead. The pressure ceiling is not seeded, and
+            // cannot be: no world is being played, and a ceiling belongs to a world.
+            Sidecar.SeedFromConfig();
+        }
+
+        /// <summary>
+        /// The config editor's bounds for a setting, built from the one declaration in
+        /// <see cref="Limits"/>. The same numbers check what comes out of a world's settings file,
+        /// so a hand-edited file cannot hold a value the editor itself would refuse, and changing a
+        /// range in one place cannot leave the other behind.
+        /// </summary>
+        private static AcceptableValueRange<double> Bounds(Range limits)
+        {
+            return new AcceptableValueRange<double>(limits.Min, limits.Max);
         }
 
         private ConfigEntry<T> Bind<T>(string section, string key, T fallback, string description, Action<T> apply,

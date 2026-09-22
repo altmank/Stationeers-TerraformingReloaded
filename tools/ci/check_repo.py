@@ -6,6 +6,9 @@
   - About.xml and the curves embedded in Climate.cs are well-formed XML with the blocks the mod needs;
   - the constants of the temperature rule are the same in Climate.cs and tools/Balance/planet.py,
     so the simulator that the design is tested in cannot drift from the mod;
+  - the pressure ceiling, the one setting that deletes a player's air, can still only be switched
+    on from the three places allowed to, and the config editor's bounds and the settings-file check
+    are the same declaration;
   - every relative link in the docs resolves, and every file build.ps1 ships exists;
   - nothing that must stay out of a public repository is tracked: game data, game or mod binaries,
     decompiled code, anything locally ignored or excluded, an email address; and every commit carries a
@@ -78,6 +81,43 @@ for name, pattern in pairs.items():
     need(cs is not None and py is not None and float(cs.group(1)) == float(py.group(1)),
          '%s is the same in Climate.cs and planet.py (%s, %s)' % (name, cs and cs.group(1), py and py.group(1)))
 need('278.6' in climate and '278.6' in planet, 'both use the same equilibrium constant')
+
+# ---- a pressure ceiling can only be switched on from the two places allowed to ---------------------------
+# The ceiling is the one setting that deletes a player's air for good and saves the loss, so it fails
+# closed: a LOADED world's ceiling comes out of that world's own settings file or out of the console
+# verb, a world being CREATED takes the config's, and every other path leaves it off. That is enforced
+# in the code by Effective.MaxPressureKPa being a private field with a getter and three named
+# mutators, so no other assignment compiles at all. This pins the callers of those three, so a later
+# edit cannot quietly add a fourth caller in a path that is not one of the three cases.
+SOURCES = [os.path.join(r, f) for r, _, fs in os.walk('src') for f in fs if f.endswith('.cs')]
+ALLOWED_CEILING_CALLS = {
+    'Effective.CeilingFromWorldFile': {'src/Patching/Sidecar.cs': 1},
+    'Effective.CeilingForNewWorld': {'src/Patching/Sidecar.cs': 1},
+    'Effective.CeilingByConsoleCommand': {'src/TerraformCommand.cs': 1},
+}
+for call, expected in ALLOWED_CEILING_CALLS.items():
+    seen = {}
+    for path in SOURCES:
+        count = read(path).count(call + '(')
+        if count:
+            seen[os.path.normpath(path).replace('\\', '/')] = count
+    need(seen == expected, '%s is called only where it may be: %s (expected %s)' % (call, seen or '{}', expected))
+# Nothing may assign the field directly; it has no setter, so this is documentation of intent that
+# also catches someone reopening it.
+assigners = [p for p in SOURCES if re.search(r'Effective\.MaxPressureKPa\s*=[^=]', read(p))]
+need(not assigners, 'nothing assigns Effective.MaxPressureKPa directly %s' % (assigners or ''))
+need(re.search(r'private static double\?\s+_maxPressureKPa;', read('src/Settings.cs')) is not None
+     and re.search(r'public static double\?\s+MaxPressureKPa\s*=>\s*_maxPressureKPa;', read('src/Settings.cs')) is not None,
+     'the pressure ceiling is a private field with a read-only property')
+# The config editor's bounds and the settings-file check are the same declaration.
+plugin = read('src/Plugin.cs')
+world_scoped = ('MaxPressureKPa', 'ExternalHeatHalfLifeMinutes', 'MaxExternalOffsetKelvin',
+                'GhgResponseScale', 'DensityResponseScale', 'AirlessAlbedo')
+for name in world_scoped:
+    need(('Bounds(Limits.%s)' % name) in plugin, 'the %s config entry takes its range from Limits' % name)
+    need(re.search(r'public static readonly Range %s = new Range\(' % name, read('src/Settings.cs')) is not None,
+         'Limits declares a range for %s' % name)
+need(('Limits.%s' % 'MaxPressureKPa') in read('src/Patching/Sidecar.cs'), 'the settings file is checked against Limits')
 
 tracked = subprocess.run(['git', 'ls-files'], capture_output=True, text=True, check=True).stdout.split('\n')
 tracked_set = set(tracked)

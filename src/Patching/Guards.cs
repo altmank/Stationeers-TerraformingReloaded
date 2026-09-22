@@ -101,9 +101,12 @@ namespace TerraformingReloaded.Patching
 
             Planet.KeepPhaseChangeInProportion();
 
-            double cap = Settings.MaxPressureKPa;
-            if (cap > 0.0)
+            // Per-world, not the config: this one deletes air for good and saves the loss, so it is
+            // the setting a world must never inherit from whatever the config says today. No ceiling
+            // is null here and never 0; the config's sentinel died at the Sidecar boundary.
+            if (Effective.MaxPressureKPa.HasValue)
             {
+                double cap = Effective.MaxPressureKPa.Value;
                 double pressure = PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble();
                 if (pressure > cap)
                 {
@@ -119,12 +122,14 @@ namespace TerraformingReloaded.Patching
             {
                 return 0.0;
             }
-            double halfLife = Settings.ExternalHeatHalfLifeMinutes * 60.0;
-            if (halfLife > 0.0)
+            // Both per-world: they write back into counters the save carries, so a shorter half-life
+            // or a lower limit deletes banked heat for good. Null is "never fades".
+            double? halfLifeMinutes = Effective.ExternalHeatHalfLifeMinutes;
+            if (halfLifeMinutes.HasValue && halfLifeMinutes.Value > 0.0)
             {
-                energy *= Math.Pow(0.5, GameManager.GameTickSpeedSeconds / halfLife);
+                energy *= Math.Pow(0.5, GameManager.GameTickSpeedSeconds / (halfLifeMinutes.Value * 60.0));
             }
-            double limit = Math.Max(0.0, Settings.MaxExternalOffsetKelvin) * Math.Max(0.0, capacity);
+            double limit = Math.Max(0.0, Effective.MaxExternalOffsetKelvin) * Math.Max(0.0, capacity);
             if (double.IsNaN(limit))
             {
                 limit = 0.0;

@@ -138,6 +138,28 @@ namespace TerraformingReloaded.Patching
             {
                 problems.Add(switchedOn);
             }
+            // Deliberately not one of the problems above, and no Gate.Fault: if the per-world
+            // settings file cannot be trusted the planet is still fine, it just has to run on the
+            // config with the one setting that deletes air switched off.
+            //
+            // The whole block is wrapped, the Disable call included. If what failed was Sidecar's
+            // own static initialiser then touching the type again rethrows the cached
+            // TypeInitializationException, and an exception escaping from here would come out of
+            // Patcher.Apply and stand the entire mod down over a settings file.
+            try
+            {
+                string sidecar = SelfTest.CheckSidecarRoundTrip();
+                if (sidecar != null)
+                {
+                    Sidecar.Disable("the per-world settings file did not survive its own check at startup");
+                    Log.Error("Per-world settings are off for this session, so every world runs on the config with the pressure ceiling disabled and nothing is written beside a save: "
+                        + sidecar + ". Please report this with the log.");
+                }
+            }
+            catch (Exception e)
+            {
+                Log.Error("The per-world settings check could not be run, so per-world settings may be off for this session; the planet is unaffected. " + e);
+            }
             MethodInfo tick = AccessTools.DeclaredMethod(simulation, "TickPlanetarySimulation");
             MethodInfo give = AccessTools.DeclaredMethod(simulation, "GiveToGlobal", new[] { typeof(GasMixture) });
             MethodInfo create = AccessTools.DeclaredMethod(simulation, "CreateGlobalAtmosphere");
@@ -168,7 +190,13 @@ namespace TerraformingReloaded.Patching
                 harmony.Patch(give, prefix: Body(typeof(Guards), nameof(Guards.GivePrefix)));
                 harmony.Patch(divide, prefix: Body(typeof(Guards), nameof(Guards.DividePrefix)), finalizer: Body(typeof(Guards), nameof(Guards.DivideFinalizer)));
                 harmony.Patch(deregister, prefix: Body(typeof(Guards), nameof(Guards.DeregisterPrefix)));
-                harmony.Patch(create, postfix: Body(typeof(Patcher), nameof(WorldStartPostfix)));
+                // The sidecar prefix is required, not an extra: if it does not apply, every world
+                // runs on the raw config, which is the damage the per-world file exists to prevent.
+                // First of everything on this method, so the values in force are settled before the
+                // planet is built and before anything else at world start reads them.
+                harmony.Patch(create,
+                    prefix: Body(typeof(Sidecar), nameof(Sidecar.WorldStartPrefix), Priority.First),
+                    postfix: Body(typeof(Patcher), nameof(WorldStartPostfix)));
 
                 HarmonyMethod transpiler = Body(typeof(Gate), nameof(Gate.Transpiler));
                 foreach (MethodBase method in tank)
@@ -233,6 +261,40 @@ namespace TerraformingReloaded.Patching
             });
 
             applyTemperature();
+
+            // An extra, so it fails soft: a world that could not record its settings when its folder
+            // was born records them the next time it is loaded, from inside the read prefix.
+            Extra(report, "per-world settings", () =>
+            {
+                MethodInfo folder = AccessTools.DeclaredMethod(typeof(Assets.Scripts.Serialization.SaveHelper), "CreateSaveDirectory",
+                    new[] { typeof(string), typeof(System.IO.DirectoryInfo).MakeByRefType() });
+                harmony.Patch(Need(folder), postfix: Body(typeof(Sidecar), nameof(Sidecar.SaveDirectoryPostfix)));
+            });
+
+            // Whether a world is being created or loaded, taken from the game rather than guessed
+            // at. An extra, and safe as one: without it every world start reads as a load, so a
+            // world being created takes the missing-file rule and its ceiling is off, which is the
+            // harmless direction. The one call that decides it is also where both of a new world's
+            // CreateGlobalAtmosphere calls happen, so the flag is scoped to that call and cannot
+            // survive into the next world start.
+            Extra(report, "new or loaded world", () =>
+            {
+                MethodInfo initialize = AccessTools.DeclaredMethod(typeof(Assets.Scripts.Objects.World), "Initialize",
+                    new[] { typeof(string), typeof(bool), typeof(string) });
+                harmony.Patch(Need(initialize),
+                    prefix: Body(typeof(Sidecar), nameof(Sidecar.WorldInitializePrefix), Priority.First),
+                    finalizer: Body(typeof(Sidecar), nameof(Sidecar.WorldInitializeFinalizer)));
+            });
+
+            // Leaving a world puts the world-scoped settings back to the config, so the main menu
+            // and the new-world screen do not show the last world played. Climate's temperature
+            // postfixes gate on the config's master switch, not on a world being in play, so
+            // without this the new-world menu's temperature range depends on what was played before.
+            Extra(report, "world settings reset", () =>
+            {
+                MethodInfo clear = AccessTools.DeclaredMethod(simulation, "Clear");
+                harmony.Patch(Need(clear), postfix: Body(typeof(Sidecar), nameof(Sidecar.WorldEndedPostfix)));
+            });
 
             Extra(report, "wall vent", () =>
             {
@@ -353,6 +415,14 @@ namespace TerraformingReloaded.Patching
         private static HarmonyMethod Body(Type type, string name)
         {
             return new HarmonyMethod(AccessTools.DeclaredMethod(type, name) ?? throw new MissingMethodException(type.Name, name));
+        }
+
+        /// <summary>The same, ordered against the other patches on that method. See HarmonyLib.Priority.</summary>
+        private static HarmonyMethod Body(Type type, string name, int priority)
+        {
+            HarmonyMethod body = Body(type, name);
+            body.priority = priority;
+            return body;
         }
     }
 }

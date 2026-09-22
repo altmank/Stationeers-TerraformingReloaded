@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Reflection;
 using Assets.Scripts;
 using Assets.Scripts.Atmospherics;
@@ -53,6 +54,99 @@ namespace TerraformingReloaded.Patching
             }
             return null;
         }
+
+        /// <summary>
+        /// The per-world settings file, round-tripped in memory through exactly the writer the mod
+        /// uses on disk. Returns the problem, or null.
+        ///
+        /// Everything checked here is a property of this runtime's XmlSerializer rather than of the
+        /// mod's own code, which is why it is measured at load instead of reasoned about: whether a
+        /// bare nullable double really writes xsi:nil and reads back as null, whether a recorded
+        /// zero survives as a zero rather than as an absence, and whether the namespace that nil
+        /// attribute needs is declared. If any of that were untrue a file would quietly read as
+        /// all-defaults and set the greenhouse strength to 0 on every world that had one.
+        ///
+        /// A failure is not a reason to stand the planet down, so it does not join the patch
+        /// problems and does not set Gate.Fault. The sidecar is switched off for the session
+        /// instead, which makes every world take the missing-file fallback, and the mod runs on.
+        /// </summary>
+        public static string CheckSidecarRoundTrip()
+        {
+            try
+            {
+                SidecarFile written = new SidecarFile
+                {
+                    Version = Sidecar.SchemaVersion,
+                    MaxPressureKPa = null,
+                    MaxExternalOffsetKelvin = 12.5,
+                    ExternalHeatHalfLifeMinutes = null,
+                    GhgResponseScale = 0.0,
+                    DensityResponseScale = 1.0,
+                    AirlessAlbedo = 0.3,
+                };
+                string xml = Sidecar.ToXml(written);
+                if (!xml.Contains("xsi:nil=\"true\""))
+                {
+                    return "a setting that is not set does not write as xsi:nil";
+                }
+                if (!xml.Contains("xmlns:xsi="))
+                {
+                    return "the written file does not declare the xmlns:xsi namespace its own nil attributes need";
+                }
+
+                SidecarFile read = Sidecar.FromXml(xml);
+                if (read == null)
+                {
+                    return "what was written came back as nothing";
+                }
+                if (read.MaxExternalOffsetKelvin != 12.5)
+                {
+                    return "a recorded value did not survive the round trip (12.5 came back as "
+                        + (read.MaxExternalOffsetKelvin.HasValue
+                            ? read.MaxExternalOffsetKelvin.Value.ToString("R", CultureInfo.InvariantCulture)
+                            : "nothing") + ")";
+                }
+                if (read.MaxPressureKPa.HasValue || read.ExternalHeatHalfLifeMinutes.HasValue)
+                {
+                    return "a setting that is not set came back set";
+                }
+                // The one that matters most: a real zero must not read as an absence, or the
+                // fallback would silently switch the greenhouse response off on a world that meant it.
+                if (!read.GhgResponseScale.HasValue || read.GhgResponseScale.Value != 0.0)
+                {
+                    return "a recorded zero came back as nothing rather than as zero";
+                }
+
+                SidecarFile partial = Sidecar.FromXml(OneElement);
+                if (partial == null || partial.MaxExternalOffsetKelvin != 7.0)
+                {
+                    return "a file holding one setting did not read that setting back";
+                }
+                if (partial.MaxPressureKPa.HasValue || partial.ExternalHeatHalfLifeMinutes.HasValue
+                    || partial.GhgResponseScale.HasValue || partial.DensityResponseScale.HasValue
+                    || partial.AirlessAlbedo.HasValue)
+                {
+                    return "a file holding one setting invented values for the rest";
+                }
+                return null;
+            }
+            catch (Exception e)
+            {
+                return "it threw: " + (e.InnerException ?? e).Message;
+            }
+        }
+
+        /// <summary>
+        /// A file with one setting in it and nothing else, as a version that predated the other five
+        /// fields would have written. Every field this build knows and that file does not must come
+        /// back unset, so the fallback rule can tell a version gap from a recorded value.
+        /// </summary>
+        private const string OneElement =
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n"
+            + "<TerraformingReloaded xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" "
+            + "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" Version=\"1\">\r\n"
+            + "  <MaxExternalOffsetKelvin>7</MaxExternalOffsetKelvin>\r\n"
+            + "</TerraformingReloaded>";
 
         /// <summary>
         /// True when <paramref name="method"/> still calls every one of <paramref name="callees"/>.

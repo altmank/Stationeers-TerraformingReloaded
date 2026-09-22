@@ -14,9 +14,9 @@ namespace TerraformingReloaded
     /// <summary>Console command: what the planet holds and what the mod is doing about it.</summary>
     public sealed class TerraformCommand : CommandBase
     {
-        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'curves export' and 'curves reload' are for tuning the temperature response. 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships, which is also how to remove the mod cleanly (host only).";
+        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'curves export' and 'curves reload' are for tuning the temperature response. 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'ceiling <kPa> confirm' sets the pressure ceiling for the planet you are playing, above which its air is deleted for good, and 0 means no ceiling (host only). 'reset confirm' puts the whole planet back as the world ships, which is also how to remove the mod cleanly (host only).";
 
-        public override string[] Arguments => new[] { "[status | size <share> confirm | reset confirm | curves export | curves reload]" };
+        public override string[] Arguments => new[] { "[status | size <share> confirm | ceiling <kPa> confirm | reset confirm | curves export | curves reload]" };
 
         public override bool IsLaunchCmd => false;
 
@@ -35,6 +35,8 @@ namespace TerraformingReloaded
                     return Status();
                 case "size":
                     return Size(args);
+                case "ceiling":
+                    return Ceiling(args);
                 case "reset":
                     return Reset(args.Length > 1 && args[1].ToLowerInvariant() == "confirm");
                 case "curves":
@@ -205,6 +207,185 @@ namespace TerraformingReloaded
                 IdealGas.Pressure(tank.TotalQuantityGas(), PlanetaryAtmosphereSimulation.AggregateTemperature, tank.VolumeForGas()).ToDouble());
         }
 
+        // The range the MaxPressureKPa setting accepts, read from the one declaration the config
+        // editor and the settings file check both use, so no two ways to set a ceiling can disagree.
+        private static readonly double MinCeiling = Limits.MaxPressureKPa.Min;
+        private static readonly double MaxCeiling = Limits.MaxPressureKPa.Max;
+
+        /// <summary>
+        /// terraform ceiling &lt;kPa&gt; confirm: sets the pressure ceiling for the planet being
+        /// played, and records it beside that world's save. This is the way back for a world whose
+        /// settings file forced the ceiling off, which every world from before that file existed
+        /// does, and the only way the ceiling moves at all: the config entry waits for a restart,
+        /// because dragging a slider that deletes a planet's air must not delete it.
+        ///
+        /// The config setting is deliberately left alone, like the size verb: it is the default for
+        /// a new world, and making it live would apply a ceiling to every save a player loads.
+        /// </summary>
+        private static string Ceiling(string[] args)
+        {
+            CultureInfo c = CultureInfo.InvariantCulture;
+            if (NetworkManager.IsClient)
+            {
+                return "Can only be run on the server";
+            }
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            if (tank == null)
+            {
+                return "No planet loaded, so there is no pressure ceiling to change.";
+            }
+            double? now = Effective.MaxPressureKPa;
+            if (args.Length < 2)
+            {
+                // Reporting comes before refusing, the way the size verb reports the size it cannot
+                // change: a player asking what the ceiling is should always be told, and a reason
+                // they cannot change it is part of the answer rather than instead of it.
+                string cannot = Sidecar.RecordRefusal();
+                return string.Format(c, "This planet's pressure ceiling is {0}. {1}{2} To change it: terraform ceiling <kPa> confirm, where <kPa> is between {3:0} and {4:0} and 0 means no ceiling. It is recorded for this world alone; the setting in the config is the default for a new world.{5}",
+                    Ceiling(now), PressureNow(c), GatePart(), MinCeiling, MaxCeiling,
+                    cannot != null ? " " + cannot : "");
+            }
+            // TryParse turns away anything that is not a number; NaN is refused on its own, and a
+            // negative or an infinity (which some runtimes do parse by name) falls outside the range.
+            if (!double.TryParse(args[1], NumberStyles.Float, c, out double kpa)
+                || double.IsNaN(kpa) || kpa < MinCeiling || kpa > MaxCeiling)
+            {
+                return string.Format(c, "'{0}' is not a pressure ceiling. It is a pressure in kilopascals between {1:0} and {2:0}, and 0 means no ceiling.",
+                    args[1], MinCeiling, MaxCeiling);
+            }
+            // 0 is how a player says "none" at a console that has no word for nothing. It stops here:
+            // what the rule is handed either is a ceiling or is not one.
+            double? asked = kpa > 0.0 ? (double?)kpa : null;
+            if (asked.HasValue == now.HasValue && (!asked.HasValue || Math.Abs(asked.Value - now.Value) <= 1e-9 * Math.Max(1.0, now.Value)))
+            {
+                return "This planet's pressure ceiling is already " + Ceiling(now) + "; nothing was changed.";
+            }
+            // Asked before the prompt, so it never promises something that would then be turned away.
+            string refused = Sidecar.RecordRefusal();
+            if (refused != null)
+            {
+                return refused;
+            }
+            // It deletes air that cannot be got back, so it asks once, like the reset and the rescale.
+            if (args.Length < 3 || args[2].ToLowerInvariant() != "confirm")
+            {
+                return CeilingPrompt(c, tank, now, asked, kpa);
+            }
+
+            // The change goes in under the same lock the planet tick holds: the tick reads the
+            // ceiling in the upkeep it runs while holding it, and a nullable double is two writes,
+            // so an unlocked change could be read half done.
+            //
+            // The write to disk does NOT. A FileStream that no one else may share, plus an XmlWriter
+            // flush, takes as long as the disk, the antivirus or the cloud sync feels like taking,
+            // and the planet tick would be stopped for all of it. The lock is over before the file
+            // is touched, so the worst a slow disk can do is leave the change holding for this
+            // session only, which is what Record already says when it fails.
+            Planet.UnderTankLock(() => Effective.CeilingByConsoleCommand(asked));
+            string problem = Sidecar.Record();
+            return "Pressure ceiling for this planet: " + Ceiling(now) + " -> " + Ceiling(asked) + "." + Environment.NewLine
+                + "  " + (problem ?? "recorded in " + Sidecar.FilePath) + Environment.NewLine
+                + GateLine()
+                + string.Format(c, "  The pressure ceiling in the config is still {0:0.###} kPa, where 0 means none, and still applies to a new world, not to this one.", Settings.MaxPressureKPa);
+        }
+
+        /// <summary>
+        /// What the ceiling is worth while the mod is not running this planet, and nothing when it
+        /// is. A ceiling is recorded for the world either way, and that is deliberate: it is a
+        /// setting, not an action, so a player standing the mod down for a session should still be
+        /// able to set the ceiling their world will have when it runs again. What must not happen
+        /// is the prompt promising that air disappears on the next tick when Guards.Upkeep is not
+        /// running at all, so the state of the gate is named in the prompt and in the answer.
+        /// That is the difference from terraform size, which refuses outright: a rescale acts now,
+        /// and acting now while the per-tick upkeep is off would leave the planet half scaled.
+        /// </summary>
+        private static string GatePart()
+        {
+            return Gate.Enabled()
+                ? ""
+                : " Terraforming Reloaded is not running this planet (" + Gate.Describe()
+                    + "), so no air is deleted by any ceiling until it is.";
+        }
+
+        private static string GateLine()
+        {
+            return Gate.Enabled()
+                ? ""
+                : "  Terraforming Reloaded is not running this planet (" + Gate.Describe()
+                    + "), so nothing is deleted until it is; the ceiling is recorded for when it is."
+                    + Environment.NewLine;
+        }
+
+        /// <summary>
+        /// What a ceiling is worth saying as. None is a state, not a number: the rule asks whether
+        /// there is a ceiling, never whether the ceiling is zero.
+        /// </summary>
+        private static string Ceiling(double? kpa)
+        {
+            return kpa.HasValue ? string.Format(CultureInfo.InvariantCulture, "{0:0.###} kPa", kpa.Value) : "none";
+        }
+
+        /// <summary>
+        /// The pressure the rule itself compares against: the game's per-tick planet readout, the
+        /// same member the upkeep reads. A planet of no volume has none, and the figure comes out
+        /// NaN (D19), so it is guarded the way the status readout is.
+        /// </summary>
+        private static string PressureNow(CultureInfo c)
+        {
+            double pressure = PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble();
+            return double.IsNaN(pressure) || double.IsInfinity(pressure)
+                ? "Its pressure cannot be read (this world's planet has no usable volume)."
+                : string.Format(c, "It is at {0:0.###} kPa right now.", pressure);
+        }
+
+        /// <summary>
+        /// Everything a player needs to decide, before air starts disappearing: what it is now and
+        /// what it would be, where the planet is, whether that bites and how hard, that it cannot be
+        /// undone, that the cut goes on until the planet is under the ceiling at the hottest hour of
+        /// the day, and that this world is the only one it touches.
+        /// </summary>
+        private static string CeilingPrompt(CultureInfo c, GlobalGasMix tank, double? now, double? asked, double kpa)
+        {
+            StringBuilder text = new StringBuilder();
+            text.Append(string.Format(c, "The pressure ceiling for this planet is {0} and you are asking for {1}; 0 means no ceiling. {2} ",
+                Ceiling(now), Ceiling(asked), PressureNow(c)));
+
+            double pressure = PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble();
+            bool known = !double.IsNaN(pressure) && !double.IsInfinity(pressure);
+            bool raising = !asked.HasValue || (now.HasValue && asked.Value > now.Value);
+            if (asked.HasValue && known && pressure > asked.Value)
+            {
+                // What the rule does is scale the whole planet by ceiling over pressure, every tick
+                // it is over. The first tick's cut is what can be put a number on here.
+                double share = 1.0 - asked.Value / pressure;
+                text.Append(string.Format(c, "THAT IS BELOW WHERE THE PLANET IS, so the next planet tick deletes {0:0.##}% of what it holds, about {1:N0} mol, and that air is gone for good and the loss is saved. ",
+                    share * 100.0, tank.TotalQuantity().ToDouble() * share));
+                text.Append(string.Format(c, "Its pressure rises and falls over the day, so the cut goes on every tick it is over {0:0.###} kPa, until the planet stays under that at the hottest hour. ", asked.Value));
+            }
+            else if (asked.HasValue && known)
+            {
+                text.Append(string.Format(c, "That is above where the planet is, so 0.00% of its air, 0 mol, goes now; it starts deleting air whenever the planet goes over {0:0.###} kPa, which its pressure does as the day warms, and what goes then is gone for good and the loss is saved. ", asked.Value));
+            }
+            else if (asked.HasValue)
+            {
+                text.Append("How much air that would delete cannot be worked out while the pressure cannot be read. ");
+            }
+            if (raising)
+            {
+                text.Append("Nothing is deleted by raising or clearing a ceiling, and air an earlier ceiling took does not come back. ");
+            }
+            // So the prompt never promises a deletion that cannot happen: with the mod stood down
+            // the per-tick upkeep is not running, and nothing goes until it is.
+            string gate = GatePart();
+            if (gate.Length > 0)
+            {
+                text.Append(gate.TrimStart()).Append(" ");
+            }
+            text.Append("This is recorded for the world you are playing and nothing else; the setting in the config is not changed. ");
+            text.Append(string.Format(c, "To go ahead: terraform ceiling {0:0.###} confirm", kpa));
+            return text.ToString();
+        }
+
         private static string Reset(bool confirmed)
         {
             if (NetworkManager.IsClient)
@@ -234,6 +415,7 @@ namespace TerraformingReloaded
             text.AppendLine("  planet: " + Gate.Describe() + ", tick " + GameManager.GameTickCount
                 + (WorldManager.IsGamePaused ? ", game paused" : "") + (GameManager.GameTickPaused ? ", simulation tick paused" : ""));
             text.AppendLine("  self-test: " + SelfTest.Summary);
+            WorldSettings(text, c);
             text.AppendLine("  temperature response: " + Climate.Describe());
 
             GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
@@ -292,6 +474,29 @@ namespace TerraformingReloaded
                 text.AppendLine("  bad mixtures refused: " + Guards.RejectedGives);
             }
             return text.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// The six settings that decide how this particular world behaves, and where they came from.
+        /// They are the values in force, not the config: a world keeps what was recorded beside its
+        /// save, so tuning the config for a new save cannot change or damage an older one. When they
+        /// did not come from the file, the reason is on its own line, because that is the case where
+        /// the config and what is running disagree.
+        /// </summary>
+        private static void WorldSettings(StringBuilder text, CultureInfo c)
+        {
+            text.AppendLine("  world settings: " + (Sidecar.FilePath != null
+                ? Sidecar.FilePath + ", version " + Sidecar.FileVersion
+                : "no file; " + (Sidecar.Source ?? "this world has not been saved yet")));
+            if (Sidecar.Source != null && Sidecar.FilePath != null)
+            {
+                text.AppendLine("    " + Sidecar.Source);
+            }
+            text.AppendLine(string.Format(c, "    pressure ceiling {0}, added heat limit {1:0.##} K, added heat half-life {2}, greenhouse {3:0.##}, air density {4:0.##}, airless reflectivity {5:0.##}",
+                Effective.MaxPressureKPa.HasValue ? string.Format(c, "{0:0.###} kPa", Effective.MaxPressureKPa.Value) : "none",
+                Effective.MaxExternalOffsetKelvin,
+                Effective.ExternalHeatHalfLifeMinutes.HasValue ? string.Format(c, "{0:0.##} min", Effective.ExternalHeatHalfLifeMinutes.Value) : "never fades",
+                Effective.GhgResponseScale, Effective.DensityResponseScale, Effective.AirlessAlbedo));
         }
 
         /// <summary>

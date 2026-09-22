@@ -74,6 +74,165 @@ namespace TerraformingReloaded
     }
 
     /// <summary>
+    /// What a setting is allowed to be. One declaration per setting, used both to build the config
+    /// entry's AcceptableValueRange and to check what comes out of a world's settings file, so a
+    /// hand-edited file cannot carry a value the config editor would refuse and the two cannot
+    /// drift apart when a range is changed.
+    /// </summary>
+    public readonly struct Range
+    {
+        public readonly double Min;
+        public readonly double Max;
+
+        /// <summary>True when Min itself is out, not in. See <see cref="AboveMin"/>.</summary>
+        public readonly bool MinExcluded;
+
+        public Range(double min, double max, bool minExcluded = false)
+        {
+            Min = min;
+            Max = max;
+            MinExcluded = minExcluded;
+        }
+
+        /// <summary>
+        /// The same range with its lower end excluded. For the two settings the config flags with 0:
+        /// in the config 0 is a real choice meaning "no rule", in a world's settings file that state
+        /// is an absent element, so a 0 in the file is the config's sentinel leaking through a hand
+        /// edit and is out of range exactly like a negative number would be.
+        /// </summary>
+        public Range AboveMin => new Range(Min, Max, true);
+
+        /// <summary>
+        /// Whether a value is one this setting may take. Not a number and not finite are both out:
+        /// NaN fails every comparison, so it would otherwise slip through a naive bounds test, and
+        /// an infinity poisons every figure derived from it.
+        /// </summary>
+        public bool Holds(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+            {
+                return false;
+            }
+            return (MinExcluded ? value > Min : value >= Min) && value <= Max;
+        }
+
+        public override string ToString()
+        {
+            return (MinExcluded ? "above " : "") + Min.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " to " + Max.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>
+    /// The range of every setting that can come out of a world's settings file. Plain BCL, because
+    /// <see cref="Patching.Sidecar"/> validates against these and nothing under Patching/ may
+    /// reference BepInEx; Plugin.BindConfig builds each AcceptableValueRange from the same numbers.
+    /// </summary>
+    public static class Limits
+    {
+        /// <summary>In the config 0 means no ceiling. In a file use <see cref="Range.AboveMin"/>.</summary>
+        public static readonly Range MaxPressureKPa = new Range(0.0, 10000.0);
+
+        /// <summary>In the config 0 means never fades. In a file use <see cref="Range.AboveMin"/>.</summary>
+        public static readonly Range ExternalHeatHalfLifeMinutes = new Range(0.0, 10000.0);
+
+        public static readonly Range MaxExternalOffsetKelvin = new Range(0.0, 500.0);
+        public static readonly Range GhgResponseScale = new Range(0.0, 5.0);
+        public static readonly Range DensityResponseScale = new Range(0.0, 5.0);
+        public static readonly Range AirlessAlbedo = new Range(0.0, 0.95);
+    }
+
+    /// <summary>
+    /// The world-scoped values in force for the world being played. Six settings decide how a
+    /// particular world behaves, so tuning them for a new save would otherwise change or damage an
+    /// older one; <see cref="Patching.Sidecar"/> records them per world and assigns these whole at
+    /// every world start. The patches read these, never <see cref="Settings"/>, which stays the
+    /// config and is never written back: BepInEx saves it whenever the config editor moves a slider,
+    /// so overwriting it would show numbers that are not in force and would need restoring on
+    /// leaving a world. Assigned whole every time, so there is nothing to restore.
+    ///
+    /// The config cannot express a nullable double and uses 0 as a flag; these do not. Null here
+    /// means the rule is off, so a consumer asks whether there is a ceiling rather than whether the
+    /// ceiling is zero, and the sentinel dies at the boundary instead of leaking into the rules.
+    /// The starting values are the config's own defaults, so out of the box the two agree.
+    /// </summary>
+    public static class Effective
+    {
+        // ---- the pressure ceiling ----------------------------------------------------------------
+        //
+        // The one setting that deletes a player's air for good and saves the loss, so it is the one
+        // that must never be acquired by accident. It is a private field with no public setter, and
+        // the only three ways it can become anything other than null are the three named methods
+        // below, each of which says where the value came from. Every other path through the mod can
+        // only turn it off, because turning it off is all the code it can reach does.
+        //
+        // The rule those three enforce between them: a LOADED world's ceiling comes only from that
+        // world's own settings file, or from a deliberate console command on that world. A brand new
+        // world takes the config's, which is safe because the player chose it for the world they are
+        // creating and there is no history to damage. Anything else at all -- no file, an unreadable
+        // file, a file from a later version, the read throwing, the self-test having switched the
+        // per-world file off, a station name whose folder did not resolve, a network client -- is no
+        // ceiling. Every future defect in the read path then degrades to "no ceiling" rather than to
+        // "some ceiling", and no defect anywhere in it can delete a player's air.
+        //
+        // tools/ci/check_repo.py holds the call sites of all three to this list, so a later edit
+        // cannot quietly add a fourth.
+        private static double? _maxPressureKPa;
+
+        /// <summary>Planet pressure ceiling in kPa. Null means no ceiling. Read-only by design.</summary>
+        public static double? MaxPressureKPa => _maxPressureKPa;
+
+        /// <summary>No ceiling. The state every path that is not one of the three below leaves it in.</summary>
+        public static void NoCeiling()
+        {
+            _maxPressureKPa = null;
+        }
+
+        /// <summary>Recorded in the settings file of the world now loading, and read back from it.</summary>
+        public static void CeilingFromWorldFile(double? kpa)
+        {
+            _maxPressureKPa = InRange(kpa);
+        }
+
+        /// <summary>
+        /// A world being created, which takes the settings the player chose for it. Null when the
+        /// config's 0 said no ceiling.
+        /// </summary>
+        public static void CeilingForNewWorld(double? kpa)
+        {
+            _maxPressureKPa = InRange(kpa);
+        }
+
+        /// <summary>terraform ceiling &lt;kPa&gt; confirm, on the world being played.</summary>
+        public static void CeilingByConsoleCommand(double? kpa)
+        {
+            _maxPressureKPa = InRange(kpa);
+        }
+
+        /// <summary>
+        /// Belt as well as braces: even the three ways in cannot install a ceiling the config editor
+        /// would refuse, or one that is not a finite number.
+        /// </summary>
+        private static double? InRange(double? kpa)
+        {
+            return kpa.HasValue && Limits.MaxPressureKPa.AboveMin.Holds(kpa.Value) ? kpa : null;
+        }
+
+        // ---- the five that only change behaviour --------------------------------------------------
+        // None of these can delete anything, so they are plain fields and fall back to the config.
+
+        /// <summary>Real-time minutes for stored external heat to halve. Null means it never fades.</summary>
+        public static double? ExternalHeatHalfLifeMinutes;
+
+        /// <summary>Largest shift, in kelvin, stored external heat may apply to the planet.</summary>
+        public static double MaxExternalOffsetKelvin = 50.0;
+
+        public static double GhgResponseScale = 1.0;
+        public static double DensityResponseScale = 1.0;
+        public static double AirlessAlbedo = 0.3;
+    }
+
+    /// <summary>
     /// Named planet sizes. Hours are for reaching air you can breathe without a suit on Mars, from
     /// tools/Balance, for a mega base of four ice rockets mining 60 % of the time; a base with one ice
     /// rocket is about five times slower.

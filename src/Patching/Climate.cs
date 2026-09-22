@@ -196,8 +196,8 @@ namespace TerraformingReloaded.Patching
             Entry entry = _entry;
             ResponseCurves curves = _curves;
             if (entry != null && ReferenceEquals(entry.Data, data) && ReferenceEquals(entry.Curves, curves)
-                && entry.Albedo == Settings.AirlessAlbedo && entry.DensityScale == Settings.DensityResponseScale
-                && entry.GhgScale == Settings.GhgResponseScale)
+                && entry.Albedo == Effective.AirlessAlbedo && entry.DensityScale == Effective.DensityResponseScale
+                && entry.GhgScale == Effective.GhgResponseScale)
             {
                 return entry;
             }
@@ -218,8 +218,8 @@ namespace TerraformingReloaded.Patching
             {
                 entry = _entry;
                 if (entry != null && ReferenceEquals(entry.Data, data) && ReferenceEquals(entry.Curves, curves)
-                    && entry.Albedo == Settings.AirlessAlbedo && entry.DensityScale == Settings.DensityResponseScale
-                    && entry.GhgScale == Settings.GhgResponseScale)
+                    && entry.Albedo == Effective.AirlessAlbedo && entry.DensityScale == Effective.DensityResponseScale
+                    && entry.GhgScale == Effective.GhgResponseScale)
                 {
                     return entry;
                 }
@@ -233,8 +233,8 @@ namespace TerraformingReloaded.Patching
                     // than throw on every outdoor cell of every tick.
                     entry = new Entry
                     {
-                        Data = data, Curves = curves, Adjust = false, Albedo = Settings.AirlessAlbedo,
-                        DensityScale = Settings.DensityResponseScale, GhgScale = Settings.GhgResponseScale,
+                        Data = data, Curves = curves, Adjust = false, Albedo = Effective.AirlessAlbedo,
+                        DensityScale = Effective.DensityResponseScale, GhgScale = Effective.GhgResponseScale,
                         Problem = "this world's atmosphere data could not be read (" + e.Message + ")",
                     };
                     Log.Error("Temperature response is off for this world: " + entry.Problem);
@@ -260,9 +260,9 @@ namespace TerraformingReloaded.Patching
                 FillBase = airless && (data.SolarAngleTemperatureCurveData?.Keys == null || data.SolarAngleTemperatureCurveData.Keys.Count == 0),
                 StartGhgIndex = TerraForming.GetGhgIndex(start),
                 StartDensity = (float)IdealGas.GetMilliMolesPerLitre(start.Volume, start.TotalQuantityGas()),
-                Albedo = Settings.AirlessAlbedo,
-                DensityScale = Settings.DensityResponseScale,
-                GhgScale = Settings.GhgResponseScale,
+                Albedo = Effective.AirlessAlbedo,
+                DensityScale = Effective.DensityResponseScale,
+                GhgScale = Effective.GhgResponseScale,
             };
             entry.SunMid = MidOrbitIrradiance();
             entry.AirlessBase = EquilibriumKelvin(entry.SunMid, entry.Albedo);

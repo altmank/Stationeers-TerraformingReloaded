@@ -1,6 +1,6 @@
 # Per-world settings
 
-Design doc. Nothing is built yet. Work items live in `TODO.md`.
+Built and verified headlessly, not yet released. Work items live in `TODO.md`.
 
 ## The problem
 
@@ -53,6 +53,12 @@ Because the file is always written whole, absence only ever means a version gap.
 player meant zero" and "this version did not have the field" apart without `FieldSpecified`
 companions, and it makes migration free: a v2 field is simply absent in a v1 file.
 
+`XmlSerializer` cannot tell an absent element from `xsi:nil`, and it does not need to: inside one
+schema version all its fields are always written, so for the two fields the config flags with 0 a
+missing element in a file of that version is the recorded state, not a gap. Deleting the
+`ExternalHeatHalfLifeMinutes` line from a v1 file by hand therefore reads as "never fades", not as
+"take the config". Measured in the live `-Sidecar` run.
+
 It also removes the `default(T)` hazard by construction rather than by validation. An all-defaults
 parse of a non-nullable POCO would set `GhgResponseScale` to 0 and silently kill the greenhouse
 response.
@@ -79,6 +85,8 @@ rather than "is the ceiling 0", so the sentinel dies at the boundary instead of 
 Asymmetric, because on a new world neither the folder nor the save name exists when the planet is
 built, while on a load both do.
 
+- **New or loaded**: prefix and finalizer on `World.Initialize`, which is where the game itself
+  decides it. See *A new world is not a missing sidecar*.
 - **Read**: prefix on `PlanetaryAtmosphereSimulation.CreateGlobalAtmosphere`. Skip entirely when
   `NetworkManager.IsClient`; a client is handed the host's planet state by `Sync` and needs none of
   these values.
@@ -86,6 +94,11 @@ built, while on a load both do.
 - **Write, a loaded world with no file**: inside the read prefix, into the folder that already exists.
   `CreateSaveDirectory` never fires on a load, so this is the only place that case can be handled.
 - **Write, a setting changed**: the console command, or a live config edit (see below).
+- **Leaving a world**: postfix on `PlanetaryAtmosphereSimulation.Clear`, which the game's own
+  teardown calls. Back to the config, ceiling off. Without it the values in force at the main menu
+  are the last world played, and `Climate.TemperaturePostfix` gates on `Settings.Enabled` rather than
+  on a world being in play, so the new-world screen's temperature range would depend on what was
+  played before it.
 
 **How a value reaches the code that reads it.** Not by overwriting `Settings`. A second plain static
 class holds the values in force for the world being played, and the patches read that instead.
@@ -100,6 +113,17 @@ the three response scales would silently stop being "takes effect at once", whic
 editor and `docs/SETTINGS.md` both promise. `MaxPressureKPa` is exempt: it is restart-flagged, so its
 apply never fires mid-game, and it moves only by the console command.
 
+**Each config entry assigns its own value and nothing else.** Each apply is a per-setting lambda that
+already has the value, so it hands that one assignment in. Copying the whole config across on any
+change would have meant nudging the albedo slider put the other four back to the config in a world
+whose file recorded different ones, and written that into the world's file within a second, which is
+the exact bug the feature exists to remove.
+
+**That assignment runs under the tank lock.** `Guards.Settle` reads the fade half-life on the tick
+thread, and a `Nullable<double>` is two non-atomic writes, so an unlocked change can be read half
+done: a torn read gives a world a fade at the moment the player asked for none. The console path was
+locked for this reason; so is this one.
+
 Resolve the folder as the game does: `StationSaveUtils.GetSavePathSavesSubDir()` joined with
 `XmlSaveLoad.Instance.CurrentStationName`. Not `CurrentWorldSave.RootDir`, which is a temp extraction
 the game deletes after loading, and not the working directory.
@@ -110,23 +134,109 @@ Version first, before anything else.
 
 | Case | Behaviour |
 | --- | --- |
-| Version higher than ours | Stand down for the session and log. Do not guess. |
+| Version higher than ours | Stand down for the session and log. Do not guess, and do not write over it. |
 | Version lower | Migrate forward. |
-| Unparseable | Treat as missing. |
+| Unparseable | Copy it aside, then treat as missing. |
+| A field out of range | Treat that field as not recorded. See below. |
 | Missing | See below. |
+
+Every log line here names the full path first. A player has to be able to find the file the mod just
+replaced, and four of the reasons a file is unreadable say nothing about which file they mean.
+
+## Fail closed on the ceiling
+
+**A loaded world's pressure ceiling comes only from its own file.** Two paths may produce a non-null
+ceiling and no others: a sidecar read successfully for the world now loaded, and the
+`terraform ceiling <kPa> confirm` verb, which is a deliberate act on a world that has a file.
+
+Everything else sets it to null: a missing file, an unreadable one, a future version, the read
+throwing, the self-test having disabled the sidecar, a station name whose folder did not resolve, a
+client.
+
+A brand new world is the one exception, and it is safe: it takes the config's ceiling because the
+player has just chosen it and the world has no history to damage. The case that destroys something is
+an *existing* world acquiring a ceiling it never had.
+
+This is structural, not a convention. The ceiling is the only setting here that deletes rather than
+changes, this machinery has already been wrong twice in the direction of applying one that should not
+apply, and the invariant means every future bug in the read path degrades to "no ceiling" instead of
+"some ceiling". No defect in this feature can then delete a player's air.
+
+**How it is enforced.** Three things, so that reintroducing the hazard takes more than an
+innocent-looking line:
+
+1. `Effective.MaxPressureKPa` is a private field behind a get-only property. No assignment to it
+   compiles anywhere. The only mutators are `NoCeiling()` and three named methods that each say where
+   the value came from: `CeilingFromWorldFile`, `CeilingForNewWorld`, `CeilingByConsoleCommand`. All
+   three run the value through the config's own range first, so even a caller that is allowed to set
+   one cannot set a ceiling the config editor would refuse.
+2. `Sidecar.WorldStartPrefix` calls `Effective.NoCeiling()` first, before anything else and *outside*
+   its `try`. Every branch below it, the `catch` included, therefore leaves the ceiling off unless
+   one of the three explicitly turns it on, and `TakeFromConfig` cannot touch it at all.
+3. `tools/ci/check_repo.py` pins the call sites of all three to one each, in the file where each
+   belongs, and checks the field is still private with a read-only property. A fourth caller fails
+   the build.
 
 ## A new world is not a missing sidecar
 
 Tell them apart, or the rule below silently cancels a ceiling the player just set for the world they
-are creating. A new world has no folder and no save name yet; a loaded one has both. The discriminator
-is that the game sets `CurrentWorldSave` and `CurrentStationName` together on the load path only.
+are creating.
+
+**Take the game's own flag; do not infer it.** A prefix on `World.Initialize(string, bool newWorld,
+string)` records it, and a finalizer clears it again, so it is true for the length of that one call
+and false at every other moment of the session. Both of the game's `CreateGlobalAtmosphere` call
+sites for a new world are inside it — `GridController.InitializeWorldController` builds the world's
+`AtmosphericsController`, whose constructor creates the planet, and `WorldManager
+.InitializeWorldEnvironment` creates it again — and the load path reaches both without going through
+`World.Initialize`.
+
+Inferring it from whether a name or a folder is set does not work. `FileCommand.NewGameTask` and
+`LoadGameCommand.NewGameTask` call `World.StartNewWorld` without `XmlSaveLoad.ClearAll()` first, so a
+world started from the console carries the previous world's `CurrentStationName`, which resolves to
+the previous world's folder. That world would read another world's settings, and until `NewSave`
+fires a `terraform ceiling ... confirm` would write into the other world's file. The menu path does
+clear it (`GameManager.ClearGameAll` calls `ClearAll`), which is why this is easy to miss.
+
+The flag is an optional patch, and that is safe: without it every world start reads as a load, so a
+world being created takes the missing-file rule and its ceiling is off. The harmless direction.
 
 **A new world takes the config in full**, ceiling included, and its file is written by the
 `CreateSaveDirectory` postfix. The rule below is for loads.
 
+## Nothing read from the file is trusted
+
+The file is a plain XML document in the player's saves folder. It gets hand-edited, it gets damaged,
+and a value in it is not a setting until it has been checked.
+
+**Every field is checked against the same range the config editor enforces on that setting**, from
+one declaration (`Limits` in `src/Settings.cs`) that `Plugin.BindConfig` also builds its
+`AcceptableValueRange` from, so the two cannot drift. Values that are not finite are refused too.
+
+**A field that fails is treated as not recorded**, which is already what the file means by a field
+the version that wrote it did not know: `MaxPressureKPa` becomes null, the other five fall back to
+the config. One log line names the path and every field it refused, with the value and the range.
+
+For the two fields the config flags with 0, the file's range excludes 0: in the file that state is an
+absent element, so a 0 there is the config's sentinel leaking through a hand edit and is out of range
+exactly like `-5`. This is not the sentinel coming back. The sentinel is a property of the config,
+which cannot express null; the file can.
+
+Measured, before the check existed: `<MaxPressureKPa>0</MaxPressureKPa>` scaled the planet to nothing
+on the next tick, `-5` drove every gas negative, `-INF` put the tank at NaN, `99999999` was used
+although the config caps at 10000, and `<GhgResponseScale>NaN</GhgResponseScale>` made `Climate`'s
+cache key never match, so its entry was rebuilt for every outdoor cell of every tick with a
+`Log.Error` each time.
+
+**A file that could not be believed is copied aside before it is replaced**, once, to
+`terraforming-reloaded.broken.xml` in the same folder. The rule here is that nothing of the player's
+is deleted or moved, and replacing a hand edit outright throws away the settings it got right along
+with the one it did not. One fixed name, so a world that loads with a broken file every time cannot
+fill its own folder with copies.
+
 ## Missing sidecar
 
-A world from before this existed, a workshop import, or a folder copied by hand.
+A world from before this existed, a workshop import, a folder copied by hand, a file that could not
+be read, or a world whose folder is not where the game's own station name says it is.
 
 **A setting that destroys state falls back to its no-op value. A setting that only changes behaviour
 falls back to the current config.**
@@ -171,7 +281,34 @@ throws on, so removing the mod makes the save unloadable. That breaks the docume
 The mod currently writes one file, into BepInEx's own config directory. This is the first time it
 writes into the player's saves folder. Every write is wrapped, a failure logs once and the session
 continues on the in-memory snapshot, and nothing is ever deleted or moved. A read-only folder, a full
-disk or a cloud sync mid-write must not stop a world loading.
+disk or a cloud sync mid-write must not stop a world loading. The copy taken beside a file that could
+not be read follows the same rule: if the copy fails the write goes ahead anyway, because a
+read-only folder must not leave the world with no settings file at all.
+
+The `XmlSerializer` is built on first use rather than in a static initialiser. The read prefix is a
+required patch, so a static initialiser that threw would become a cached
+`TypeInitializationException` raised before the prefix body is entered, on every world start, with
+nothing able to catch it. Lazily it is an ordinary exception inside a `try`, and the world loads on
+the config.
+
+## How it is checked
+
+`tools\LiveCheck\run.ps1 -Sidecar`. Two phases: the first creates a world, which is the only moment
+`CreateSaveDirectory` can record what it was created with; the second loads that world and rewrites
+its settings file one shape at a time, calling the mod's own `Sidecar.WorldStartPrefix` on each, so
+what is judged is the real read path over a real file in a real world folder.
+
+The config is made to ask for a 500 kPa ceiling, and for five other distinctive values, throughout,
+and every line prints the config's ceiling beside the one in force: a run in which the config was not
+asking cannot be read as a pass. Nineteen cases — a recorded ceiling of `0`, `-5`, `99999999`,
+`-INF`, every field negative, response scales of `NaN` and `INF`, a half-life of `0`, one field only,
+no file, a file that is not XML, a world with no name, a folder that moved, a file from a version
+this build does not understand, and one read after the session has stood down.
+
+Then a control, because "the ceiling was off" is worth nothing if the rule never runs:
+`terraform ceiling 0.5 confirm`, the one way a loaded world may acquire one. It deleted 83.3 % of the
+planet in two ticks. Through all nineteen refused files before it, the planet held
+2,379,749.934 mol and varied by 0.000.
 
 ## Known limits
 

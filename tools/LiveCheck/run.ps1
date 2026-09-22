@@ -7,6 +7,15 @@
     (default)  Put 100000 mol of CO2 into one outdoor cell. Tank plus outdoor cells must stay
                level while the gas spreads over thousands of cells and drains into the tank, and
                the tank must end up holding what was injected.
+    -Sidecar   Per-world settings. Makes a world, then loads it and rewrites its settings file one
+               shape at a time, calling the mod's own read prefix on each: a recorded ceiling of 0,
+               of -5, of 99999999, of -INF, every field negative, response scales of NaN and INF, a
+               half-life of 0, fields a later version would add, no file at all, a file that is not
+               XML, a world with no name, a folder that moved, and a file from a version this build
+               does not understand. With the config asking for a 500 kPa ceiling throughout, the
+               ceiling in force has to stay off for every one of them, and the planet has to be
+               where it was. Ends with a control: a ceiling set the one way it may be, by
+               terraform ceiling, which must delete most of the planet.
     -SaveLoad  Same injection, then save while the gas is spread over thousands of outdoor cells,
                stop, load that save in a fresh instance. The total after the load must equal the
                total at the save. The game's loader rebuilds every saved outdoor cell by cloning
@@ -102,6 +111,7 @@ param(
     [string]$GameDir = $env:STATIONEERS_DIR,
     [switch]$Vanilla,
     [switch]$SaveLoad,
+    [switch]$Sidecar,
     [switch]$Reset,
     [string]$Dump,
     [switch]$Observe,
@@ -145,7 +155,7 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
-if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $CustomWorld, $Strip | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -CustomWorld and -Strip.' }
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $CustomWorld, $Strip | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -CustomWorld and -Strip.' }
 if (($StripTicks -le 0) -or ($StripCells -le 0)) { throw '-StripTicks and -StripCells are how many ticks to draw for and how many draw points to draw from; both must be positive.' }
 if ($StripPerCell -lt 0) { throw '-StripPerCell is how many moles one draw point may take in a tick; 0 means take everything.' }
 if (($StripShare -lt 0) -or ($StripShare -gt 1)) { throw '-StripShare is the share of what a cell holds that one draw takes, between 0 and 1; 0 leaves the driver default.' }
@@ -200,7 +210,7 @@ $envKeys = @(
     'TR_LIVECHECK_WEATHER_TICK', 'TR_LIVECHECK_WEATHER_EVENT', 'TR_LIVECHECK_STATUS_TICK',
     'TR_LIVECHECK_STRIP_TICK', 'TR_LIVECHECK_STRIP_TICKS', 'TR_LIVECHECK_STRIP_CELLS',
     'TR_LIVECHECK_STRIP_PER_CELL', 'TR_LIVECHECK_STRIP_FLOOR', 'TR_LIVECHECK_STRIP_SHARE',
-    'TR_LIVECHECK_WALKCOST')
+    'TR_LIVECHECK_WALKCOST', 'TR_LIVECHECK_SIDECAR_TICK')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -738,6 +748,155 @@ try {
         if ([math]::Abs($vs.LatentJ) -gt 1.27e7) { $problems += 'latent heat is not near zero' }
         if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: after reset and mod removal, ' + ($problems -join '; ')) }
         Write-Host 'LiveCheck OK: the unmodded game finds a stock planet.'
+        return
+    }
+
+    if ($Sidecar) {
+        # Per-world settings. Two phases, because a world can only be created once: the first makes
+        # the world, which is the only moment the CreateSaveDirectory postfix can record what it was
+        # created with; the second LOADS that world and works through what its settings file can say.
+        #
+        # Everything judged in the second phase goes through the mod's own read prefix, called on a
+        # real file in the real world folder, with the config made to ask for a 500 kPa pressure
+        # ceiling throughout. The question is not whether a bad file parses. It is whether anything
+        # other than a world's own file, or the console verb, can switch on the one setting that
+        # deletes a player's air for good.
+        $station = 'trlivecheck'
+        # The gas injection is left on, because the driver only saves once it has injected.
+        $log = Invoke-Game @('-file', 'start', $station, 'Mars2') @{ TR_LIVECHECK_SAVE_AFTER_TICKS = '20' } `
+            { param($l) @($l -match 'LiveCheck: saving at tick').Count -gt 0 } 'a new world to be created and saved'
+        Assert-ModLive $log
+        Start-Sleep -Seconds 20
+        $log = @(Get-Content $bepLog)
+        Stop-Game
+        $file = Join-Path $GameDir "saves\$station\terraforming-reloaded.xml"
+        Write-Host '--- a world being created ---'
+        @($log -match 'Per-world settings') | ForEach-Object { $_ -replace '^\[[^\]]*\]\s*', '' } | Write-Host
+        $problems = @()
+        if (-not (Test-Path $file)) { throw "The new world recorded no settings file at $file." }
+        $written = Get-Content $file -Raw
+        Write-Host $written
+        if ($written -notmatch 'Version="1"') { $problems += 'the file the new world wrote carries no version 1' }
+        if ($written -notmatch 'xmlns:xsi=') { $problems += 'the file the new world wrote does not declare xmlns:xsi' }
+        if (-not ($log -match 'this world is being created, so the config is in force for it')) {
+            $problems += 'the mod did not take the new-world branch, so World.Initialize was not patched'
+        }
+        if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: ' + ($problems -join '; ')) }
+
+        # Phase two: the same world, loaded. World.Initialize is not called on a load, so every read
+        # below is a load, which is the case the whole rule is about.
+        $log = Invoke-Game @('-file', 'start', $station, 'Mars2') @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_SIDECAR_TICK = '15' } `
+            { param($l) @($l -match 'LiveCheck: sidecar done').Count -gt 0 } 'the per-world settings cases'
+        if (-not ($log -match 'Terraforming Reloaded\] Active:')) { throw 'The mod never reported Active.' }
+        if (-not ($log -match 'Planet tick is running\. live')) { throw 'The planet tick never ran with the mod live.' }
+        if (-not ($log -match 'Self-test passed: take and give')) { throw 'The in-game self-test did not pass.' }
+        if ($log -match 'LiveCheck: sidecar FAIL') { throw ('LiveCheck FAILED: ' + (@($log -match 'LiveCheck: sidecar FAIL')[0])) }
+
+        $cases = @{}
+        $order = @()
+        foreach ($line in @($log -match 'LiveCheck: sidecar \S+ \| tick ')) {
+            if ($line -match 'sidecar (\S+) \| tick (\d+) \| config ceiling (\S+) \| ceiling (\S+) \| halflife (\S+) \| limitK (\S+) \| ghg (\S+) \| density (\S+) \| albedo (\S+) \| version (\S+) \| tank (\S+) \| file (.*?) \| refusal (.*?) \| source (.*)$') {
+                $row = [pscustomobject]@{ Case = $Matches[1]; Tick = [int]$Matches[2]; Config = $Matches[3]; Ceiling = $Matches[4]
+                    HalfLife = $Matches[5]; LimitK = $Matches[6]; Ghg = $Matches[7]; Density = $Matches[8]; Albedo = $Matches[9]
+                    Version = $Matches[10]; Tank = [double]$Matches[11]; File = $Matches[12].Trim(); Refusal = $Matches[13].Trim(); Source = $Matches[14].Trim() }
+                $cases[$row.Case] = $row
+                $order += $row
+            }
+        }
+        if ($order.Count -eq 0) { throw 'LiveCheck FAILED: the driver logged no per-world settings cases.' }
+        $order | Format-Table Case, Tick, Config, Ceiling, HalfLife, LimitK, Ghg, Density, Albedo, Version,
+            @{ n = 'tank'; e = { '{0:N0}' -f $_.Tank } } -AutoSize | Out-String -Width 220 | Write-Host
+        @($log -match 'LiveCheck: sidecar (setup|note) ') | ForEach-Object { $_ -replace '^\[[^\]]*\]\s*', '' } | Write-Host
+        Write-Host '--- what the mod logged while reading them ---'
+        @($log -match 'Per-world settings') | ForEach-Object { $_ -replace '^\[[^\]]*\]\s*', '' } | Write-Host
+
+        # config 500 / 77 / 88 / 1.5 / 0.25 / 0.4; a good file 1234 / 123 / 45 / 2.5 / 0.75 / 0.6.
+        $expect = @(
+            @('good', '1234', '45', '123', '2.5', '0.75', '0.6'),
+            @('ceiling-zero', 'none', '45', '123', '2.5', '0.75', '0.6'),
+            @('ceiling-negative', 'none', '45', '123', '2.5', '0.75', '0.6'),
+            @('ceiling-huge', 'none', '45', '123', '2.5', '0.75', '0.6'),
+            @('ceiling-minus-infinity', 'none', '45', '123', '2.5', '0.75', '0.6'),
+            @('every-field-negative', 'none', '88', '77', '1.5', '0.25', '0.4'),
+            @('scales-not-a-number', 'none', '45', '123', '1.5', '0.25', '0.4'),
+            @('halflife-zero', '1234', '88', '123', '2.5', '0.75', '0.6'),
+            @('halflife-not-recorded', '1234', 'none', '123', '2.5', '0.75', '0.6'),
+            # A version 1 file always carries all six elements, so one that does not is a hand
+            # edit, and for the two fields the config flags with 0 an absent element is the
+            # recorded state and not a version gap: no ceiling, and heat that never fades. The
+            # other four have no such state, so they fall back to the config.
+            @('only-one-field', 'none', 'none', '77', '2.5', '0.25', '0.4'),
+            @('missing', 'none', '88', '77', '1.5', '0.25', '0.4'),
+            @('broken', 'none', '88', '77', '1.5', '0.25', '0.4'),
+            @('no-station-name', 'none', '88', '77', '1.5', '0.25', '0.4'),
+            @('folder-not-there', 'none', '88', '77', '1.5', '0.25', '0.4'),
+            @('control-armed', '1234', '45', '123', '2.5', '0.75', '0.6'),
+            @('future-version', 'none', '88', '77', '1.5', '0.25', '0.4'),
+            @('stood-down', 'none', '88', '77', '1.5', '0.25', '0.4')
+        )
+        $problems = @()
+        foreach ($want in $expect) {
+            $row = $cases[$want[0]]
+            if ($null -eq $row) { $problems += "the case '$($want[0])' never ran"; continue }
+            if ($row.Config -ne '500') { $problems += "$($want[0]): the config was not asking for a ceiling, it said $($row.Config), so this case proves nothing" }
+            foreach ($field in @(@('ceiling', $row.Ceiling, $want[1]), @('half-life', $row.HalfLife, $want[2]), @('heat limit', $row.LimitK, $want[3]),
+                                 @('greenhouse', $row.Ghg, $want[4]), @('density', $row.Density, $want[5]), @('albedo', $row.Albedo, $want[6]))) {
+                if ($field[1] -ne $field[2]) { $problems += "$($want[0]): $($field[0]) is $($field[1]), expected $($field[2])" }
+            }
+        }
+        # The four that must also have nowhere to record and must say why in their own words.
+        foreach ($name in @('no-station-name', 'folder-not-there')) {
+            $row = $cases[$name]
+            if ($row -and $row.File -ne 'none') { $problems += "$($name): a file path was resolved ($($row.File))" }
+            if ($row -and $row.Refusal -eq 'none') { $problems += "$($name): recording was not refused" }
+        }
+        if ($cases['no-station-name'] -and $cases['no-station-name'].Refusal -match 'has not been saved yet') {
+            $problems += 'no-station-name: a saved world was told it has never been saved'
+        }
+        if ($cases['folder-not-there'] -and $cases['folder-not-there'].Refusal -notmatch 'not where the game says it is') {
+            $problems += 'folder-not-there: the refusal does not say the folder moved'
+        }
+        # A file the mod could not believe is named, kept, and replaced.
+        $broken = @($log -match 'LiveCheck: sidecar note broken')
+        if ($broken.Count -eq 0) { $problems += 'the broken-file case logged nothing' }
+        elseif ($broken[0] -notmatch 'salvaged copy True .* copy holds the hand edit True .* rewritten as xml True') {
+            $problems += "the broken file was not kept beside the one that replaced it: $($broken[0])"
+        }
+        $named = @($log -match '\[Warning\s*:\s*Terraforming Reloaded\].*terraforming-reloaded\.xml')
+        if ($named.Count -eq 0) { $problems += 'no warning named the settings file by its path' }
+        foreach ($name in @('future-version', 'stood-down')) {
+            $note = @($log -match "LiveCheck: sidecar note $name")
+            if ($note.Count -eq 0) { $problems += "$($name): nothing was logged about the file on disk" }
+            elseif ($note[0] -notmatch 'still holds 1234 True') { $problems += "$($name): the mod wrote over a file it does not understand" }
+        }
+        if ($cases['future-version'] -and $cases['future-version'].Version -ne '99') {
+            $problems += 'future-version: the mod did not report the file version it refused'
+        }
+
+        # The control. Everything above says a ceiling was not switched on; this says that one
+        # switched on the only way it may be does delete the planet's air, so "off" is a result.
+        $armed = $cases['control-bites']
+        $cleared = $cases['control-cleared']
+        if ($null -eq $armed -or $null -eq $cleared) { $problems += 'the control never ran' }
+        else {
+            $lost = 1 - $cleared.Tank / $armed.Tank
+            Write-Host ("control: a 0.5 kPa ceiling set by the console took the planet from {0:N0} to {1:N0} mol, {2:P1} of it, in {3} ticks" -f `
+                $armed.Tank, $cleared.Tank, $lost, ($cleared.Tick - $armed.Tick))
+            if ($lost -lt 0.5) { $problems += "the control ceiling deleted only $([math]::Round($lost * 100, 1))% of the planet, so the cases above prove nothing" }
+            if ($cleared.Ceiling -ne 'none') { $problems += 'the control ceiling was not cleared again' }
+        }
+        # And the planet was not touched while every refused file was being read.
+        $rows = @(Get-Rows $log | Where-Object { $_.Tick -le $armed.Tick })
+        if ($rows.Count -lt 4) { $problems += 'too few samples before the control to say the planet was left alone' }
+        elseif ((Get-Spread $rows.Sum) -gt 1) {
+            $problems += ("the planet moved by {0:N3} mol while the refused files were being read" -f (Get-Spread $rows.Sum))
+        }
+        else {
+            Write-Host ("the planet held {0:N3} mol throughout the {1} refused files, varying by {2:N3} mol" -f $rows[-1].Sum, $order.Count, (Get-Spread $rows.Sum))
+        }
+
+        if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: ' + ($problems -join '; ')) }
+        Write-Host 'LiveCheck OK: a loaded world takes a pressure ceiling from its own settings file and from nowhere else, and everything a file can say that is not a setting is refused by name.'
         return
     }
 
