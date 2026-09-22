@@ -49,8 +49,14 @@ the planet section of the save; the game reads that section with or without the 
 - **The Moon and Mimas** ship with no air and no base temperature. Their first air settles toward
   the temperature a bare rock reaches at that distance from the sun (the Moon: about 250 K,
   swinging from 195 to 305 K between night and day until the air thickens).
-- **Storms** still come. On a world you have cooled, a storm's temperature swing shrinks in the same
-  proportion as the planet has, so a finished Vulcan survives its ash storms; they are still dangerous.
+- **Storms** still come, and respond to what you have done. On a world you have cooled, a storm's
+  temperature swing shrinks in the same proportion as the planet has, so a finished Vulcan survives
+  its ash storms; they are still dangerous. A world stops scheduling its own storms once you have
+  taken away most of the air it started with, or once that air has become temperate, thick and clean.
+  Neither happens on a world you have not changed. Solar storms are not stopped by taking the air
+  away, because air was never what caused them. `terraform` says which of the two is holding storms
+  back, and which point in the world's year it judged that at, because a world can be calm in one
+  season and stormy in another.
 - **Seas.** Enough liquid on the planet (rain that stays liquid) and the game raises a sea 2 to 10 m
   deep, and everything outdoors below it counts as under water. The amount of liquid that takes
   is fixed by the game and does not shrink with planet size.
@@ -191,7 +197,11 @@ The few worth knowing before you start:
   which also ships in the mod's folder.
 - **The `Storms` section** decides when a world stops getting its own storms: once its air is mostly
   gone, or once that air is mild. Both are on by default and neither does anything to a world you
-  have not changed.
+  have not changed. Every number either rule uses is a setting, so nothing is hidden: the share of
+  the starting air below which storms stop, and the coldest and hottest the air may get across a day,
+  the pressure it must stay between, and the most toxic gas allowed. The mild rule is judged at the
+  point in the orbit the world is at, so a world near the edge of those bounds is calm in a good
+  season and stormy in a bad one. Solar storms follow the opposite rule and have their own setting.
 
 ## If a game update breaks it
 

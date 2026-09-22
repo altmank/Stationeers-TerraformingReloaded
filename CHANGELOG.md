@@ -2,6 +2,25 @@
 
 ## 0.10.0
 
+- **Storms now respond to what you have done to a world.** A world stops scheduling its own storms
+  once you have taken away most of the air it started with, or once that air has become temperate,
+  thick and clean. Neither rule does anything to a world you have not changed: an untouched world is
+  at 100 % of its own starting air, and no world the game ships starts anywhere near mild, each one
+  being far too cold, far too hot or far too thin. A storm already scheduled still arrives, one that
+  is running is never cut short, and rain and snow are untouched.
+- **Solar storms follow the opposite rule.** Taking the air away cannot stop radiation, so it never
+  stops one. Mild air can, but only if you turn that on: on the Moon a solar storm is four times the
+  normal solar power, and taking that away by default would be a surprise.
+- **Every number either rule uses is a setting**, in a new `Storms` section, and there is no hidden
+  rule: the share of the starting air below which storms stop, the coldest and hottest the air may
+  get across a day, the pressure it must stay between, and the most toxic gas allowed. All of them
+  take effect while you play.
+- **The mild rule is judged at the point in the orbit your world is at**, not year round, so a world
+  near the edge of those bounds is calm in one season and stormy in another. `terraform` says which
+  season it judged at, so an annual storm season is not a mystery.
+- **`terraform` says why weather is or is not happening.** It never answers a bare no: every negative
+  names the bound that failed, with the measured value and the bound beside it, and solar storms are
+  reported separately because they follow the opposite rule.
 - **Each world now keeps its own copy of the settings that belong to it**, in a small
   `terraforming-reloaded.xml` beside its save. Six settings moved: the pressure ceiling, both
   response strengths, the airless reflectivity, and both added-heat settings. Until now one global

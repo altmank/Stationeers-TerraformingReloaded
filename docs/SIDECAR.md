@@ -264,10 +264,45 @@ pressure the planet is at and the share of air at stake in the prompt.
 | `AirlessAlbedo` | reversible | Same, and narrower: it only feeds the airless base, so only the Moon and Mimas |
 
 Not world-scoped: `Enabled`, `DynamicSky`, `SyncIntervalSeconds`, `StatusLogSeconds`,
-`WeatherOnWeatherlessWorlds`, `PlanetSize`, `CustomPlanetSize`.
+`WeatherOnWeatherlessWorlds`, `PlanetSize`, `CustomPlanetSize`, and all nine `Storms` settings.
 
-The nine `Storms` settings cannot be judged yet, because nothing reads them. They go in when the rules
-land, as a schema version bump.
+### The nine `Storms` settings: settled, global, no schema v2
+
+Now that the rules are built the question can be answered, and the answer is that none of the nine
+belongs in a world's file. **The schema stays at version 1.**
+
+The tier rule above decides it: *a setting that destroys state is world-scoped; a setting that only
+changes behaviour is not*. All nine only change behaviour, and the evidence is what suppression
+actually touches.
+
+- **Suppressing an event writes nothing.** The rules answer `CanScheduleWeatherEvent` and turn away
+  the argument to `ScheduleWeatherEvent`. Neither call has a side effect the save carries. What the
+  game persists about weather is `WeatherManager.CreateSaveData`: the current event's id, days since
+  the last one, whether one is running or scheduled, its length and start offset, and the last
+  cooldown. A suppressed world saves "no event, and a cooldown long past" — which is the state the
+  unmodded game sits in between storms anyway.
+- **Turning a rule back on costs nothing and loses nothing.** The event cooldown is already satisfied,
+  so exactly one storm schedules at once and the world's own three-to-twelve-day cadence resumes from
+  it. There is no burst and no debt. Contrast `MaxExternalOffsetKelvin`, which writes its clamp back
+  into a saved energy counter, and `MaxPressureKPa`, which deletes moles.
+- **Nothing downstream of a storm is saved either.** A storm's temperature offset is read from the
+  event every time it is needed rather than banked (`GlobalGasMix.GetGlobalGasMixTemperature`), and
+  its `SolarRatio` is read the same way by `GetSolarRatioAt`. Rain and snow are not touched at all.
+- **`WeatherOnWeatherlessWorlds` is the precedent.** It also decides whether an event is scheduled,
+  it has always been global, and nothing about it has ever needed a world's file.
+
+**`MildAtmosphereStopsSolarStorms`, looked at on its own**, because it is the one with a power
+consequence. `Data/weather.xml` gives both solar storms a `SolarRatio` of 4, so while one runs a
+solar panel makes four times its normal power. Suppressing one denies a player that windfall. But
+power is made and spent in the moment: nothing about it is written to the save, so a suppressed solar
+storm is indistinguishable, afterwards, from a quiet week. Turn the setting off and the next one
+arrives. It is behaviour, not state, and it is off by default in any case.
+
+**What is given up, said plainly.** A player running several worlds at different stages cannot have
+storms on a raw Vulcan and off on a finished Mars: the settings are one set for all of them. That is
+a preference, not damage, and this file exists to stop one world's settings damaging another, not to
+be a per-world preferences store. If it is ever wanted, it is a clean v2: nine nullable fields, the
+same absent-means-a-version-gap rule, and no migration work beyond the version bump.
 
 ## Not an in-save block
 

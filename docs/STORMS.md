@@ -1,6 +1,9 @@
 # Storms respond to terraforming
 
-Design doc. Nothing is built yet.
+**Built in 0.10.0.** `src/Patching/Storms.cs` holds both rules, the day forecast and the readout;
+`Guards.ScheduleWeatherPrefix` and `Guards.CanScheduleWeatherPrefix` are the two hooks;
+`tools/LiveCheck/run.ps1 -Schedule` judges them. Part three, at the end, is what changed between the
+specification and the thing, and what was measured.
 
 **Part one is the specification.** Build from it.
 **Part two is the research behind it.** Read it before changing a number or a rule, because most of
@@ -398,4 +401,108 @@ false: the offline model sweeps both ends of the orbit and the mild rule sweeps 
 season. Both are right; they are different tests. Nothing should be built on them matching.
 
 **WORLDS.md carries the note already**, under Things to get right. It describes behaviour that is not
-built, so it must not ship before the feature does.
+built, so it must not ship before the feature does. *Both now ship in 0.10.0, so the note is true.*
+
+---
+
+# Part three: what was built, and what the specification got wrong
+
+## Where it lives
+
+| Piece | Where |
+| --- | --- |
+| Both rules, the day forecast, the cache, the readout | `src/Patching/Storms.cs` |
+| The predicate the scheduler asks before it picks | `Guards.CanScheduleWeatherPrefix`, an `Extra` named `storm scheduling` |
+| Turning away a pick that has already been made | the out-of-tick branch of `Guards.ScheduleWeatherPrefix`, after the D6 branch |
+| Working the rules out, once a tick, under the tank lock | `Storms.Update()`, last in `Guards.Upkeep` |
+| Checking the game still counts the same five gases as toxic | `SelfTest.CheckToxinList`, called from `Patcher` |
+| The live test | `tools/LiveCheck/run.ps1 -Schedule`, and `-Orbit <degrees> -OrbitTick <n>` for the other scenarios |
+
+The nine settings are **global, not world-scoped**, and the per-world file stays at schema version 1.
+Suppressing an event writes nothing a save carries, so turning a rule back on schedules one storm at
+once and resumes the world's own cadence. The evidence is in SIDECAR.md, *The nine `Storms` settings*.
+
+## Three things the specification did not say, and two it got wrong
+
+**The predicate may only be answered when EVERY event a world ships is suppressed.** Part two already
+knew that stripping VulcanV2 should give it 100 % solar storms rather than none, but the
+implementation constraint reads as though `CanScheduleWeatherEvent` alone carries both rules. It
+cannot: it is asked before the pick, so it does not know which event is coming, and answering it
+false on a world with an ordinary storm beside a solar one would stop the solar one too. So it is
+answered only when nothing this world ships could be scheduled, and the mixed world goes on picking
+with the pick turned away instead. That costs one roll of the game's shared `Random` per frame on
+such a world, which is the cost the constraint exists to avoid, and there is no way to have both.
+Measured over two runs, 40 picks each on a stripped world with one of each: the solar storm came up
+24 and 20 times and was scheduled every time, the ordinary storm came up 16 and 20 times and was
+turned away every time, and the ordinary storm was never once scheduled.
+
+**The strip rule stands down when the clouds and the ice caps cannot be read.** The measure counts
+all five stores, so with `Planet.ReservoirsKnown` false it would read low, and low is the direction
+that switches weather off. It reports why rather than judging on four fifths of a measure.
+
+**The toxin check reads fields, not calls.** `Atmosphere.PartialPressureHumanToxins` reaches the five
+gases as public fields of `GasMixture`, so `SelfTest.StillCalls` cannot see them;
+`SelfTest.CheckToxinList` reads the field references out of the property's own IL instead. It also
+found that three of the five (hydrazine, silanol and hydrochloric acid) have no entry in the game's
+`Data/terraforming.xml`, so they move the toxin load and leave the greenhouse index exactly where it
+was. That is what makes a clean test of the toxin bound possible.
+
+**The readout's sixth item cannot do its job as specified.** *Rain held back by a setting* asks for a
+line when a cloud is full and `WeatherOnWeatherlessWorlds` is off. It is built, and it is correct,
+but a full cloud lasts at most one tick: `PlanetaryAtmosphereSimulation.TickPlanetarySimulation`
+(`PAS:334-342`) empties the cloud into the air and *then* calls `ScheduleWeatherEvent`, so the bucket
+is already empty by the time the schedule is turned away. A player typing `terraform` will almost
+never catch it. The gas is not lost, only the explanation is, so what the item was for -- "the player
+sees clouds fill and drain with no rain and no explanation" -- is still not answered. Fixing it means
+remembering that a rain was turned away rather than looking at the clouds, which is a change to the
+design and is left for the owner. The live run does catch the line, by filling the cloud and reading
+the status in the same frame:
+
+    rain:      a cloud is full, but this world ships no weather of its own and
+               "Rain or snow on worlds with no weather" is off, so nothing falls
+
+**Part two has no worked examples with computed expected values on Mars.** The live run calibrates
+instead: it searches carbon dioxide against nitrogen with the game's own formula for a mix inside all
+five bounds, and every bound is then broken on its own against what the mod itself measured.
+
+## What Mars measures
+
+Planet size 0.05, mod 0.10.0, `run.ps1 -Schedule`, 2026-09-22. None of it depends on the size: the
+baseline the share is measured against is per outdoor cell, and so is the air the run sets.
+
+| State | Coldest | Hottest | Pressure cold | Pressure hot | Toxins | Share | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| As shipped | 226.24 K | 287.80 K | 2.14 kPa | 2.73 kPa | 0.017 kPa | 1.0000 | not mild: the cold floor and the pressure minimum both fail |
+| 450 CO2 + 550 N2 mol per cell | 281.74 K | 296.24 K | 292.81 kPa | 307.87 kPa | 0 kPa | 109.66 | mild, every bound inside |
+| The same, at the far end of its orbit | 272.27 K | 291.15 K | 282.97 kPa | 302.59 kPa | 0 kPa | 109.66 | 9.90 K colder; mild or not depending on where the floor is |
+| Stripped to 0.0027 of its starting air | 190.07 K | 320.90 K | 0.00 kPa | 0.01 kPa | 0 kPa | 0.0027 | stripped |
+
+An untouched world reads **exactly 1.0000** of its own starting air, which is the whole reason the
+baseline is the world file's figure and not a pressure.
+
+**The season is worth 9.90 K on Mars**, between the coldest point of its day at the warmest part of
+its orbit and the same point at the coldest. That is the margin the mild rule lives or dies on for a
+world near its bounds, and it is why the readout names the season it judged at.
+
+**Hydrazine moves the toxins and nothing else.** Adding 2.43 kPa of it moved the day from
+281.74-296.24 K to 282.04-296.54 K, 0.30 K, which is the density term alone: hydrazine has no
+greenhouse index curve in the game's data.
+
+## No shipped world starts mild
+
+Checked against the world files rather than assumed, because the mild rule doing nothing on an
+untouched world is the promise the whole feature rests on. Per outdoor cell, and taken at each
+world's own shipped temperature:
+
+| World | Shipped air | Which bound it is outside |
+| --- | --- | --- |
+| Mars | 9.119 mol, 2.1 kPa at 226 K | too thin, and below the cold floor |
+| Europa | 340 mol, about 44 kPa, base curve 124 to 134 K | pressure is inside the band; about 130 K below the cold floor |
+| Venus | 311.55 mol, about 239 kPa, base curve 737 K | pressure is inside the band; 414 K above the hot ceiling |
+| Vulcan | 57 mol, about 58 kPa, base curve 400 to 975 K | pressure is inside the band; 652 K above the hot ceiling |
+| The Moon, Mimas | none | no pressure at all, so below the minimum |
+
+So on every shipped world the rule is a no-op at world start, and it is the temperature bounds, not
+the pressure ones, that do that work on three of the five. Only Mars was measured live; the rest are
+arithmetic on the shipped mole counts and the worlds' own temperature curves. A **custom** world
+could ship an atmosphere inside all five, which is what WORLDS.md warns its authors about.

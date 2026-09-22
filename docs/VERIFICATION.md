@@ -20,6 +20,8 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 .\tools\LiveCheck\run.ps1 -Strip           # air taken OUT through outdoor cells: what share do cells hold while it leaves
 .\tools\LiveCheck\run.ps1 -WalkCost        # what a per-tick walk over every atmosphere costs; add to -Strip or the default
 .\tools\LiveCheck\run.ps1 -Sidecar         # per-world settings: nineteen hostile files, and the one path that may delete air
+.\tools\LiveCheck\run.ps1 -Schedule        # the two storm rules: nineteen cases through the game's own scheduler
+.\tools\LiveCheck\run.ps1 -Observe -Orbit 180 -OrbitTick 40   # move the season half a year at tick 40
 .\tools\LiveCheck\run.ps1 -Clean          # remove what an interrupted run left behind, and nothing else
 .\tools\LiveCheck\run.ps1 -MenuPressure     # the new-game menu sees the shipped planet, not the resized one
 .\tools\LiveCheck\run.ps1 -Rescale          # terraform size: the planet scales whole and its air does not move
@@ -44,6 +46,8 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 | `-Strip` | The direction a player stripping a planet actually goes, which the injection scenario does not cover. A headless run cannot build a vent, so the driver does what an inward `ActiveVent` does, cloning the outdoor cell at its own grid and removing gas from it, at `-StripCells` grids for `-StripTicks` ticks, discarding what it takes. Not judged as a conservation test: it reports what share of the planet outdoor cells hold while air is leaving, which is the number the storm rule's measure turns on | That a real vent keeps the same number of cells open. The floor stands in for the vent structure, which cannot be built headless |
 | `-WalkCost` | What a per-tick walk over every atmosphere costs, timed from inside the planet tick where such a measure would sit, printed in microseconds against the cell count. Add it to the default scenario, which sweeps 1 cell to about 4,300 and back, or to `-Strip` | Main-thread frame cost. It is timed against the 500 ms tick, which is the right budget for `Guards.Upkeep` and the wrong one for D10 |
 | `-Sidecar` | Per-world settings. Two phases: make a world, then load it and rewrite its settings file one shape at a time, calling the mod's own read path on each, so a real file over the real code is what is judged. The config asks for a 500 kPa ceiling throughout and every line prints it, so a run where the config was not asking cannot read as a pass. Nineteen cases: a ceiling of 0, -5, 99999999 and -INF; every field -5; NaN and INF scales; a zero half-life; a nil half-life; one field only; no file; not XML; no station name; a folder that moved; version 99; and a read after the sidecar has stood down | That a real config editor writes through, and the client branch, which cannot be faked headlessly |
+| `-Schedule` | The two storm rules (STORMS.md). Nothing else reaches them: `-Storm` and `-Weather` force an event on through `ImmediatelyActivateWeatherEvent`, which never asks the scheduler, and waiting cannot work because scheduling needs a world-start cooldown measured in days. So the driver clears the game's own cooldowns and runs the two lines `WeatherManager.ManagerUpdate` runs, from the main thread; nothing scheduled means suppressed. Nineteen cases: the world as shipped, a stripped planet, a stripped planet whose storm happens in orbit, a world with one of each (40 picks, the ordinary storm must be turned away every time it comes up), a world that ships no air at all, an air the run finds inside all five bounds with the game's own formula, that air with the mild rule off, each of the five bounds moved past the measured value on its own, the toxin bound broken with hydrazine (which has no greenhouse curve, so it moves the toxins and nothing else), the same air in its warmest and its coldest season with the floor put between the two, a solar storm with the setting that stops one off and then on, a weatherless world, and the readout's line about rain being held back, read in the same frame the cloud is filled | Multiplayer. It cannot prove a player ever reaches these states; and a run that never sees both sides of the mixed world's pick would prove only one branch, so the counts are checked |
+| `-Orbit <degrees> -OrbitTick <n>` | Moves the season, at that tick, by that many degrees of the world's own orbit; 360 is a year. Through `OrbitalSimulation.SetSimulationTime`, the public way into `SetAllBodies`: writing `SimulationTimeSeconds` alone leaves every distance, and so the solar percent, exactly where it was. For `-Observe` and the default scenario; `-Schedule` walks the year itself | |
 | `-CustomWorld` | A world the mod has never seen. `tools/LiveCheck/GameData/TRTestWorld/TRTestWorld.xml` is written here, not shipped by the game, and staged into the test mod's `GameData`, which is where `WorldManager.LoadDataFiles` reads worlds from. It has air and its own `Temperature` curve and leaves out the greenhouse and density curves, so the mod has to supply those two, and add nothing at all while the air is as the file sets it. Nothing of the game's is copied: the world names the terrain, sun and sky the game installed, and `StreamingAssetLoader.GetPathRoots` resolves those against StreamingAssets | That a Workshop world is built this way; only that a world the mod has no knowledge of works |
 | `-CustomWorld -ZeroVolume` | The same world declaring a planet of no volume, which every per-cell share would divide by. The mod must warn and leave the planet as shipped | |
 | `-MenuPressure` | The new-game menu's mix (D16). While a resized planet is being played, `GlobalGasMix.Create` on the same world data has to give the shipped planet at the shipped volume, because the menu divides one by the other to show a pressure | That the menu screen itself reads it; only that what it reads is built right |
@@ -104,6 +108,37 @@ failure was the mod (see below).
   **The control is what makes that mean something**: `terraform ceiling 0.5 confirm`, the one path by
   which a loaded world may acquire a ceiling, deleted **83.3% of the planet in two ticks**. So the
   nineteen refusals are refusals, not a dead code path.
+- `-Schedule`, first runs, 2026-09-22, mod 0.10.0, Mars at planet size 0.05. **All nineteen
+  cases decided the game's own scheduler correctly.** An untouched Mars reads exactly 1.0000 of its
+  own starting air, is not stripped and is not mild (226.24 K coldest against a 263.15 K floor, and
+  2.14 kPa against a 20 kPa minimum, both named), and it schedules its dust storm. Stripped to
+  0.0027 of its starting air it schedules nothing at all, and the game's own predicate is never even
+  asked for a pick. The same stripped planet still schedules a storm the moment that storm is marked
+  as happening in orbit, which is the rule that removing air cannot stop radiation. On a world
+  carrying one of each, 40 picks gave 24 solar storms, every one scheduled, and 16 ordinary storms,
+  every one turned away, with the ordinary storm never once scheduled: that is the branch the
+  scheduler's own predicate deliberately does not take. A world whose shipped gas list is empty is
+  exempt from the strip rule with an empty planet.
+  **The mild rule is judged against an air the run finds for itself**, by searching carbon dioxide
+  against nitrogen with the game's own temperature formula for a mix inside all five bounds: 450 CO2
+  and 550 N2 per outdoor cell, 281.74 to 296.24 K across the day, 292.81 to 307.88 kPa, no toxins.
+  That air is mild and schedules nothing. Each of the five bounds was then moved past its measured
+  value **on its own**, and each time exactly one bound failed, it was named with both numbers, and
+  the storm came back. The toxin bound was broken with real gas instead: 2.43 kPa of hydrazine, which
+  has no greenhouse index curve in the game's own `terraforming.xml`, moved the day by 0.30 K, the
+  density term alone.
+  **The season decides the last pair.** The same air, the same bounds, at two points in Mars's orbit
+  picked by walking a whole year in ten-degree steps: the coldest point of the day is 282.175 K at
+  99.80 % of the way to its sun and 272.273 K at 0.08 %, **9.90 K apart**. With the floor put between
+  the two it is mild in one season and stormy in the other. Moving the season needs
+  `OrbitalSimulation.SetSimulationTime`; writing `SimulationTimeSeconds` alone leaves every distance
+  where it was.
+  **The readout was read, not assumed**, including the line about rain being held back by a setting,
+  which had to be taken in the same frame the cloud was filled because the planet tick empties a full
+  cloud in the same pass it would schedule rain in.
+- `-Observe -Orbit 180 -OrbitTick 40`, the same day, run to check the switch on its own: simulation
+  time 0.5664 to 180.5664, **solar percent 99.8046 to 0.0766**, irradiance 494.99 W/m2, and every
+  sample after it reports the new place in the orbit. Half a year in one call.
 - `-Model` on Venus at `CarbonDioxide=23;Nitrogen=22;Oxygen=48`: largest gap 0.178 K over 50 samples,
   against a 0.5 K tolerance, with the planet at 322.18 K and its air steady (93.0 mol per cell, no
   liquid, clouds or ice caps).

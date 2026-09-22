@@ -29,14 +29,14 @@ game, so anything answered *yes, at once* can be changed while you play.
 | Climate | WeatherOnWeatherlessWorlds | Rain or snow on worlds with no weather | Let filled clouds rain and snow on worlds that ship with no weather of their own, such as Mimas. Clouds only fill once you have given the world air. | true | Config | Yes, at once |
 | Heat | ExternalHeatHalfLifeMinutes | Added heat half-life (min) | Heat your base and vented gas add to the planet fades like a planet radiating to space. Real-time minutes for it to halve. 0 never fades, which lets it build without limit. | 60.0 | The world | Yes, at once |
 | Heat | MaxExternalOffsetKelvin | Added heat limit (K) | Most that added heat may shift the planet temperature, in kelvin, either way. | 50.0 | The world | Yes, at once |
-| Storms | StormsStopWhenStripped | Stripping the air stops storms | Once most of a world's starting air is gone, it stops scheduling its own storm. Does not apply to solar storms. | true | Config | **Not yet.** Bound, but nothing reads it |
-| Storms | StrippedAtmosphereShare | Stripped below (% of start) | Share of the air the world started with, below which storms stop. 0 means every last mole. | 5.0 | Config | **Not yet.** Bound, but nothing reads it |
-| Storms | StormsStopWhenAtmosphereIsMild | Mild air stops storms | A world whose air is temperate, thick and clean stops scheduling its own storm. | true | Config | **Not yet.** Bound, but nothing reads it |
-| Storms | MildAtmosphereColdestKelvin | Coldest air (K) | Coldest the air may get across a day, in kelvin, and still count as mild. | 263.15 | Config | **Not yet.** Bound, but nothing reads it |
-| Storms | MildAtmosphereHottestKelvin | Hottest air (K) | Hottest the air may get across a day, in kelvin, and still count as mild. | 323.15 | Config | **Not yet.** Bound, but nothing reads it |
-| Storms | MildAtmosphereMinPressureKpa | Minimum pressure (kPa) | Least air pressure that counts as mild. | 20.0 | Config | **Not yet.** Bound, but nothing reads it |
-| Storms | MildAtmosphereMaxPressureKpa | Maximum pressure (kPa) | Most air pressure that counts as mild. | 607.95 | Config | **Not yet.** Bound, but nothing reads it |
-| Storms | MildAtmosphereMaxToxinsKpa | Most toxins (kPa) | Most toxic gas allowed, in kilopascals, measured at the hottest point of the day. | 1.0 | Config | **Not yet.** Bound, but nothing reads it |
-| Storms | MildAtmosphereStopsSolarStorms | Mild air stops solar storms too | Air shields radiation, so a mild world stops solar storms as well. Off by default: on the Moon they give four times normal solar power. | false | Config | **Not yet.** Bound, but nothing reads it |
+| Storms | StormsStopWhenStripped | Stripping the air stops storms | Once most of a world's starting air is gone, it stops scheduling its own storm. Does not apply to solar storms. | true | Config | Yes, at once |
+| Storms | StrippedAtmosphereShare | Stripped below (% of start) | Share of the air the world started with, below which storms stop. 0 means every last mole. | 5.0 | Config | Yes, at once |
+| Storms | StormsStopWhenAtmosphereIsMild | Mild air stops storms | A world whose air is temperate, thick and clean stops scheduling its own storm. | true | Config | Yes, at once |
+| Storms | MildAtmosphereColdestKelvin | Coldest air (K) | Coldest the air may get across a day, in kelvin, and still count as mild. | 263.15 | Config | Yes, at once |
+| Storms | MildAtmosphereHottestKelvin | Hottest air (K) | Hottest the air may get across a day, in kelvin, and still count as mild. | 323.15 | Config | Yes, at once |
+| Storms | MildAtmosphereMinPressureKpa | Minimum pressure (kPa) | Least air pressure that counts as mild. | 20.0 | Config | Yes, at once |
+| Storms | MildAtmosphereMaxPressureKpa | Maximum pressure (kPa) | Most air pressure that counts as mild. | 607.95 | Config | Yes, at once |
+| Storms | MildAtmosphereMaxToxinsKpa | Most toxins (kPa) | Most toxic gas allowed, in kilopascals, measured at the hottest point of the day. | 1.0 | Config | Yes, at once |
+| Storms | MildAtmosphereStopsSolarStorms | Mild air stops solar storms too | Air shields radiation, so a mild world stops solar storms as well. Off by default: on the Moon they give four times normal solar power. | false | Config | Yes, at once |
 | Multiplayer | SyncIntervalSeconds | Sync interval (s) | How often the host sends the planet state to clients. | 5.0 | Config | Yes, at once |
 | Diagnostics | StatusLogSeconds | Status to log every (s) | Write the terraform status to the log this often, in seconds. 0 is off. The console command shows the same thing. | 0.0 | Config | Yes, at once |

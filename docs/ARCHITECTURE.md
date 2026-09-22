@@ -9,6 +9,7 @@
 | `src/Patching/Gate.cs` | `Enabled()` and the transpiler that swaps the game's eight `get_IsGlobalInteraction` calls for it |
 | `src/Patching/Guards.cs` | Patch bodies for the defects (DEFECTS.md) and the sky throttle |
 | `src/Patching/Climate.cs` | Temperature rule for worlds that ship without curves (anchored greenhouse, proportional swing damping, airless base); the curves file |
+| `src/Patching/Storms.cs` | The two rules that stop a world scheduling its own storm, the day forecast behind the second, and the readout that says which one fired (STORMS.md) |
 | `src/Patching/Sidecar.cs` | Per-world settings: the file beside each save, what a world may carry, and the fail-closed rule for the pressure ceiling (SIDECAR.md) |
 | `src/Patching/Planet.cs` | Whole-planet operations: planet size at creation, rescaling the planet being played, reset to shipped |
 | `src/Patching/SelfTest.cs` | Game-change alarms: is the game's own switch still off, does the temperature formula still use the parts the mod adjusts, and a once-per-world take-and-give round trip on the live planet |
@@ -44,7 +45,8 @@ required set stands down, so a planet already terraformed keeps its temperature:
 
 | Target | Purpose |
 | --- | --- |
-| `WeatherManager.ScheduleWeatherEvent` prefix | D6 |
+| `WeatherManager.ScheduleWeatherEvent` prefix | D6 in the tick; out of the tick, turns away an event a suppressed world may not have (STORMS.md) |
+| `WeatherManager.CanScheduleWeatherEvent` prefix | Answers the scheduler's own predicate false when every event this world ships is suppressed, so the pick is never evaluated (STORMS.md) |
 | `World.Initialize` prefix + finalizer | Is this a new world or a loaded one? Taken from the game rather than inferred, and live only for that call, so it cannot leak into a later world start |
 | `SaveHelper.CreateSaveDirectory` postfix | Write a new world's settings file. Refuses when no world is in play, because the workshop importer calls it from the main menu |
 | PAS `Clear` postfix | Leaving a world: back to the config, ceiling off, so the new-world screen does not read the last world played |
@@ -62,7 +64,10 @@ Shape is not behaviour, so there are three layers:
 2. **Meaning, before patching** (`SelfTest`): the game's own `IsGlobalInteraction` still answers false
    (if the developers switch the planet on themselves the mod stands down rather than stack on it),
    and `GetGlobalGasMixTemperature` still calls the four part getters the temperature rule is worked
-   out against, and its one-argument overload still calls it (otherwise that part is off).
+   out against, and its one-argument overload still calls it (otherwise that part is off); and
+   `Atmosphere.PartialPressureHumanToxins` still reads all five gases the mild storm rule counts as
+   toxic, which the game publishes nowhere else (otherwise that one bound stands down and the other
+   four still apply).
 3. **Behaviour, in the world** (`SelfTest.RunIfPending`, first live planet tick of every world, under
    the tank lock): take one outdoor cell of air from the planet, check it fell by exactly that, give it
    back, check it returned, restore the heat counter. Pass leaves the planet as found to within the
@@ -111,6 +116,10 @@ reads only. `Gate.Describe()` says which condition is false, for the status read
 | Pressure ceiling off by default | It was the old mod's behaviour, not the game's |
 | `terraform reset` needs `confirm` | It cannot be undone except by loading an earlier save |
 | A loaded world's pressure ceiling comes only from its own file, never from the config | It is the one setting that deletes rather than changes. Every other path sets it off, so a bug in the read path costs a player nothing. Enforced by a private field behind three named mutators, and pinned by `tools/ci/check_repo.py` |
+| The storm rules read `Settings`, not `Effective` | Suppressing an event writes nothing a save carries, so none of the nine is world-scoped: turning a rule back on schedules one storm at once and resumes the world's own cadence (SIDECAR.md) |
+| `CanScheduleWeatherEvent` is hooked as well as `ScheduleWeatherEvent` | The game evaluates `GetNextWeatherEvent()` as the argument to the second, so turning the pick away there still rolls a shared static `Random` about sixty times a second, for ever, on a world that will never get a storm |
+| The scheduler's predicate is only answered when EVERY event a world ships is suppressed | Stripping never stops a solar storm. On a world with one of each, answering it would stop the solar storm too; the pick is turned away instead, at the cost of a roll per frame |
+| The day forecast is cached on the air, and the two heat offsets are added back every tick | The sweep is 37 evaluations of the game's temperature formula. Latent and external heat are the same at every angle, so they come out of the cached figures and go back in fresh; the orbit and a running storm move it too, so the cache is keyed on those as well |
 | Settings a world owns are read from `Effective`, not `Settings` | `Settings` is the config and BepInEx writes it whenever a slider moves. Overwriting it would show numbers in the editor that are not in force, and would need restoring when a world is left |
 | Status logging runs from `Update`, not the tick | It must still report when the simulation is paused or the planet is off, which is when it is needed |
 
@@ -135,9 +144,20 @@ limit that does not exist. The list steps over `Air` and `Fuel` by matter state,
 list above it does; the game's own World Setting Tools window does not, and throws part way through
 drawing because `GlobalGasMix.Get` has no case for them. That is the game's bug and is left alone.
 
+After the reservoirs comes the `storms:` block, which is where the line about rain being held back
+by a setting belongs because it is about the clouds printed just above it. It never answers a bare
+no: every negative names the bound it failed with the measured value and the bound beside it, and it
+always says which point in the orbit the mild rule was judged at, because that rule is seasonal and
+without that line a world that gets a storm season every year reads as a bug. It reads the one
+snapshot the planet tick publishes, so like the rest of the readout it can lag a tick, and on a
+client it says whose answer it is rather than inventing one.
+
 ## Settings
 
 `PlanetSize` preset and `CustomPlanetSize`; `Enabled`, `DynamicSky` (restart); `GhgResponseScale`,
 `DensityResponseScale`, `AirlessAlbedo`, `MaxPressureKPa`, `WeatherOnWeatherlessWorlds`;
-`ExternalHeatHalfLifeMinutes`, `MaxExternalOffsetKelvin`; `SyncIntervalSeconds`; `StatusLogSeconds`.
-Player-facing descriptions are in the root README.
+`ExternalHeatHalfLifeMinutes`, `MaxExternalOffsetKelvin`; `StormsStopWhenStripped`,
+`StrippedAtmosphereShare`, `StormsStopWhenAtmosphereIsMild`, `MildAtmosphereColdestKelvin`,
+`MildAtmosphereHottestKelvin`, `MildAtmosphereMinPressureKpa`, `MildAtmosphereMaxPressureKpa`,
+`MildAtmosphereMaxToxinsKpa`, `MildAtmosphereStopsSolarStorms`; `SyncIntervalSeconds`;
+`StatusLogSeconds`. Player-facing descriptions are in the root README.
