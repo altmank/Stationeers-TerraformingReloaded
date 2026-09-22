@@ -34,7 +34,40 @@ namespace TerraformingReloaded
         public static double PlanetSize = 0.05;
 
         public static double SyncIntervalSeconds = 5.0;
-        public static bool WeatherOnWeatherlessWorlds = false;
+        public static bool WeatherOnWeatherlessWorlds = true;
+
+        // Storms. Two independent rules, either of which stops a world scheduling its own storm.
+        // Every threshold is a setting, so there is no hidden rule (docs/STORMS.md).
+
+        /// <summary>Once most of a world's starting air is gone, it stops scheduling its own storm.</summary>
+        public static bool StormsStopWhenStripped = true;
+
+        /// <summary>
+        /// Share of the air the world started with, as a percentage, below which storms stop.
+        /// 0 means every last mole.
+        /// </summary>
+        public static double StrippedAtmosphereShare = 5.0;
+
+        /// <summary>A world whose air is temperate, thick and clean stops scheduling its own storm.</summary>
+        public static bool StormsStopWhenAtmosphereIsMild = true;
+
+        /// <summary>Coldest the air may get across a day, in kelvin, and still count as mild.</summary>
+        public static double MildAtmosphereColdestKelvin = 263.15;
+
+        /// <summary>Hottest the air may get across a day, in kelvin, and still count as mild.</summary>
+        public static double MildAtmosphereHottestKelvin = 323.15;
+
+        /// <summary>Least air pressure that counts as mild. The game's own PressureMinimumSafe.</summary>
+        public static double MildAtmosphereMinPressureKpa = 20.0;
+
+        /// <summary>Most air pressure that counts as mild. The game's own PressureMaximumSafe.</summary>
+        public static double MildAtmosphereMaxPressureKpa = 607.95;
+
+        /// <summary>Most toxic gas allowed, in kPa, measured at the hottest point of the day.</summary>
+        public static double MildAtmosphereMaxToxinsKpa = 1.0;
+
+        /// <summary>Air shields radiation, so a mild world stops solar storms as well.</summary>
+        public static bool MildAtmosphereStopsSolarStorms = false;
 
         /// <summary>Write the terraform status to the log this often. 0 is off.</summary>
         public static double StatusLogSeconds = 0.0;

@@ -137,37 +137,43 @@ namespace TerraformingReloaded
 
             ConfigEntry<PlanetSizePreset> preset = null;
             ConfigEntry<double> custom = null;
+            Action<bool> dimCustom = null;
             Action applySize = () =>
             {
                 if (preset == null || custom == null)
                 {
                     return;
                 }
+                double size;
                 switch (preset.Value)
                 {
-                    case PlanetSizePreset.Short: Settings.PlanetSize = 0.01; break;
-                    case PlanetSizePreset.Standard: Settings.PlanetSize = 0.05; break;
-                    case PlanetSizePreset.Long: Settings.PlanetSize = 0.25; break;
-                    case PlanetSizePreset.UnmoddedBaseline: Settings.PlanetSize = 1.0; break;
-                    default: Settings.PlanetSize = custom.Value; break;
+                    case PlanetSizePreset.Short: size = 0.01; break;
+                    case PlanetSizePreset.Standard: size = 0.05; break;
+                    case PlanetSizePreset.Long: size = 0.25; break;
+                    case PlanetSizePreset.UnmoddedBaseline: size = 1.0; break;
+                    default: size = custom.Value; break;
                 }
+                Settings.PlanetSize = size;
+                // Grey the number below out while a preset is in force, and do NOT write the preset's
+                // size into it. BepInEx saves on every set, so that would overwrite a share the player
+                // typed and lose it from the file for good, including on the next start.
+                dimCustom?.Invoke(preset.Value != PlanetSizePreset.Custom);
             };
             preset = Bind("Pace", "PlanetSize", PlanetSizePreset.Standard,
-                "How big the planet is, which sets how long terraforming takes and nothing else: the air, pressure and temperature you start with are the same at any size. "
-                + "Hours are a mega base (four ice rockets mining most of the time) reaching air you can breathe without a suit on Mars; a base with one ice rocket is about five times slower. "
-                + "Short: about 15 hours. Standard: about 75 hours. Long: about 375 hours. Unmodded baseline: the game's own size, about 1,500 hours. Custom: use the number below. "
-                + "Applies when a planet is created: a new world, or after terraform reset confirm. A saved planet keeps its size; to change the one you are playing, without touching its air, use terraform size <share> confirm.",
+                "How big the planet is, which sets how long terraforming takes and nothing else: the air, pressure and temperature you start with are the same at any size.",
                 _ => applySize(), null, "Planet size", 5);
             custom = Bind("Pace", "CustomPlanetSize", 0.05,
                 "Planet size as a share of the shipped planet, used when Planet size is Custom. 0.05 is one twentieth. Time to terraform scales in proportion.",
-                _ => applySize(), new AcceptableValueRange<double>(0.0001, 10.0), "Custom planet size", 6, "%.4f");
+                _ => applySize(), new AcceptableValueRange<double>(0.0001, 10.0), "Custom planet size", 6, "%.4f",
+                disabled: preset.Value != PlanetSizePreset.Custom);
+            dimCustom = Dimmer(custom);
             applySize();
 
             Bind("Climate", "GhgResponseScale", Settings.GhgResponseScale,
-                "Strength of the greenhouse response on worlds that ship without one. 0 turns it off. Mars uses its own. On worlds that start hot under greenhouse air (Venus, Vulcan) the warming side is fixed by where the world starts and where bare rock would be, so this only changes their cooling side. Takes effect at once.",
+                "Strength of the greenhouse response on worlds that ship without one. 0 turns it off. Mars is not affected by this. On worlds that start hot under greenhouse air (Venus, Vulcan) the warming side is fixed by where the world starts and where bare rock would be, so this only changes their cooling side. Takes effect at once.",
                 v => Settings.GhgResponseScale = v, new AcceptableValueRange<double>(0.0, 5.0), "Greenhouse strength", 10, "%.2f");
             Bind("Climate", "DensityResponseScale", Settings.DensityResponseScale,
-                "How quickly thickening air evens out day and night on worlds that ship without a density response. 0 turns it off, above 1 it bites sooner. Air thick enough to end the swing ends it at any strength. Mars uses its own. Takes effect at once.",
+                "How quickly thickening air evens out day and night on worlds that ship without a density response. 0 turns it off, above 1 it bites sooner. Air thick enough to end the swing ends it at any strength. Mars is not affected by this. Takes effect at once.",
                 v => Settings.DensityResponseScale = v, new AcceptableValueRange<double>(0.0, 5.0), "Air density strength", 11, "%.2f");
             Bind("Climate", "AirlessAlbedo", Settings.AirlessAlbedo,
                 "Share of sunlight an airless world (Moon, Mimas) reflects. Sets the temperature its first air settles toward: lower is warmer.",
@@ -176,8 +182,8 @@ namespace TerraformingReloaded
                 "Ceiling on the planet air pressure. 0 means no ceiling. DESTRUCTIVE: whenever the planet is above it, at its hottest hour, the excess air is deleted for good and the loss is saved. Set it below a world's starting pressure and most of its air is gone within a day.",
                 v => Settings.MaxPressureKPa = v, new AcceptableValueRange<double>(0.0, 10000.0), "Pressure ceiling (kPa)", 13, "%.0f", restart: true);
             Bind("Climate", "WeatherOnWeatherlessWorlds", Settings.WeatherOnWeatherlessWorlds,
-                "Allow rain and snow from filled clouds on worlds that ship with no weather at all.",
-                v => Settings.WeatherOnWeatherlessWorlds = v, null, "Weather on worlds without any", 14);
+                "Let filled clouds rain and snow on worlds that ship with no weather of their own, such as Mimas. Clouds only fill once you have given the world air.",
+                v => Settings.WeatherOnWeatherlessWorlds = v, null, "Rain or snow on worlds with no weather", 14);
 
             Bind("Heat", "ExternalHeatHalfLifeMinutes", Settings.ExternalHeatHalfLifeMinutes,
                 "Heat your base and vented gas add to the planet fades like a planet radiating to space. Real-time minutes for it to halve. 0 never fades, which lets it build without limit.",
@@ -185,6 +191,37 @@ namespace TerraformingReloaded
             Bind("Heat", "MaxExternalOffsetKelvin", Settings.MaxExternalOffsetKelvin,
                 "Most that added heat may shift the planet temperature, in kelvin, either way.",
                 v => Settings.MaxExternalOffsetKelvin = v, new AcceptableValueRange<double>(0.0, 500.0), "Added heat limit (K)", 21, "%.0f");
+
+            // Storms. Two independent rules, either of which stops a world scheduling its own storm,
+            // and every threshold one of them uses (docs/STORMS.md). Their own section because Climate
+            // already carries five settings and nine more would swamp it.
+            Bind("Storms", "StormsStopWhenStripped", Settings.StormsStopWhenStripped,
+                "Once most of a world's starting air is gone, it stops scheduling its own storm. Does not apply to solar storms.",
+                v => Settings.StormsStopWhenStripped = v, null, "Stripping the air stops storms", 50);
+            Bind("Storms", "StrippedAtmosphereShare", Settings.StrippedAtmosphereShare,
+                "Share of the air the world started with, below which storms stop. 0 means every last mole.",
+                v => Settings.StrippedAtmosphereShare = v, new AcceptableValueRange<double>(0.0, 100.0), "Stripped below (% of start)", 51, "%.1f");
+            Bind("Storms", "StormsStopWhenAtmosphereIsMild", Settings.StormsStopWhenAtmosphereIsMild,
+                "A world whose air is temperate, thick and clean stops scheduling its own storm.",
+                v => Settings.StormsStopWhenAtmosphereIsMild = v, null, "Mild air stops storms", 52);
+            Bind("Storms", "MildAtmosphereColdestKelvin", Settings.MildAtmosphereColdestKelvin,
+                "Coldest the air may get across a day, in kelvin, and still count as mild.",
+                v => Settings.MildAtmosphereColdestKelvin = v, new AcceptableValueRange<double>(0.0, 1000.0), "Coldest air (K)", 53, "%.2f");
+            Bind("Storms", "MildAtmosphereHottestKelvin", Settings.MildAtmosphereHottestKelvin,
+                "Hottest the air may get across a day, in kelvin, and still count as mild.",
+                v => Settings.MildAtmosphereHottestKelvin = v, new AcceptableValueRange<double>(0.0, 1000.0), "Hottest air (K)", 54, "%.2f");
+            Bind("Storms", "MildAtmosphereMinPressureKpa", Settings.MildAtmosphereMinPressureKpa,
+                "Least air pressure that counts as mild.",
+                v => Settings.MildAtmosphereMinPressureKpa = v, new AcceptableValueRange<double>(0.0, 10000.0), "Minimum pressure (kPa)", 55, "%.2f");
+            Bind("Storms", "MildAtmosphereMaxPressureKpa", Settings.MildAtmosphereMaxPressureKpa,
+                "Most air pressure that counts as mild.",
+                v => Settings.MildAtmosphereMaxPressureKpa = v, new AcceptableValueRange<double>(0.0, 10000.0), "Maximum pressure (kPa)", 56, "%.2f");
+            Bind("Storms", "MildAtmosphereMaxToxinsKpa", Settings.MildAtmosphereMaxToxinsKpa,
+                "Most toxic gas allowed, in kilopascals, measured at the hottest point of the day.",
+                v => Settings.MildAtmosphereMaxToxinsKpa = v, new AcceptableValueRange<double>(0.0, 1000.0), "Most toxins (kPa)", 57, "%.2f");
+            Bind("Storms", "MildAtmosphereStopsSolarStorms", Settings.MildAtmosphereStopsSolarStorms,
+                "Air shields radiation, so a mild world stops solar storms as well. Off by default: on the Moon they give four times normal solar power.",
+                v => Settings.MildAtmosphereStopsSolarStorms = v, null, "Mild air stops solar storms too", 58);
 
             Bind("Multiplayer", "SyncIntervalSeconds", Settings.SyncIntervalSeconds,
                 "How often the host sends the planet state to clients.",
@@ -196,9 +233,14 @@ namespace TerraformingReloaded
         }
 
         private ConfigEntry<T> Bind<T>(string section, string key, T fallback, string description, Action<T> apply,
-            AcceptableValueBase range = null, string label = null, int order = 0, string format = null, bool restart = false)
+            AcceptableValueBase range = null, string label = null, int order = 0, string format = null, bool restart = false,
+            bool? disabled = null)
         {
             var tags = new System.Collections.Generic.List<object> { new System.Collections.Generic.KeyValuePair<string, int>("Order", order) };
+            if (disabled.HasValue)
+            {
+                tags.Add(new System.Collections.Generic.KeyValuePair<string, bool>("Disabled", disabled.Value));
+            }
             if (label != null)
             {
                 tags.Add(new System.Collections.Generic.KeyValuePair<string, string>("DisplayName", label));
@@ -219,6 +261,28 @@ namespace TerraformingReloaded
                 entry.SettingChanged += (_, __) => apply(entry.Value);      // a restart setting really does wait for the restart
             }
             return entry;
+        }
+
+        /// <summary>
+        /// Greys an entry out in the config editor, and lets that be changed while the game runs.
+        /// StationeersLaunchPad reads a "Disabled" tag when it builds its rows, and rebuilds them
+        /// whenever any setting changes, so writing the tag is enough; the array it reads is the one
+        /// passed to ConfigDescription, which keeps the reference. An entry bound without the tag
+        /// gets a switch that does nothing, so a LaunchPad that ignores the tag costs nothing either:
+        /// the setting still has no effect, it just is not shown as having none.
+        /// </summary>
+        private static Action<bool> Dimmer(ConfigEntryBase entry)
+        {
+            object[] tags = entry.Description.Tags;
+            for (int i = 0; i < tags.Length; i++)
+            {
+                if (tags[i] is System.Collections.Generic.KeyValuePair<string, bool> pair && pair.Key == "Disabled")
+                {
+                    int slot = i;
+                    return on => tags[slot] = new System.Collections.Generic.KeyValuePair<string, bool>("Disabled", on);
+                }
+            }
+            return _ => { };
         }
     }
 }
