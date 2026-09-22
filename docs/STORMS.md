@@ -1,6 +1,6 @@
 # Storms respond to terraforming
 
-Design doc. Nothing is built yet. Work items live in `TODO.md`.
+Design doc. Nothing is built yet.
 
 **Part one is the specification.** Build from it.
 **Part two is the research behind it.** Read it before changing a number or a rule, because most of
@@ -398,4 +398,4 @@ false: the offline model sweeps both ends of the orbit and the mild rule sweeps 
 season. Both are right; they are different tests. Nothing should be built on them matching.
 
 **WORLDS.md carries the note already**, under Things to get right. It describes behaviour that is not
-built, so it must not ship before the feature does; the guard is in `TODO.md`.
+built, so it must not ship before the feature does.

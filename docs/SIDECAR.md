@@ -1,6 +1,6 @@
 # Per-world settings
 
-Built and verified headlessly, not yet released. Work items live in `TODO.md`.
+Built and verified headlessly, not yet released.
 
 ## The problem
 
