@@ -650,7 +650,7 @@ try {
             if ($status -match 'mild:\s+no(?!,)') { $problems += 'the readout answered a bare no for the mild rule' }
             # The sixth thing the readout owes a player, taken while a cloud was full on a world that
             # ships no weather of its own and the setting that would let it rain was off.
-            $rain = @($answers -match 'rain:\s+a cloud is full')
+            $rain = @($answers -match 'rain:\s+a full cloud has been refused its \S+ \d+ time')
             if ($rain.Count -eq 0) { $problems += 'the readout never said that a full cloud was held back by the setting' }
             else { Write-Host ('  ' + (($rain[0] -split ' / ') -match 'rain:')[0].Trim()) }
         }

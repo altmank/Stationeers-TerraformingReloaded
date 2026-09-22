@@ -1456,18 +1456,18 @@ namespace TerraformingReloaded.LiveCheck
                     SetSetting("WeatherOnWeatherlessWorlds", false);
                     return "weatherless";
                 case 17:
-                    // The readout's last line. A full cloud lasts one tick, because the planet tick
-                    // empties it into the air in the same pass it would schedule rain in, so the
-                    // status has to be taken in the same frame the cloud is filled.
+                    // The readout's last line. Fill a cloud on the weatherless world with the setting
+                    // off and let the planet tick run: it empties the cloud and asks for rain, the
+                    // mod refuses, and the refusal is counted. Nothing here fakes the refusal.
                     SetSetting("WeatherOnWeatherlessWorlds", false);
                     FillLiquidClouds();
+                    return "rain-held";
+                case 18:
+                    // Read the count the tick left, then put everything back where it started, one
+                    // case early, so the last readout is taken of a settled world.
                     RunCommand("status");
                     WorldSetting.Current.Data.WeatherEvents.AddRange(_shippedEvents);
                     SetSetting("WeatherOnWeatherlessWorlds", true);
-                    return "rain-held";
-                case 18:
-                    // Everything back where it started, one case early, so the readout below is taken
-                    // of a settled world rather than of one whose events changed this tick.
                     MakeWorldEventSolar(false);
                     RemoveSolarClone();
                     return "settled";

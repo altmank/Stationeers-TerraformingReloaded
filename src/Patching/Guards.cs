@@ -291,7 +291,12 @@ namespace TerraformingReloaded.Patching
                 {
                     return false;
                 }
-                return WeatherManager.WorldHasWeather || Settings.WeatherOnWeatherlessWorlds;
+                if (WeatherManager.WorldHasWeather || Settings.WeatherOnWeatherlessWorlds)
+                {
+                    return true;
+                }
+                Storms.RecordRainHeldBack(weatherEvent);
+                return false;
             }
             if (!Gate.Enabled())
             {

@@ -128,6 +128,25 @@ namespace TerraformingReloaded.Patching
             _haveSweep = false;
             _keyData = null;
             _now = null;
+            Interlocked.Exchange(ref _rainsHeldBack, 0);
+            _lastRainHeldBack = null;
+        }
+
+        // ---- rain held back on a weatherless world ----------------------------------------------
+
+        private static int _rainsHeldBack;
+        private static volatile string _lastRainHeldBack;
+
+        /// <summary>
+        /// A full cloud tried to rain or snow on a world that ships no weather, with the setting
+        /// that allows it off. The cloud has already emptied into the air by the time the tick asks,
+        /// so a full cloud lasts one tick and cannot be caught by looking at the clouds; this counts
+        /// the refusal instead. Called from the planet tick on a worker thread.
+        /// </summary>
+        internal static void RecordRainHeldBack(WeatherEvent weatherEvent)
+        {
+            _lastRainHeldBack = weatherEvent?.Id;
+            Interlocked.Increment(ref _rainsHeldBack);
         }
 
         // ---- the per-tick measure ---------------------------------------------------------------
@@ -511,7 +530,7 @@ namespace TerraformingReloaded.Patching
                 "    season:    {0:0}% of the way from this world's furthest point from its sun to its nearest; the mild rule is judged here and can lapse later in the year",
                 snapshot.OrbitPercent));
             text.AppendLine("    solar:     " + Solar(snapshot));
-            string rain = RainHeldBack(snapshot);
+            string rain = RainHeldBack();
             if (rain != null)
             {
                 text.AppendLine("    rain:      " + rain);
@@ -628,27 +647,23 @@ namespace TerraformingReloaded.Patching
         }
 
         /// <summary>
-        /// A cloud that has filled on a world with no weather of its own, while the setting that
-        /// lets such a world rain is off. Without this the clouds fill and drain with no rain and no
-        /// explanation. Read off the tick like the rest of the readout, so it can lag a tick.
+        /// How often a full cloud has been refused its rain or snow since this world loaded. Without
+        /// this the clouds fill and drain with no rain and no explanation.
         /// </summary>
-        private static string RainHeldBack(Snapshot snapshot)
+        private static string RainHeldBack()
         {
-            if (snapshot.HasSolar || snapshot.HasOther || Settings.WeatherOnWeatherlessWorlds || !Planet.ReservoirsKnown)
+            int count = Volatile.Read(ref _rainsHeldBack);
+            if (count == 0)
             {
                 return null;
             }
-            GlobalGasMix[] mixes = Planet.ReservoirMixes();
-            // The two clouds only; the ice caps are compared against nothing, ever.
-            for (int i = 0; i < 2 && i < mixes.Length; i++)
-            {
-                GlobalGasMix cloud = mixes[i];
-                if (cloud != null && cloud.Volume.ToDouble() > 0.0 && cloud.VolumeOfLiquid().ToDouble() >= cloud.Volume.ToDouble())
-                {
-                    return "a cloud is full, but this world ships no weather of its own and \"Rain or snow on worlds with no weather\" is off, so nothing falls";
-                }
-            }
-            return null;
+            string last = _lastRainHeldBack;
+            return string.Format(CultureInfo.InvariantCulture,
+                "a full cloud has been refused its {0} {1} time{2} since this world loaded, because this world ships no weather of its own and \"Rain or snow on worlds with no weather\" {3}",
+                string.IsNullOrEmpty(last) ? "weather" : last,
+                count,
+                count == 1 ? "" : "s",
+                Settings.WeatherOnWeatherlessWorlds ? "was off; it is on now, so the next one falls" : "is off");
         }
     }
 }

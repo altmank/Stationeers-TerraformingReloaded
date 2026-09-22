@@ -140,9 +140,9 @@ It reports:
    today needs to know it can lapse later in the year. This is the line that stops an annual storm
    season being reported as a bug.
 5. **Solar storms separately**, since they follow the opposite rule.
-6. **Rain held back by a setting.** On a world that ships no weather of its own, when a cloud is full
-   and `WeatherOnWeatherlessWorlds` is off, say so by name. Otherwise the player sees clouds fill and
-   drain with no rain and no explanation.
+6. **Rain held back by a setting.** On a world that ships no weather of its own, when a full cloud is
+   refused its rain or snow because `WeatherOnWeatherlessWorlds` is off, say so by name. Otherwise the
+   player sees clouds fill and drain with no rain and no explanation.
 
 Shape, not exact text:
 
@@ -445,21 +445,18 @@ gases as public fields of `GasMixture`, so `SelfTest.StillCalls` cannot see them
 `SelfTest.CheckToxinList` reads the field references out of the property's own IL instead. It also
 found that three of the five (hydrazine, silanol and hydrochloric acid) have no entry in the game's
 `Data/terraforming.xml`, so they move the toxin load and leave the greenhouse index exactly where it
-was. That is what makes a clean test of the toxin bound possible.
+was. That is what makes a clean test o**The readout's sixth item had to count, not look.** A full cloud lasts at most one tick:
+`PlanetaryAtmosphereSimulation.TickPlanetarySimulation` (`PAS:334-342`) empties the cloud into the air
+and *then* calls `ScheduleWeatherEvent`, so the bucket is already empty by the time the rain is
+turned away, and a player typing `terraform` would never catch a full cloud. So the weather guard
+counts each refusal as it happens, on the planet tick, and the readout reports the count since the
+world loaded. The count resets at every world start. The live run fills a cloud, lets the planet tick
+refuse the rain for real, and reads the line afterwards:
 
-**The readout's sixth item cannot do its job as specified.** *Rain held back by a setting* asks for a
-line when a cloud is full and `WeatherOnWeatherlessWorlds` is off. It is built, and it is correct,
-but a full cloud lasts at most one tick: `PlanetaryAtmosphereSimulation.TickPlanetarySimulation`
-(`PAS:334-342`) empties the cloud into the air and *then* calls `ScheduleWeatherEvent`, so the bucket
-is already empty by the time the schedule is turned away. A player typing `terraform` will almost
-never catch it. The gas is not lost, only the explanation is, so what the item was for -- "the player
-sees clouds fill and drain with no rain and no explanation" -- is still not answered. Fixing it means
-remembering that a rain was turned away rather than looking at the clouds, which is a change to the
-design and is left for the owner. The live run does catch the line, by filling the cloud and reading
-the status in the same frame:
+    rain:      a full cloud has been refused its Rain 1 time since this world loaded, because this
+               world ships no weather of its own and "Rain or snow on worlds with no weather" is off
 
-    rain:      a cloud is full, but this world ships no weather of its own and
-               "Rain or snow on worlds with no weather" is off, so nothing falls
+r" is off, so nothing falls
 
 **Part two has no worked examples with computed expected values on Mars.** The live run calibrates
 instead: it searches carbon dioxide against nitrogen with the game's own formula for a mix inside all
