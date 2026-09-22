@@ -190,6 +190,26 @@ namespace TerraformingReloaded.LiveCheck
         // air". Every line prints the config's ceiling beside the one in force, so a run in which
         // the config was not asking cannot be mistaken for a pass.
         private static readonly uint SidecarTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_SIDECAR_TICK"), out uint sdc) ? sdc : 0u;
+
+        // The storm rules. Neither can be reached by forcing a storm on, because
+        // ImmediatelyActivateWeatherEvent bypasses the scheduler, and neither can be reached by
+        // waiting, because scheduling needs a world-start cooldown measured in days. So the driver
+        // calls the two lines the game's own ManagerUpdate calls, from the main thread, and reads
+        // back whether an event was set. Suppressed means nothing was set.
+        private static readonly uint StormsTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_STORMS_TICK"), out uint stm) ? stm : 0u;
+        private const uint StormsTicksBetween = 3;
+        private int _stormsCase;
+        private uint _stormsNextTick;
+        private bool _stormsDone;
+        private string _stormsJudging;
+
+        // Moving the season. Writing SimulationTimeSeconds alone does nothing: the distances the
+        // solar percent derives from are recomputed by SetAllBodies, which SetSimulationTime calls.
+        // One unit of simulation time is one degree of the world's own orbit, so 360 is a year
+        // (CelestialBody.Set: the player body's true anomaly is its longitude at epoch plus this).
+        private static readonly double OrbitDegrees = double.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_ORBIT"), NumberStyles.Float, CultureInfo.InvariantCulture, out double orb) ? orb : 0.0;
+        private static readonly uint OrbitTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_ORBIT_TICK"), out uint ort) ? ort : 0u;
+        private bool _orbitMoved;
         private const double SidecarConfigCeiling = 500.0;
         private const uint SidecarTicksBetween = 2;
         private int _sidecarCase;
@@ -328,6 +348,19 @@ namespace TerraformingReloaded.LiveCheck
             {
                 _sidecarNextTick = GameManager.GameTickCount + SidecarTicksBetween;
                 SidecarStep();
+            }
+            if (!_orbitMoved && OrbitDegrees != 0.0 && OrbitTick > 0 && GameManager.GameTickCount >= OrbitTick)
+            {
+                _orbitMoved = true;
+                MoveOrbit(OrbitDegrees, "asked for");
+            }
+            // One case per visit, a few ticks apart, so the planet tick has run its upkeep and the
+            // mod has measured the air each case sets before that case is judged.
+            if (!_stormsDone && StormsTick > 0 && GameManager.GameTickCount >= StormsTick
+                && GameManager.GameTickCount >= _stormsNextTick)
+            {
+                _stormsNextTick = GameManager.GameTickCount + StormsTicksBetween;
+                StormsStep();
             }
             // From Update, which is the main thread: a console command reaches the planet from there,
             // and the planet tick runs on another thread, so this is the only arrangement in which a
@@ -1039,6 +1072,573 @@ namespace TerraformingReloaded.LiveCheck
                 PlanetaryAtmosphereSimulation.LatentEnergyOffset = new MoleEnergy(2.0e9);
                 PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset = new MoleEnergy(3.0e9);
             }
+        }
+
+        // ---- the storm rules ----------------------------------------------------------------------
+        //
+        // Neither rule can be reached by the scenarios that already exist. -Storm and -Weather force
+        // an event on through ImmediatelyActivateWeatherEvent, which never asks the scheduler, and
+        // waiting cannot work either: scheduling needs a world-start cooldown of days no headless run
+        // reaches. So the driver runs the two lines WeatherManager.ManagerUpdate runs, from the main
+        // thread, with the game's own cooldowns cleared, and reads back whether an event was set.
+        // Nothing here reimplements either rule: every verdict judged is the mod's own.
+
+        private static Type StormsType => AccessTools.TypeByName("TerraformingReloaded.Patching.Storms");
+
+        private static void SetSetting(string field, object value)
+        {
+            AccessTools.Field(AccessTools.TypeByName("TerraformingReloaded.Settings"), field).SetValue(null, value);
+        }
+
+        /// <summary>
+        /// Every storm setting back to its shipped default before each case, so a case that moves one
+        /// bound is about that bound alone.
+        /// </summary>
+        private static void ResetStormSettings()
+        {
+            SetSetting("StormsStopWhenStripped", true);
+            SetSetting("StrippedAtmosphereShare", 5.0);
+            SetSetting("StormsStopWhenAtmosphereIsMild", true);
+            SetSetting("MildAtmosphereColdestKelvin", 263.15);
+            SetSetting("MildAtmosphereHottestKelvin", 323.15);
+            SetSetting("MildAtmosphereMinPressureKpa", 20.0);
+            SetSetting("MildAtmosphereMaxPressureKpa", 607.95);
+            SetSetting("MildAtmosphereMaxToxinsKpa", 1.0);
+            SetSetting("MildAtmosphereStopsSolarStorms", false);
+        }
+
+        private static object StormSnapshot()
+        {
+            Type type = StormsType;
+            return type == null ? null : AccessTools.Property(type, "Now").GetValue(null, null);
+        }
+
+        private static object Snap(object snapshot, string field)
+        {
+            return snapshot == null ? null : AccessTools.Field(snapshot.GetType(), field).GetValue(snapshot);
+        }
+
+        private static double SnapNumber(object snapshot, string field)
+        {
+            return Snap(snapshot, field) is double value ? value : double.NaN;
+        }
+
+        private static bool SnapFlag(object snapshot, string field)
+        {
+            return Snap(snapshot, field) is bool value && value;
+        }
+
+        // ---- moving the season --------------------------------------------------------------------
+
+        private static double SolarPercent()
+        {
+            OrbitalSimulation simulation = OrbitalSimulation.System;
+            return simulation.GetSolarEnergyPercentClamped(simulation.GetSolarEnergy(), simulation.CalculateSolarIrradiance());
+        }
+
+        /// <summary>
+        /// SetSimulationTime is the public way into OrbitalSimulation.SetAllBodies, which is the only
+        /// call that moves the bodies: writing SimulationTimeSeconds by hand leaves every distance,
+        /// and so the solar percent the seasonal rule turns on, exactly where it was. One unit of
+        /// simulation time is one degree of the world's own orbit, so 360 is a year
+        /// (CelestialBody.Set sets the true anomaly to the longitude at epoch plus this).
+        /// </summary>
+        private static void SetOrbit(double simulationTime)
+        {
+            OrbitalSimulation.SetSimulationTime(simulationTime, publish: false);
+        }
+
+        private void MoveOrbit(double degrees, string why)
+        {
+            double before = OrbitalSimulation.System.SimulationTimeSeconds;
+            double percentBefore = SolarPercent();
+            SetOrbit(before + degrees);
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: orbit {0} {1:0.###} degrees of a 360 degree year | simulation time {2:0.####} -> {3:0.####} | solar percent {4:0.####} -> {5:0.####} | irradiance {6:0.#####} W/m2",
+                why, degrees, before, OrbitalSimulation.System.SimulationTimeSeconds,
+                percentBefore, SolarPercent(), OrbitalSimulation.System.CalculateSolarIrradiance()));
+        }
+
+        // ---- choosing an air that is mild ----------------------------------------------------------
+
+        /// <summary>The day's coldest and hottest, the way the rule takes them: 0 to 180 in steps of 5.</summary>
+        private static double[] Envelope(GlobalGasMix tank, GlobalAtmosphereData data, float percent)
+        {
+            double coldest = double.MaxValue;
+            double hottest = double.MinValue;
+            for (int i = 0; i < 37; i++)
+            {
+                double kelvin = tank.GetGlobalGasMixTemperature(data, i * 5f, percent).ToDouble();
+                if (kelvin < coldest)
+                {
+                    coldest = kelvin;
+                }
+                if (kelvin > hottest)
+                {
+                    hottest = kelvin;
+                }
+            }
+            return new[] { coldest, hottest };
+        }
+
+        private static void SetTank(GlobalGasMix tank, double cells, double co2PerCell, double nitrogenPerCell)
+        {
+            tank.ClearQuantities(AtmosphereHelper.MatterState.All);
+            tank.Set(new MoleQuantity(co2PerCell * cells), Chemistry.GasType.CarbonDioxide);
+            tank.Set(new MoleQuantity(nitrogenPerCell * cells), Chemistry.GasType.Nitrogen);
+        }
+
+        private static readonly double[] MildTotals =
+            { 70, 100, 140, 180, 220, 260, 320, 400, 500, 650, 800, 1000, 1300, 1600, 1900 };
+
+        private string _mildAir;
+        private double _mildColdest;
+        private double _mildHottest;
+        private double _mildPressureCold;
+        private double _mildPressureHot;
+
+        /// <summary>
+        /// Searches carbon dioxide against nitrogen for a mix that is inside all five bounds on
+        /// whatever world is loaded, using the game's own temperature formula, and leaves it on the
+        /// planet. The search is a way to pick the air, not a check: what is judged afterwards is the
+        /// mod's own verdict and the game's own scheduler. Carbon dioxide warms and nitrogen cools,
+        /// so between them they span the greenhouse index, and the total sets the pressure.
+        /// Returns what it set, or null when this world has no such air.
+        /// </summary>
+        private string FindMildAir()
+        {
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            GlobalAtmosphereData data = WorldSetting.Current.Data.GlobalAtmosphereData;
+            double cells = (tank.Volume / Chemistry.GridVolume).ToDouble();
+            float percent = (float)SolarPercent();
+            object gate = AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), "GlobalInteraction").GetValue(null);
+            double bestTotal = 0.0;
+            double bestShare = 0.0;
+            double bestMargin = double.MinValue;
+            double bestCold = 0.0;
+            double bestHot = 0.0;
+            int tried = 0;
+            lock (gate)
+            {
+                foreach (double total in MildTotals)
+                {
+                    for (int step = 0; step <= 20; step++)
+                    {
+                        tried++;
+                        double share = step / 20.0;
+                        SetTank(tank, cells, total * share, total * (1.0 - share));
+                        double[] envelope = Envelope(tank, data, percent);
+                        if (double.IsNaN(envelope[0]) || double.IsNaN(envelope[1]))
+                        {
+                            continue;
+                        }
+                        VolumeLitres gasVolume = tank.VolumeForGas();
+                        MoleQuantity gas = tank.TotalQuantityGas();
+                        double pressureCold = IdealGas.Pressure(gas, new TemperatureKelvin(envelope[0]), gasVolume).ToDouble();
+                        double pressureHot = IdealGas.Pressure(gas, new TemperatureKelvin(envelope[1]), gasVolume).ToDouble();
+                        if (envelope[0] < 263.15 || envelope[1] > 323.15 || pressureCold < 20.0 || pressureHot > 607.95)
+                        {
+                            continue;
+                        }
+                        // The mix furthest inside the two temperature bounds, so that moving one
+                        // bound by a kelvin fails that bound and nothing else.
+                        double margin = Math.Min(envelope[0] - 263.15, 323.15 - envelope[1]);
+                        if (margin > bestMargin)
+                        {
+                            bestMargin = margin;
+                            bestTotal = total;
+                            bestShare = share;
+                            bestCold = envelope[0];
+                            bestHot = envelope[1];
+                        }
+                    }
+                }
+                if (bestMargin == double.MinValue)
+                {
+                    SetTank(tank, cells, 0.0, 0.0);
+                    Logger.LogInfo("LiveCheck: storms FAIL no carbon dioxide and nitrogen mix on this world is inside all five bounds, so there is no mild case to judge (" + tried + " tried)");
+                    return null;
+                }
+                SetTank(tank, cells, bestTotal * bestShare, bestTotal * (1.0 - bestShare));
+            }
+            _mildAir = string.Format(CultureInfo.InvariantCulture, "CarbonDioxide={0:0.####};Nitrogen={1:0.####}",
+                bestTotal * bestShare, bestTotal * (1.0 - bestShare));
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: storms note mild air {0} mol per outdoor cell, chosen from {1} mixes | the game's own formula puts its day between {2:0.###} K and {3:0.###} K at solar percent {4:0.###}",
+                _mildAir, tried, bestCold, bestHot, percent));
+            return _mildAir;
+        }
+
+        // ---- the world's own weather events --------------------------------------------------------
+
+        private WeatherEvent _stormClone;
+
+        /// <summary>
+        /// Marks this world's own event as one that happens in orbit, which is what the game calls a
+        /// solar storm and what the strip rule is never allowed to stop. Flipping the flag on the
+        /// world's own event is how a world with no solar storm is made into one; it is put back
+        /// before the run ends.
+        /// </summary>
+        private static void MakeWorldEventSolar(bool solar)
+        {
+            List<WeatherEvent> events = WorldSetting.Current.WeatherEvents;
+            if (events.Count == 0)
+            {
+                throw new InvalidOperationException("this world ships no weather event to work with");
+            }
+            events[0].ActiveInOrbit = solar;
+        }
+
+        /// <summary>
+        /// A second event beside the world's own, marked as a solar storm, so the world has one that
+        /// may be suppressed and one that may not. That is the case the scheduler's own predicate
+        /// must not answer, because answering it would stop the solar storm too.
+        /// </summary>
+        private void AddSolarClone()
+        {
+            List<WeatherEvent> events = WorldSetting.Current.WeatherEvents;
+            if (_stormClone == null)
+            {
+                _stormClone = new WeatherEvent();
+                foreach (System.Reflection.FieldInfo field in typeof(WeatherEvent).GetFields(
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+                {
+                    field.SetValue(_stormClone, field.GetValue(events[0]));
+                }
+                _stormClone.Id = "TRLiveCheckSolarStorm";
+                _stormClone.ActiveInOrbit = true;
+            }
+            if (!events.Contains(_stormClone))
+            {
+                events.Add(_stormClone);
+            }
+        }
+
+        private void RemoveSolarClone()
+        {
+            if (_stormClone != null)
+            {
+                WorldSetting.Current.WeatherEvents.Remove(_stormClone);
+            }
+        }
+
+        // ---- the cases ------------------------------------------------------------------------------
+
+        private List<GlobalMoleData> _shippedGases;
+        private List<WeatherEvent> _shippedEvents;
+        private double _seasonWarmTime;
+        private double _seasonColdTime;
+        private double _seasonFloor;
+
+        private void StormsStep()
+        {
+            string name = _stormsJudging ?? "setup";
+            try
+            {
+                if (StormsType == null)
+                {
+                    Logger.LogInfo("LiveCheck: storms FAIL the mod's Storms type was not found");
+                    _stormsDone = true;
+                    return;
+                }
+                if (_stormsJudging != null)
+                {
+                    JudgeStorms(_stormsJudging);
+                    _stormsJudging = null;
+                }
+                name = "case " + _stormsCase;
+                _stormsJudging = SetUpStormsCase(_stormsCase++);
+                if (_stormsJudging == null)
+                {
+                    _stormsDone = true;
+                    Logger.LogInfo("LiveCheck: storms done | tick " + GameManager.GameTickCount);
+                }
+            }
+            catch (Exception e)
+            {
+                _stormsDone = true;
+                Logger.LogInfo("LiveCheck: storms FAIL " + name + " " + e);
+            }
+        }
+
+        /// <summary>Air well under any threshold: about a four-hundredth of what Mars ships.</summary>
+        private const string StrippedAir = "CarbonDioxide=0.02;Nitrogen=0.005";
+
+        private string SetUpStormsCase(int index)
+        {
+            ResetStormSettings();
+            GlobalAtmosphereData data = WorldSetting.Current.Data.GlobalAtmosphereData;
+            switch (index)
+            {
+                case 0:
+                    // The world exactly as it ships. The mod's own reset is the way back to it, so
+                    // every case after this starts from a planet the game would recognise.
+                    MakeWorldEventSolar(false);
+                    RemoveSolarClone();
+                    RunCommand("reset", "confirm");
+                    return "untouched";
+                case 1:
+                    SetPlanetAir(StrippedAir, keepOthers: false);
+                    return "stripped";
+                case 2:
+                    // Removing air cannot stop radiation, so the same stripped planet must still get
+                    // this one.
+                    MakeWorldEventSolar(true);
+                    return "stripped-solar";
+                case 3:
+                    MakeWorldEventSolar(false);
+                    AddSolarClone();
+                    return "stripped-mixed";
+                case 4:
+                    // A world that ships with no air at all: a share of nothing is nothing, so the
+                    // rule must not apply to it. The baseline is read from this list and nowhere else.
+                    MakeWorldEventSolar(false);
+                    RemoveSolarClone();
+                    _shippedGases = new List<GlobalMoleData>(data.GlobalGasMixData.GlobalMoleDatas);
+                    data.GlobalGasMixData.GlobalMoleDatas.Clear();
+                    return "airless";
+                case 5:
+                    data.GlobalGasMixData.GlobalMoleDatas.AddRange(_shippedGases);
+                    return FindMildAir() == null ? null : "mild";
+                case 6:
+                    SetSetting("StormsStopWhenAtmosphereIsMild", false);
+                    return "mild-rule-off";
+                case 7:
+                    SetSetting("MildAtmosphereColdestKelvin", _mildColdest + 1.0);
+                    return "cold-floor";
+                case 8:
+                    SetSetting("MildAtmosphereHottestKelvin", _mildHottest - 1.0);
+                    return "hot-ceiling";
+                case 9:
+                    SetSetting("MildAtmosphereMinPressureKpa", _mildPressureCold + 1.0);
+                    return "pressure-min";
+                case 10:
+                    SetSetting("MildAtmosphereMaxPressureKpa", _mildPressureHot - 1.0);
+                    return "pressure-max";
+                case 11:
+                {
+                    // Hydrazine has no greenhouse index curve in the game's own terraforming data, so
+                    // it moves the toxin load and leaves the greenhouse index exactly where it was.
+                    // Three times the ceiling, worked out with the game's own gas law.
+                    double moles = IdealGas.Quantity(new PressurekPa(3.0), new VolumeLitres(Chemistry.GridVolume.ToDouble()),
+                        new TemperatureKelvin(_mildHottest)).ToDouble();
+                    SetPlanetAir(string.Format(CultureInfo.InvariantCulture, "Hydrazine={0:0.#####}", moles), keepOthers: true);
+                    return "toxins";
+                }
+                case 12:
+                {
+                    SetPlanetAir(_mildAir, keepOthers: false);
+                    PickSeasons();
+                    SetOrbit(_seasonWarmTime);
+                    SetSetting("MildAtmosphereColdestKelvin", _seasonFloor);
+                    return "season-warm";
+                }
+                case 13:
+                    SetPlanetAir(_mildAir, keepOthers: false);
+                    SetOrbit(_seasonColdTime);
+                    SetSetting("MildAtmosphereColdestKelvin", _seasonFloor);
+                    return "season-cold";
+                case 14:
+                    SetOrbit(_seasonWarmTime);
+                    MakeWorldEventSolar(true);
+                    return "solar-mild-off";
+                case 15:
+                    MakeWorldEventSolar(true);
+                    SetSetting("MildAtmosphereStopsSolarStorms", true);
+                    return "solar-mild-on";
+                case 16:
+                    // A world that ships no weather of its own, with the setting that lets one rain
+                    // switched off. Nothing may be scheduled on it at all, by the game or by the mod.
+                    MakeWorldEventSolar(false);
+                    RemoveSolarClone();
+                    _shippedEvents = new List<WeatherEvent>(WorldSetting.Current.Data.WeatherEvents);
+                    WorldSetting.Current.Data.WeatherEvents.Clear();
+                    SetSetting("WeatherOnWeatherlessWorlds", false);
+                    return "weatherless";
+                case 17:
+                    // The readout's last line. A full cloud lasts one tick, because the planet tick
+                    // empties it into the air in the same pass it would schedule rain in, so the
+                    // status has to be taken in the same frame the cloud is filled.
+                    SetSetting("WeatherOnWeatherlessWorlds", false);
+                    FillLiquidClouds();
+                    RunCommand("status");
+                    WorldSetting.Current.Data.WeatherEvents.AddRange(_shippedEvents);
+                    SetSetting("WeatherOnWeatherlessWorlds", true);
+                    return "rain-held";
+                case 18:
+                    // Everything back where it started, one case early, so the readout below is taken
+                    // of a settled world rather than of one whose events changed this tick.
+                    MakeWorldEventSolar(false);
+                    RemoveSolarClone();
+                    return "settled";
+                default:
+                    RunCommand("status");
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// Walks a whole year in steps of ten degrees and records where the day's coldest point is
+        /// highest and where it is lowest, then puts a temperature floor between the two. That is
+        /// what makes the season, and nothing else, decide the verdict of the two cases that follow.
+        /// </summary>
+        private void PickSeasons()
+        {
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            GlobalAtmosphereData data = WorldSetting.Current.Data.GlobalAtmosphereData;
+            double start = OrbitalSimulation.System.SimulationTimeSeconds;
+            double warmest = double.MinValue;
+            double coldest = double.MaxValue;
+            for (int i = 0; i < 36; i++)
+            {
+                SetOrbit(start + i * 10.0);
+                double[] envelope = Envelope(tank, data, (float)SolarPercent());
+                if (envelope[0] > warmest)
+                {
+                    warmest = envelope[0];
+                    _seasonWarmTime = start + i * 10.0;
+                }
+                if (envelope[0] < coldest)
+                {
+                    coldest = envelope[0];
+                    _seasonColdTime = start + i * 10.0;
+                }
+            }
+            _seasonFloor = 0.5 * (warmest + coldest);
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: storms note season | coldest point of the day is {0:0.###} K at its warmest season and {1:0.###} K at its coldest, {2:0.###} K apart | floor put at {3:0.###} K",
+                warmest, coldest, warmest - coldest, _seasonFloor));
+        }
+
+        /// <summary>
+        /// Puts enough water in the liquid clouds that the tick's own test, its litres of liquid
+        /// against its own volume, is true. It doubles until the cloud's own answer says it is full
+        /// rather than working the amount out from a molar volume: the cloud can already hold other
+        /// liquids, which a single measurement of one mole of water counts as if they were water.
+        /// </summary>
+        private void FillLiquidClouds()
+        {
+            GlobalGasMix clouds = (GlobalGasMix)AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), "_liquidClouds").GetValue(null);
+            object gate = AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), "GlobalInteraction").GetValue(null);
+            lock (gate)
+            {
+                double water = 1000.0;
+                for (int attempt = 0; attempt < 40; attempt++)
+                {
+                    clouds.Set(new MoleQuantity(water), Chemistry.GasType.Water);
+                    if (clouds.VolumeOfLiquid().ToDouble() >= clouds.Volume.ToDouble())
+                    {
+                        break;
+                    }
+                    water *= 2.0;
+                }
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                    "LiveCheck: storms note cloud | {0:0.###} mol of water | {1:0.###} of {2:0.###} L | full {3}",
+                    water, clouds.VolumeOfLiquid().ToDouble(), clouds.Volume.ToDouble(),
+                    clouds.VolumeOfLiquid().ToDouble() >= clouds.Volume.ToDouble()));
+            }
+        }
+
+        /// <summary>
+        /// The game's own cooldowns out of the way, so what is left deciding is the mod. A world-start
+        /// cooldown of seven days and an event cooldown of three to twelve is what no headless run can
+        /// wait out.
+        /// </summary>
+        private static void ClearWeatherState()
+        {
+            AccessTools.PropertySetter(typeof(Weather.WeatherManager), "CurrentWeatherEvent").Invoke(null, new object[] { null });
+            Weather.WeatherManager.DaysSinceLastWeatherEvent = 1000;
+            Weather.WeatherManager.LastEventCoolDown = 0;
+            AccessTools.Field(typeof(WorldManager), "_daysPast").SetValue(null, 1000u);
+        }
+
+        /// <summary>
+        /// The two lines WeatherManager.ManagerUpdate runs every frame, run here from the same
+        /// thread, and retried the way it retries them: on a world where only some events are
+        /// suppressed the pick is turned away and the next frame picks again.
+        /// </summary>
+        private void JudgeStorms(string name)
+        {
+            ClearWeatherState();
+            bool can = false;
+            bool scheduled = false;
+            string picked = "none";
+            int tries = 0;
+            for (tries = 1; tries <= 25; tries++)
+            {
+                can = Weather.WeatherManager.CanScheduleWeatherEvent();
+                if (!can)
+                {
+                    break;
+                }
+                Weather.WeatherManager.ScheduleWeatherEvent(Weather.WeatherManager.GetNextWeatherEvent());
+                scheduled = Weather.WeatherManager.IsWeatherEventScheduled;
+                if (scheduled)
+                {
+                    picked = Weather.WeatherManager.CurrentWeatherEvent?.Id ?? "(no id)";
+                    break;
+                }
+            }
+            // One pick is one roll of the game's shared Random. On a world with one event that may be
+            // scheduled and one that may not, a single round can only say that something got through;
+            // forty say that the ordinary storm was turned away every time it came up, which is the
+            // branch the scheduler's own predicate deliberately does not take.
+            if (name == "stripped-mixed")
+            {
+                int gotSolar = 0;
+                int gotOther = 0;
+                int gotNothing = 0;
+                for (int round = 0; round < 40; round++)
+                {
+                    ClearWeatherState();
+                    if (!Weather.WeatherManager.CanScheduleWeatherEvent())
+                    {
+                        gotNothing++;
+                        continue;
+                    }
+                    Weather.WeatherManager.ScheduleWeatherEvent(Weather.WeatherManager.GetNextWeatherEvent());
+                    WeatherEvent got = Weather.WeatherManager.CurrentWeatherEvent;
+                    if (got == null)
+                    {
+                        gotNothing++;
+                    }
+                    else if (got.ActiveInOrbit)
+                    {
+                        gotSolar++;
+                    }
+                    else
+                    {
+                        gotOther++;
+                    }
+                }
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                    "LiveCheck: storms note mixed | rounds 40 | solar {0} | not solar {1} | nothing {2}", gotSolar, gotOther, gotNothing));
+            }
+            object snapshot = StormSnapshot();
+            object failures = Snap(snapshot, "MildFailures");
+            string failed = "none";
+            if (failures is List<string> list && list.Count > 0)
+            {
+                failed = string.Join(" / ", list.ToArray());
+            }
+            if (name == "mild")
+            {
+                _mildColdest = SnapNumber(snapshot, "Coldest");
+                _mildHottest = SnapNumber(snapshot, "Hottest");
+                _mildPressureCold = SnapNumber(snapshot, "PressureCold");
+                _mildPressureHot = SnapNumber(snapshot, "PressureHot");
+            }
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: storms {0} | tick {1} | can {2} | scheduled {3} | event {4} | tries {5} | stripped {6} | share {7:0.#####} | airless {8} | mild {9} | mildknown {10} | coldest {11:0.###} | hottest {12:0.###} | pcold {13:0.####} | phot {14:0.####} | toxins {15:0.#####} | orbit {16:0.###} | tank {17:0.###} | fail {18}",
+                name, GameManager.GameTickCount, can, scheduled, picked, tries,
+                SnapFlag(snapshot, "Stripped"), SnapNumber(snapshot, "Share"), SnapFlag(snapshot, "Airless"),
+                SnapFlag(snapshot, "Mild"), SnapFlag(snapshot, "MildKnown"),
+                SnapNumber(snapshot, "Coldest"), SnapNumber(snapshot, "Hottest"),
+                SnapNumber(snapshot, "PressureCold"), SnapNumber(snapshot, "PressureHot"),
+                SnapNumber(snapshot, "Toxins"), SnapNumber(snapshot, "OrbitPercent"),
+                tank == null ? 0.0 : tank.TotalQuantity().ToDouble(), failed.Replace("|", "/")));
+            ClearWeatherState();
         }
 
         // ---- game data dump for tools/Balance ---------------------------------------------------------

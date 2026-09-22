@@ -67,6 +67,22 @@
                the default scenario (which sweeps from 1 cell to about 4,300 and back) or to -Strip.
     -MenuPressure  The mix the new-game menu builds to describe a world must be the shipped planet,
                not the resized one it is playing.
+    -Schedule  The two storm rules (docs/STORMS.md). Nothing else can reach them: -Storm and -Weather
+               force an event on through a call that never asks the scheduler, and waiting cannot work
+               because scheduling needs a world-start cooldown measured in days. So the driver clears
+               the game's own cooldowns and runs the two lines WeatherManager.ManagerUpdate runs, from
+               the main thread, then reads back whether an event was set. Eighteen cases: the world as
+               shipped, a stripped planet, a stripped planet whose storm happens in orbit, a world with
+               one of each, a world that ships no air at all, an air inside all five mild bounds, that
+               air with the mild rule off, each of the five bounds moved past the measured value on its
+               own, the toxin bound broken by adding hydrazine (which has no greenhouse curve, so it
+               moves the toxins and nothing else), the same air judged in its warmest and its coldest
+               season, and a solar storm with the setting that stops one off and then on.
+    -Orbit <degrees> -OrbitTick <n>  Moves the season, at that tick, by that many degrees of the
+               world's own orbit; 360 is a year. Writing the simulation time alone does nothing, so
+               this goes through OrbitalSimulation.SetSimulationTime, the public way into SetAllBodies,
+               which is what recomputes the distances the solar percent derives from. For -Observe and
+               the default scenario; -Schedule walks the year itself.
     -Rescale   'terraform size <share> confirm' on the planet being played, with the ice caps, the
                clouds and both heat stores loaded first. Run from the main thread while the planet
                ticks on its own, which is how a console command reaches it. The air per outdoor cell,
@@ -124,6 +140,9 @@ param(
     [switch]$CustomWorld,
     [switch]$ZeroVolume,
     [switch]$Weather,
+    [switch]$Schedule,
+    [double]$Orbit = 0,
+    [int]$OrbitTick = 0,
     [switch]$Strip,
     [int]$StripTicks = 150,
     [int]$StripCells = 100,
@@ -155,7 +174,11 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
-if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $CustomWorld, $Strip | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -CustomWorld and -Strip.' }
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld and -Strip.' }
+if (($Orbit -ne 0) -and ($OrbitTick -le 0)) { throw '-Orbit needs -OrbitTick, the tick to move the season at.' }
+if (($OrbitTick -gt 0) -and ($Orbit -eq 0)) { throw '-OrbitTick needs -Orbit, how many degrees of the world orbit to move; 360 is a year.' }
+if ($Schedule -and ($Orbit -ne 0)) { throw '-Schedule walks the whole year itself and picks the two seasons it judges; -Orbit is for the other scenarios.' }
+if ($Schedule -and $Vanilla) { throw 'Without the mod there are no storm rules to judge.' }
 if (($StripTicks -le 0) -or ($StripCells -le 0)) { throw '-StripTicks and -StripCells are how many ticks to draw for and how many draw points to draw from; both must be positive.' }
 if ($StripPerCell -lt 0) { throw '-StripPerCell is how many moles one draw point may take in a tick; 0 means take everything.' }
 if (($StripShare -lt 0) -or ($StripShare -gt 1)) { throw '-StripShare is the share of what a cell holds that one draw takes, between 0 and 1; 0 leaves the driver default.' }
@@ -210,7 +233,8 @@ $envKeys = @(
     'TR_LIVECHECK_WEATHER_TICK', 'TR_LIVECHECK_WEATHER_EVENT', 'TR_LIVECHECK_STATUS_TICK',
     'TR_LIVECHECK_STRIP_TICK', 'TR_LIVECHECK_STRIP_TICKS', 'TR_LIVECHECK_STRIP_CELLS',
     'TR_LIVECHECK_STRIP_PER_CELL', 'TR_LIVECHECK_STRIP_FLOOR', 'TR_LIVECHECK_STRIP_SHARE',
-    'TR_LIVECHECK_WALKCOST', 'TR_LIVECHECK_SIDECAR_TICK')
+    'TR_LIVECHECK_WALKCOST', 'TR_LIVECHECK_SIDECAR_TICK',
+    'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -325,6 +349,24 @@ function Get-States($log) {
     }
 }
 
+# One storm case: what the mod decided, every figure it decided it on, and what the game's own
+# scheduler then did when it was asked.
+function Get-Storms($log) {
+    foreach ($line in $log) {
+        if ($line -match ('LiveCheck: storms (\S+) \| tick (\d+) \| can (\w+) \| scheduled (\w+) \| event (\S+) \| tries (\d+)' +
+                          ' \| stripped (\w+) \| share (\S+) \| airless (\w+) \| mild (\w+) \| mildknown (\w+) \| coldest (\S+) \| hottest (\S+)' +
+                          ' \| pcold (\S+) \| phot (\S+) \| toxins (\S+) \| orbit (\S+) \| tank (\S+) \| fail (.*)$')) {
+            [pscustomobject]@{ Case = $Matches[1]; Tick = [int]$Matches[2]; Can = ($Matches[3] -eq 'True')
+                Scheduled = ($Matches[4] -eq 'True'); Event = $Matches[5]; Tries = [int]$Matches[6]
+                Stripped = ($Matches[7] -eq 'True'); Share = [double]$Matches[8]; Airless = ($Matches[9] -eq 'True')
+                Mild = ($Matches[10] -eq 'True'); MildKnown = ($Matches[11] -eq 'True')
+                Coldest = [double]$Matches[12]; Hottest = [double]$Matches[13]; PCold = [double]$Matches[14]
+                PHot = [double]$Matches[15]; Toxins = [double]$Matches[16]; Orbit = [double]$Matches[17]
+                Tank = [double]$Matches[18]; Fail = $Matches[19].Trim() }
+        }
+    }
+}
+
 function Assert-ModLive($log) {
     if (-not ($log -match 'Terraforming Reloaded\] Active:')) { throw 'The mod never reported Active. It did not load or did not arm.' }
     if (-not ($log -match 'Planet tick is running\. live')) { throw 'The planet tick never ran with the mod live.' }
@@ -361,6 +403,7 @@ try {
         if ($SetAir2) { $environment.TR_LIVECHECK_SETAIR2 = $SetAir2; $environment.TR_LIVECHECK_SETAIR2_TICK = "$SetAir2Tick" }
         if ($HeatK -ne 0) { $environment.TR_LIVECHECK_HEATK = $HeatK.ToString([cultureinfo]::InvariantCulture) }
         if ($Storm) { $environment.TR_LIVECHECK_STORM = $Storm; $environment.TR_LIVECHECK_STORM_TICK = "$StormTick" }
+        if ($Orbit -ne 0) { $environment.TR_LIVECHECK_ORBIT = $Orbit.ToString([cultureinfo]::InvariantCulture); $environment.TR_LIVECHECK_ORBIT_TICK = "$OrbitTick" }
         $log = Invoke-Game @('-new', $World) $environment `
             { param($l) $o = @($l -match 'LiveCheck: obs tick (\d+)'); $o.Count -gt 0 -and [int](($o[-1] -replace '.*obs tick (\d+).*', '$1')) -ge $Ticks } "a fast day on $World"
         if (-not $Vanilla) { Assert-ModLive $log }
@@ -457,6 +500,163 @@ try {
         }
         if ($line -notmatch '^weather PASS') { throw "LiveCheck FAILED: $line" }
         Write-Host ("LiveCheck OK: a full cloud bucket gave its gas back to the air and left {0} running." -f $was)
+        return
+    }
+
+    if ($Schedule) {
+        # The two storm rules. Every verdict judged here is the mod's own: the driver sets an air or
+        # moves a bound, waits for the planet tick to measure it, clears the game's own cooldowns, and
+        # then runs the two lines the game's weather manager runs. Nothing is scheduled means
+        # suppressed.
+        $log = Invoke-Game @('-new', $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_STORMS_TICK = '20' } `
+            { param($l) @($l -match 'LiveCheck: storms (done|FAIL)').Count -gt 0 } 'the storm rules'
+        Assert-ModLive $log
+        if ($log -match 'LiveCheck: storms FAIL') { throw ('LiveCheck FAILED: ' + (@($log -match 'LiveCheck: storms FAIL')[0])) }
+        @($log -match 'LiveCheck: (storms note|orbit )') | ForEach-Object { $_ -replace '^\[[^\]]*\]\s*', '' } | Write-Host
+
+        $rows = @(Get-Storms $log)
+        if ($rows.Count -eq 0) { throw 'LiveCheck FAILED: the driver judged no storm cases.' }
+        $cases = @{}
+        foreach ($row in $rows) { $cases[$row.Case] = $row }
+        $rows | Format-Table Case, Tick, Can, Scheduled, Event, Tries, Stripped,
+            @{ n = 'share'; e = { '{0:N4}' -f $_.Share } }, Airless, Mild,
+            @{ n = 'coldest'; e = { '{0:N2}' -f $_.Coldest } }, @{ n = 'hottest'; e = { '{0:N2}' -f $_.Hottest } },
+            @{ n = 'pcold'; e = { '{0:N2}' -f $_.PCold } }, @{ n = 'phot'; e = { '{0:N2}' -f $_.PHot } },
+            @{ n = 'toxins'; e = { '{0:N3}' -f $_.Toxins } }, @{ n = 'orbit%'; e = { '{0:N2}' -f $_.Orbit } } -AutoSize |
+            Out-String -Width 240 | Write-Host
+        $rows | Where-Object { $_.Fail -ne 'none' } | ForEach-Object { Write-Host ("  {0,-16} {1}" -f $_.Case, $_.Fail) }
+
+        # Case, whether the game's own predicate may still say yes, and whether an event was set.
+        $expect = @(
+            @('untouched',      $true,  $true),
+            @('stripped',       $false, $false),
+            @('stripped-solar', $true,  $true),
+            @('stripped-mixed', $true,  $true),
+            @('airless',        $true,  $true),
+            @('mild',           $false, $false),
+            @('mild-rule-off',  $true,  $true),
+            @('cold-floor',     $true,  $true),
+            @('hot-ceiling',    $true,  $true),
+            @('pressure-min',   $true,  $true),
+            @('pressure-max',   $true,  $true),
+            @('toxins',         $true,  $true),
+            @('season-warm',    $false, $false),
+            @('season-cold',    $true,  $true),
+            @('solar-mild-off', $true,  $true),
+            @('solar-mild-on',  $false, $false),
+            @('weatherless',    $false, $false),
+            @('rain-held',      $false, $false),
+            @('settled',        $false, $false)
+        )
+        $problems = @()
+        foreach ($want in $expect) {
+            $row = $cases[$want[0]]
+            if ($null -eq $row) { $problems += "the case '$($want[0])' never ran"; continue }
+            if ($row.Can -ne $want[1]) { $problems += "$($want[0]): the scheduler was $(if ($row.Can) { 'still asked' } else { 'stopped' }) for the pick, expected the opposite" }
+            if ($row.Scheduled -ne $want[2]) { $problems += "$($want[0]): an event was $(if ($row.Scheduled) { 'scheduled' } else { 'not scheduled' }), expected the opposite" }
+        }
+
+        # Each of the five bounds, broken on its own, must fail the rule on its own and be named.
+        $bounds = @(
+            @('cold-floor',   'coldest .* is below the .* K floor'),
+            @('hot-ceiling',  'hottest .* is above the .* K ceiling'),
+            @('pressure-min', 'pressure .* at the coldest hour is below the .* kPa minimum'),
+            @('pressure-max', 'pressure .* at the hottest hour is above the .* kPa maximum'),
+            @('toxins',       'toxins .* at the hottest hour are above the .* kPa ceiling'),
+            @('season-cold',  'coldest .* is below the .* K floor')
+        )
+        foreach ($bound in $bounds) {
+            $row = $cases[$bound[0]]
+            if ($null -eq $row) { continue }
+            if ($row.Fail -notmatch $bound[1]) { $problems += "$($bound[0]): the rule did not name the bound it failed, it said '$($row.Fail)'" }
+            if ($row.Fail -match ' / ') { $problems += "$($bound[0]): more than one bound failed, so this case is not about one bound: '$($row.Fail)'" }
+        }
+        if ($cases['mild'] -and $cases['mild'].Fail -ne 'none') { $problems += "mild: a mix chosen to be inside every bound failed one: $($cases['mild'].Fail)" }
+        if ($cases['mild'] -and -not $cases['mild'].Mild) { $problems += 'mild: the air chosen to be mild was not judged mild' }
+        if ($cases['mild'] -and -not $cases['mild'].MildKnown) { $problems += 'mild: the forecast was never taken' }
+
+        # The world as shipped: nothing stripped, and the share is exactly what the world file says.
+        $untouched = $cases['untouched']
+        if ($untouched) {
+            if ([math]::Abs($untouched.Share - 1) -gt 0.01) { $problems += "untouched: an untouched world reads $($untouched.Share) of its own starting air, not 1" }
+            if ($untouched.Stripped) { $problems += 'untouched: an untouched world was judged stripped' }
+            if ($untouched.Mild) { $problems += 'untouched: an untouched Mars was judged mild' }
+        }
+        $stripped = $cases['stripped']
+        if ($stripped) {
+            if (-not $stripped.Stripped) { $problems += "stripped: a planet at $($stripped.Share) of its starting air was not judged stripped" }
+            if ($stripped.Share -gt 0.05) { $problems += "stripped: the planet was only taken to $($stripped.Share) of its starting air, which is not below the threshold" }
+        }
+        if ($cases['stripped-solar'] -and -not $cases['stripped-solar'].Stripped) { $problems += 'stripped-solar: the planet was no longer stripped, so this case proves nothing' }
+        if ($cases['stripped-mixed'] -and $cases['stripped-mixed'].Event -ne 'TRLiveCheckSolarStorm') {
+            $problems += "stripped-mixed: the event that got through was $($cases['stripped-mixed'].Event), not the solar storm"
+        }
+        # Forty picks on the world that ships one of each. The ordinary storm must be turned away
+        # every time it comes up, and both outcomes have to have happened, or the run saw one branch.
+        $mixed = @($log -match 'LiveCheck: storms note mixed ')
+        if ($mixed.Count -eq 0) { $problems += 'stripped-mixed: the forty picks were never made' }
+        elseif ($mixed[0] -notmatch 'rounds (\d+) \| solar (\d+) \| not solar (\d+) \| nothing (\d+)') {
+            $problems += "stripped-mixed: could not read the pick counts: $($mixed[0])"
+        }
+        else {
+            $rounds = [int]$Matches[1]; $gotSolar = [int]$Matches[2]; $gotOther = [int]$Matches[3]; $gotNothing = [int]$Matches[4]
+            Write-Host ("mixed world: of {0} picks, {1} were the solar storm and got through, {2} were the ordinary storm and were turned away, {3} were the ordinary storm and got through" -f `
+                $rounds, $gotSolar, $gotNothing, $gotOther)
+            if ($gotOther -ne 0) { $problems += "stripped-mixed: the ordinary storm was scheduled $gotOther times on a stripped world" }
+            if ($gotSolar -lt 5) { $problems += "stripped-mixed: the solar storm only got through $gotSolar times in $rounds picks" }
+            if ($gotNothing -lt 5) { $problems += "stripped-mixed: the ordinary storm only came up $gotNothing times in $rounds picks, so the turning away was barely exercised" }
+        }
+        if ($cases['airless']) {
+            if (-not $cases['airless'].Airless) { $problems += 'airless: a world with no shipped air was not treated as one' }
+            if ($cases['airless'].Stripped) { $problems += 'airless: a world that ships no air was judged stripped' }
+        }
+        if ($cases['solar-mild-off'] -and -not $cases['solar-mild-off'].Mild) { $problems += 'solar-mild-off: the air was not mild, so the solar case proves nothing' }
+        if ($cases['solar-mild-on'] -and -not $cases['solar-mild-on'].Mild) { $problems += 'solar-mild-on: the air was not mild, so the solar case proves nothing' }
+
+        # The season, and nothing else, decides the last pair: same air, same bounds, different orbit.
+        $warm = $cases['season-warm']; $cold = $cases['season-cold']
+        if ($warm -and $cold) {
+            Write-Host ("season: coldest point of the day {0:N3} K at orbit {1:N2}%, {2:N3} K at orbit {3:N2}%, a difference of {4:N3} K" -f `
+                $warm.Coldest, $warm.Orbit, $cold.Coldest, $cold.Orbit, ($warm.Coldest - $cold.Coldest))
+            if ([math]::Abs($warm.Orbit - $cold.Orbit) -lt 1) { $problems += 'season: the two seasons are the same point in the orbit, so nothing moved' }
+            if (($warm.Coldest - $cold.Coldest) -le 0.1) { $problems += 'season: the two seasons read the same temperature, so the season cannot decide anything' }
+            if ([math]::Abs($warm.PHot - $cold.PHot) -lt 1e-9 -and [math]::Abs($warm.Coldest - $cold.Coldest) -lt 1e-9) { $problems += 'season: nothing about the forecast moved' }
+            if (-not $warm.Mild) { $problems += 'season-warm: the warm season was not mild' }
+            if ($cold.Mild) { $problems += 'season-cold: the cold season was still mild' }
+        }
+
+        # Hydrazine has no greenhouse curve in the game's own data, so it must move the toxins and
+        # leave the temperature where it was. That is the whole reason it is the gas used.
+        $mild = $cases['mild']; $toxic = $cases['toxins']
+        if ($mild -and $toxic) {
+            Write-Host ("toxins: {0:N4} kPa before, {1:N4} kPa after adding hydrazine; the day moved from {2:N3}-{3:N3} K to {4:N3}-{5:N3} K" -f `
+                $mild.Toxins, $toxic.Toxins, $mild.Coldest, $mild.Hottest, $toxic.Coldest, $toxic.Hottest)
+            if ($toxic.Toxins -le 1) { $problems += "toxins: the toxin load only reached $($toxic.Toxins) kPa, which is not over the ceiling" }
+            if ($mild.Toxins -gt 0.001) { $problems += "toxins: the mild air already held $($mild.Toxins) kPa of toxins, so the case is not about what was added" }
+            if ([math]::Abs($toxic.Coldest - $mild.Coldest) -gt 1) { $problems += 'toxins: adding hydrazine moved the temperature, so this case is not about the toxin bound alone' }
+        }
+
+        # The readout. It is the only thing that stops a seasonal storm season being reported as a
+        # bug, so it is checked rather than assumed, and checked for never answering a bare no.
+        $answers = @($log -match 'LiveCheck: cmd status') | ForEach-Object { $_ -replace '.*LiveCheck: cmd status -> ', '' }
+        if ($answers.Count -eq 0) { $problems += 'the status readout was never run' }
+        else {
+            $status = $answers[-1]
+            Write-Host '--- the storms block of terraform status ---'
+            ($status -split ' / ') | Where-Object { $_ -match 'storms:|stripped:|mild:|season:|solar:|rain:|^\s+coldest|^\s+pressure' } | ForEach-Object { Write-Host ("  " + $_.Trim()) }
+            foreach ($want in @('storms: suppressed', 'stripped:', 'mild:', 'season:', 'solar:')) {
+                if ($status -notmatch [regex]::Escape($want)) { $problems += "the readout does not report '$want'" }
+            }
+            if ($status -match 'mild:\s+no(?!,)') { $problems += 'the readout answered a bare no for the mild rule' }
+            # The sixth thing the readout owes a player, taken while a cloud was full on a world that
+            # ships no weather of its own and the setting that would let it rain was off.
+            $rain = @($answers -match 'rain:\s+a cloud is full')
+            if ($rain.Count -eq 0) { $problems += 'the readout never said that a full cloud was held back by the setting' }
+            else { Write-Host ('  ' + (($rain[0] -split ' / ') -match 'rain:')[0].Trim()) }
+        }
+
+        if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: ' + ($problems -join '; ')) }
+        Write-Host 'LiveCheck OK: both storm rules decide whether the game schedules a storm, each of the five mild bounds fails on its own, the season changes the answer, a world with no air of its own is exempt, and a solar storm is never stopped by stripping.'
         return
     }
 
@@ -934,6 +1134,7 @@ try {
 
     $environment = @{}
     if ($WalkCost) { $environment.TR_LIVECHECK_WALKCOST = '1' }
+    if ($Orbit -ne 0) { $environment.TR_LIVECHECK_ORBIT = $Orbit.ToString([cultureinfo]::InvariantCulture); $environment.TR_LIVECHECK_ORBIT_TICK = "$OrbitTick" }
     $log = Invoke-Game @('-new', 'Mars2') $environment { param($l) $r = @(Get-Rows $l); $r.Count -ge 20 -and $r[-1].Cells -le 5 -and $r[-1].Sum -gt ($r[0].Sum + 50000) } 'the injected gas to drain into the tank'
     $rows = @(Get-Rows $log)
     if ($Vanilla) {
