@@ -186,7 +186,7 @@ namespace TerraformingReloaded
                 v => { Settings.AirlessAlbedo = v; Sidecar.ConfigChanged(() => Effective.AirlessAlbedo = v); },
                 Bounds(Limits.AirlessAlbedo), "Airless world reflectivity", 12, "%.2f");
             Bind("Climate", "MaxPressureKPa", Settings.MaxPressureKPa,
-                "Ceiling on the planet air pressure. 0 means no ceiling. DESTRUCTIVE: whenever the planet is above it, at its hottest hour, the excess air is deleted for good and the loss is saved. Set it below a world's starting pressure and most of its air is gone within a day.",
+                "Ceiling on the planet air pressure for a NEW world. 0 means no ceiling. Each world then keeps its own; to change the one you are playing, use terraform ceiling <kPa> confirm. DESTRUCTIVE: whenever a planet is above its ceiling, at its hottest hour, the excess air is deleted for good and the loss is saved. Set it below a world's starting pressure and most of its air is gone within a day.",
                 v => Settings.MaxPressureKPa = v, Bounds(Limits.MaxPressureKPa), "Pressure ceiling (kPa)", 13, "%.0f", restart: true);
             Bind("Climate", "WeatherOnWeatherlessWorlds", Settings.WeatherOnWeatherlessWorlds,
                 "Let filled clouds rain and snow on worlds that ship with no weather of their own, such as Mimas. Clouds only fill once you have given the world air.",
