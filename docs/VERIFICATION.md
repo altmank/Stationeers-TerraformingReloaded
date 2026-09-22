@@ -19,6 +19,7 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 .\tools\LiveCheck\run.ps1 -CustomWorld -ZeroVolume   # the same world declaring no planet volume: the mod must refuse it
 .\tools\LiveCheck\run.ps1 -Strip           # air taken OUT through outdoor cells: what share do cells hold while it leaves
 .\tools\LiveCheck\run.ps1 -WalkCost        # what a per-tick walk over every atmosphere costs; add to -Strip or the default
+.\tools\LiveCheck\run.ps1 -Sidecar         # per-world settings: nineteen hostile files, and the one path that may delete air
 .\tools\LiveCheck\run.ps1 -Clean          # remove what an interrupted run left behind, and nothing else
 .\tools\LiveCheck\run.ps1 -MenuPressure     # the new-game menu sees the shipped planet, not the resized one
 .\tools\LiveCheck\run.ps1 -Rescale          # terraform size: the planet scales whole and its air does not move
@@ -42,6 +43,7 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 | `-Weather -Vanilla` | The control: unmodded, the same run must replace the running snow with rain | |
 | `-Strip` | The direction a player stripping a planet actually goes, which the injection scenario does not cover. A headless run cannot build a vent, so the driver does what an inward `ActiveVent` does, cloning the outdoor cell at its own grid and removing gas from it, at `-StripCells` grids for `-StripTicks` ticks, discarding what it takes. Not judged as a conservation test: it reports what share of the planet outdoor cells hold while air is leaving, which is the number the storm rule's measure turns on | That a real vent keeps the same number of cells open. The floor stands in for the vent structure, which cannot be built headless |
 | `-WalkCost` | What a per-tick walk over every atmosphere costs, timed from inside the planet tick where such a measure would sit, printed in microseconds against the cell count. Add it to the default scenario, which sweeps 1 cell to about 4,300 and back, or to `-Strip` | Main-thread frame cost. It is timed against the 500 ms tick, which is the right budget for `Guards.Upkeep` and the wrong one for D10 |
+| `-Sidecar` | Per-world settings. Two phases: make a world, then load it and rewrite its settings file one shape at a time, calling the mod's own read path on each, so a real file over the real code is what is judged. The config asks for a 500 kPa ceiling throughout and every line prints it, so a run where the config was not asking cannot read as a pass. Nineteen cases: a ceiling of 0, -5, 99999999 and -INF; every field -5; NaN and INF scales; a zero half-life; a nil half-life; one field only; no file; not XML; no station name; a folder that moved; version 99; and a read after the sidecar has stood down | That a real config editor writes through, and the client branch, which cannot be faked headlessly |
 | `-CustomWorld` | A world the mod has never seen. `tools/LiveCheck/GameData/TRTestWorld/TRTestWorld.xml` is written here, not shipped by the game, and staged into the test mod's `GameData`, which is where `WorldManager.LoadDataFiles` reads worlds from. It has air and its own `Temperature` curve and leaves out the greenhouse and density curves, so the mod has to supply those two, and add nothing at all while the air is as the file sets it. Nothing of the game's is copied: the world names the terrain, sun and sky the game installed, and `StreamingAssetLoader.GetPathRoots` resolves those against StreamingAssets | That a Workshop world is built this way; only that a world the mod has no knowledge of works |
 | `-CustomWorld -ZeroVolume` | The same world declaring a planet of no volume, which every per-cell share would divide by. The mod must warn and leave the planet as shipped | |
 | `-MenuPressure` | The new-game menu's mix (D16). While a resized planet is being played, `GlobalGasMix.Create` on the same world data has to give the shipped planet at the shipped volume, because the menu divides one by the other to show a pressure | That the menu screen itself reads it; only that what it reads is built right |
@@ -94,6 +96,14 @@ failure was the mod (see below).
   iteration itself is 1.8 ns per entry with the whole cost in `GasMixture.GetTotalMoles`. Break-even
   at 1 % of a tick is about 18,500 cells. Together these are why the storm rule's measure counts the
   planet's five stores and not outdoor cells (docs/STORMS.md).
+- `-Sidecar`, first runs, 2026-09-22. **Through all nineteen hostile files the planet held
+  2,379,749.934 mol, varying by 0.000.** Every out-of-range or non-finite field was refused and fell
+  back, the ceiling to off and the rest to the config, with one warning naming the full path and each
+  refused field. A version 99 file was left untouched rather than overwritten. A file that was not XML
+  was copied aside before being replaced, and the copy still held the hand edit.
+  **The control is what makes that mean something**: `terraform ceiling 0.5 confirm`, the one path by
+  which a loaded world may acquire a ceiling, deleted **83.3% of the planet in two ticks**. So the
+  nineteen refusals are refusals, not a dead code path.
 - `-Model` on Venus at `CarbonDioxide=23;Nitrogen=22;Oxygen=48`: largest gap 0.178 K over 50 samples,
   against a 0.5 K tolerance, with the planet at 322.18 K and its air steady (93.0 mol per cell, no
   liquid, clouds or ice caps).
