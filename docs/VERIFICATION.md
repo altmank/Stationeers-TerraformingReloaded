@@ -17,6 +17,8 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 .\tools\LiveCheck\run.ps1 -Weather -Vanilla      # control: unmodded it does overwrite it
 .\tools\LiveCheck\run.ps1 -CustomWorld     # a world written here, not shipped by the game: the mod fills in what it leaves out
 .\tools\LiveCheck\run.ps1 -CustomWorld -ZeroVolume   # the same world declaring no planet volume: the mod must refuse it
+.\tools\LiveCheck\run.ps1 -Strip           # air taken OUT through outdoor cells: what share do cells hold while it leaves
+.\tools\LiveCheck\run.ps1 -WalkCost        # what a per-tick walk over every atmosphere costs; add to -Strip or the default
 .\tools\LiveCheck\run.ps1 -Clean          # remove what an interrupted run left behind, and nothing else
 .\tools\LiveCheck\run.ps1 -MenuPressure     # the new-game menu sees the shipped planet, not the resized one
 .\tools\LiveCheck\run.ps1 -Rescale          # terraform size: the planet scales whole and its air does not move
@@ -38,6 +40,8 @@ save-load run showed 5,800 mol appearing from nowhere. Run the live tests after 
 | `-BuildOver -Unguarded` | The counterfactual, and the reason the run above is worth anything: the same run with the mod's `Deregister` guard unpatched must show the duplicate. **`-Vanilla` is no control here** (D2 is the only defect where that is true): unmodded the planet discards whatever it is handed, so the defect costs nothing until the mod switches the planet simulation on | |
 | `-Weather` | A cloud bucket filling while other weather is already running (D6). The driver starts snow, fills the liquid clouds past their volume, and reads what the next tick did. Snow is the case that reaches the defect: the game's own guard only steps aside for a storm or for rain, which leaves its snow branch unreachable. The bucket must come back empty, which is what says the tick reached this code at all, and snow must still be the running event with its length untouched | That clouds fill this way in play rather than by hand, and how often it happens |
 | `-Weather -Vanilla` | The control: unmodded, the same run must replace the running snow with rain | |
+| `-Strip` | The direction a player stripping a planet actually goes, which the injection scenario does not cover. A headless run cannot build a vent, so the driver does what an inward `ActiveVent` does, cloning the outdoor cell at its own grid and removing gas from it, at `-StripCells` grids for `-StripTicks` ticks, discarding what it takes. Not judged as a conservation test: it reports what share of the planet outdoor cells hold while air is leaving, which is the number the storm rule's measure turns on | That a real vent keeps the same number of cells open. The floor stands in for the vent structure, which cannot be built headless |
+| `-WalkCost` | What a per-tick walk over every atmosphere costs, timed from inside the planet tick where such a measure would sit, printed in microseconds against the cell count. Add it to the default scenario, which sweeps 1 cell to about 4,300 and back, or to `-Strip` | Main-thread frame cost. It is timed against the 500 ms tick, which is the right budget for `Guards.Upkeep` and the wrong one for D10 |
 | `-CustomWorld` | A world the mod has never seen. `tools/LiveCheck/GameData/TRTestWorld/TRTestWorld.xml` is written here, not shipped by the game, and staged into the test mod's `GameData`, which is where `WorldManager.LoadDataFiles` reads worlds from. It has air and its own `Temperature` curve and leaves out the greenhouse and density curves, so the mod has to supply those two, and add nothing at all while the air is as the file sets it. Nothing of the game's is copied: the world names the terrain, sun and sky the game installed, and `StreamingAssetLoader.GetPathRoots` resolves those against StreamingAssets | That a Workshop world is built this way; only that a world the mod has no knowledge of works |
 | `-CustomWorld -ZeroVolume` | The same world declaring a planet of no volume, which every per-cell share would divide by. The mod must warn and leave the planet as shipped | |
 | `-MenuPressure` | The new-game menu's mix (D16). While a resized planet is being played, `GlobalGasMix.Create` on the same world data has to give the shipped planet at the shipped volume, because the menu divides one by the other to show a pressure | That the menu screen itself reads it; only that what it reads is built right |
@@ -80,6 +84,16 @@ failure was the mod (see below).
 - `-CustomWorld -ZeroVolume`: the mod warned and stood down, the planet held 0.000 mol and the
   per-cell list was empty, which is the behaviour the guard is for. Three things it says on the way
   are wrong, all readout and none of them behaviour; see DEFECTS.md D19.
+- `-Strip` and `-WalkCost`, first runs, 2026-09-21, size 0.05. **Outdoor cells hold almost nothing
+  while air is being taken out**: 0.0007 % steady and 0.0402 % at the single tick where all 100 draw
+  cells existed at once, against 5.2 % at the peak of a 100,000 mol injection. Of 100 cells built at
+  once, 99 were gone by the next planet tick with their air back in the tank, culled for sitting at
+  planet density with no open neighbours. Gas pushed out into the world spreads and makes cells; gas
+  taken out of the world cannot make any. Conservation exact: unaccounted 0.000 mol.
+  **The walk is cheap**: 270 ns per cell, so 1.2 ms at 4,289 cells, 0.25 % of a 500 ms tick, and
+  iteration itself is 1.8 ns per entry with the whole cost in `GasMixture.GetTotalMoles`. Break-even
+  at 1 % of a tick is about 18,500 cells. Together these are why the storm rule's measure counts the
+  planet's five stores and not outdoor cells (docs/STORMS.md).
 - `-Model` on Venus at `CarbonDioxide=23;Nitrogen=22;Oxygen=48`: largest gap 0.178 K over 50 samples,
   against a 0.5 K tolerance, with the planet at 322.18 K and its air steady (93.0 mol per cell, no
   liquid, clouds or ice caps).
