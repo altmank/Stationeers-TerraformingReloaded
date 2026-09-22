@@ -45,6 +45,13 @@ and `v0.9.1` tagged at the two uploads. The release-candidate note in About.xml 
 
 ## Open questions
 
+- **The response curves file is global and unversioned.** `BepInEx/config/TerraformingReloaded.curves.xml`
+  decides how every world's temperature responds, and editing it changes every existing save. It has
+  no version field, unlike the per-world sidecar (docs/SIDECAR.md). Decide between snapshotting a hash
+  of it per world and warning on mismatch, or accepting it as a deliberate global knob and saying so
+  in CURVES.md.
+
+
 - **Liquid toxins outdoors** (ASSUMPTIONS.md S6): breathing ignores liquids (code); does contact hurt?
 - **Outdoor sun heating.** The old mod set `LightManager.SunPathTraceWorldAtmos = true`, which makes
   open outdoor cells take solar heating (`AtmosphericsController.cs:244`). Left as the game ships it.
