@@ -13,32 +13,38 @@
   normal solar power, and taking that away by default would be a surprise.
 - **Every number either rule uses is a setting**, in a new `Storms` section, and there is no hidden
   rule: the share of the starting air below which storms stop, the coldest and hottest the air may
-  get across a day, the pressure it must stay between, and the most toxic gas allowed. All of them
-  take effect while you play.
+  get across a day, the pressure it must stay between, and the most toxic gas allowed. Like every
+  setting that affects a world, each world keeps its own copy, changed with `terraform set`.
 - **The mild rule is judged at the point in the orbit your world is at**, not year round, so a world
   near the edge of those bounds is calm in one season and stormy in another. `terraform` says which
   season it judged at, so an annual storm season is not a mystery.
 - **`terraform` says why weather is or is not happening.** It never answers a bare no: every negative
   names the bound that failed, with the measured value and the bound beside it, and solar storms are
   reported separately because they follow the opposite rule.
-- **Each world now keeps its own copy of the settings that belong to it**, in a small
-  `terraforming-reloaded.xml` beside its save. Six settings moved: the pressure ceiling, both
-  response strengths, the airless reflectivity, and both added-heat settings. Until now one global
-  config decided how every world behaved, so tuning it for a new save quietly changed, and in one
-  case damaged, older ones.
+- **Each world now keeps its own copy of every setting that affects it**, in a small
+  `terraforming-reloaded.xml` beside its save: the pressure ceiling, both response strengths, the
+  airless reflectivity, both added-heat settings, whether the sky follows the air, rain on worlds
+  with no weather, and every storm setting. Until now one global config decided how every world
+  behaved, so tuning it for a new save quietly changed, and in one case damaged, older ones.
+- **The config now sets what a new world starts with, and nothing more.** Changing it no longer
+  reaches a world you have already made, including the one you are playing. A world that recorded
+  nothing for a setting takes it from the config.
 - **An existing world loads with its pressure ceiling off, whatever your config says.** That is
   deliberate. A world made before this version carries no record of whether it ever had a ceiling,
   and applying your current one could delete most of its atmosphere in a day. Use
-  `terraform ceiling <kPa> confirm` to set it for the world you are playing; the prompt tells you the
-  planet's pressure now and how much air the first tick would delete.
-- **New: `terraform ceiling <kPa> confirm`.** Sets the ceiling for the world you are playing and no
-  other. `terraform ceiling` on its own reports the one in force. Host only.
-- The config's pressure ceiling is now what a **new** world starts with, rather than something that
-  reaches into worlds that already exist.
+  `terraform set MaxPressureKPa <kPa> confirm` to set it for the world you are playing; the prompt
+  tells you the planet's pressure now and how much air the first tick would delete.
+- **New: `terraform set <key> <value>`.** Changes a setting for the world you are playing and no
+  other, under the same key the config uses. `terraform set` alone lists them all. A change that
+  deletes something for good asks first: setting or lowering the pressure ceiling, lowering the added
+  heat limit, and making added heat fade sooner. Host only.
+- `Sky follows the air` and the pressure ceiling no longer need a restart: the config only decides
+  what a new world starts with.
 - `terraform` reports which settings the world you are in is running on, and where they came from.
 - Rain and snow now fall on worlds that ship with no weather of their own, such as Mimas, once you
   have given them enough air for clouds to fill. This was already possible and off by default; it is
-  now on. **Changing a default only reaches new installs**: BepInEx writes your config file the first
+  now on. The game saves no weather at all on such a world, so rain that is due or falling when you
+  save is gone when you load; the water it came from is already back in the air, so nothing is lost. **Changing a default only reaches new installs**: BepInEx writes your config file the first
   time it runs, so an existing config keeps the old value until you change it yourself.
 - Building into an occupied outdoor cell, and a cloud filling while other weather is already running,
   are both now covered by tests that can fail: each has a run that reproduces the defect with the fix

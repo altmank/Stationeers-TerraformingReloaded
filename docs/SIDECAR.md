@@ -8,6 +8,10 @@ One global config decides how a particular world behaves. Tune a setting for a n
 one, and that older world changes or is damaged. `MaxPressureKPa` is the worst case: it deletes air
 above the ceiling for good and saves the loss.
 
+So every setting that affects a world lives in that world's own file. The config decides what a new
+world starts with, and fills in anything a world's file does not record. It never reaches a world
+being played. A world's own settings change only through the console, with `terraform set`.
+
 `PlanetSize` is already safe, but by accident. The game persists the planet's tank volume, so the
 per-world value comes back for free. Nothing else has a carrier like that.
 
@@ -25,6 +29,17 @@ per-world value comes back for free. Nothing else has a carrier like that.
   <GhgResponseScale>1</GhgResponseScale>
   <DensityResponseScale>1</DensityResponseScale>
   <AirlessAlbedo>0.3</AirlessAlbedo>
+  <DynamicSky>true</DynamicSky>
+  <WeatherOnWeatherlessWorlds>true</WeatherOnWeatherlessWorlds>
+  <StormsStopWhenStripped>true</StormsStopWhenStripped>
+  <StrippedAtmosphereShare>5</StrippedAtmosphereShare>
+  <StormsStopWhenAtmosphereIsMild>true</StormsStopWhenAtmosphereIsMild>
+  <MildAtmosphereColdestKelvin>263.15</MildAtmosphereColdestKelvin>
+  <MildAtmosphereHottestKelvin>323.15</MildAtmosphereHottestKelvin>
+  <MildAtmosphereMinPressureKpa>20</MildAtmosphereMinPressureKpa>
+  <MildAtmosphereMaxPressureKpa>607.95</MildAtmosphereMaxPressureKpa>
+  <MildAtmosphereMaxToxinsKpa>1</MildAtmosphereMaxToxinsKpa>
+  <MildAtmosphereStopsSolarStorms>false</MildAtmosphereStopsSolarStorms>
 </TerraformingReloaded>
 ```
 
@@ -41,9 +56,9 @@ attribute that one lacks.
 
 ## Every field is nullable
 
-`double?` today, `bool?` from the first version bump: three of the nine storm settings are booleans.
-The rule is **every field is nullable**, not every field is a `double?`. Both shapes round-trip
-identically through `XmlSerializer`. The file is always written whole.
+`double?` for a number, `bool?` for a switch. The rule is **every field is nullable**. Both shapes
+round-trip identically through `XmlSerializer`, and the self-test checks that a recorded `false`
+comes back as `false` rather than as an absence. The file is always written whole.
 
 - **Absent** means the schema version that wrote it did not know about the field. Fall back.
 - **Present** means recorded, use it.
@@ -51,7 +66,7 @@ identically through `XmlSerializer`. The file is always written whole.
 
 Because the file is always written whole, absence only ever means a version gap. That keeps "the
 player meant zero" and "this version did not have the field" apart without `FieldSpecified`
-companions, and it makes migration free: a v2 field is simply absent in a v1 file.
+companions, and it makes a later field free to add: it is simply absent in an earlier file.
 
 `XmlSerializer` cannot tell an absent element from `xsi:nil`, and it does not need to: inside one
 schema version all its fields are always written, so for the two fields the config flags with 0 a
@@ -93,7 +108,7 @@ built, while on a load both do.
 - **Write, new world**: postfix on `SaveHelper.CreateSaveDirectory`, the one place a world folder is born.
 - **Write, a loaded world with no file**: inside the read prefix, into the folder that already exists.
   `CreateSaveDirectory` never fires on a load, so this is the only place that case can be handled.
-- **Write, a setting changed**: the console command, or a live config edit (see below).
+- **Write, a setting changed**: `terraform set`, and nothing else.
 - **Leaving a world**: postfix on `PlanetaryAtmosphereSimulation.Clear`, which the game's own
   teardown calls. Back to the config, ceiling off. Without it the values in force at the main menu
   are the last world played, and `Climate.TemperaturePostfix` gates on `Settings.Enabled` rather than
@@ -107,22 +122,16 @@ the config editor moves a slider, and overwriting it would make the editor show 
 in force and would need restoring on leaving a world. The effective values are assigned whole at
 every world start, so there is nothing to restore.
 
-**A live config edit, while a world is in play, writes through.** It updates the values in force and
-marks the file dirty, debounced so a dragged slider does not write sixty times a second. Without this
-the three response scales would silently stop being "takes effect at once", which is what the config
-editor and `docs/SETTINGS.md` both promise. `MaxPressureKPa` is exempt: it is restart-flagged, so its
-apply never fires mid-game, and it moves only by the console command.
+**A config edit never reaches a world being played.** LaunchPad has no save-scoped config: its
+profiles decide which mods are enabled, and every config path it has is the global BepInEx one. So
+the config editor sets what a new world starts with and nothing more. While no world is being played
+the values in force follow the config, so the new-world screen's readouts match what the player is
+setting up. In a world, the config is not read at all until the next world starts.
 
-**Each config entry assigns its own value and nothing else.** Each apply is a per-setting lambda that
-already has the value, so it hands that one assignment in. Copying the whole config across on any
-change would have meant nudging the albedo slider put the other four back to the config in a world
-whose file recorded different ones, and written that into the world's file within a second, which is
-the exact bug the feature exists to remove.
-
-**That assignment runs under the tank lock.** `Guards.Settle` reads the fade half-life on the tick
+**`terraform set` assigns under the tank lock.** `Guards.Settle` reads the fade half-life on the tick
 thread, and a `Nullable<double>` is two non-atomic writes, so an unlocked change can be read half
-done: a torn read gives a world a fade at the moment the player asked for none. The console path was
-locked for this reason; so is this one.
+done: a torn read gives a world a fade at the moment the player asked for none. The write to disk
+happens after the lock is released, so a slow disk cannot stall the planet tick.
 
 Resolve the folder as the game does: `StationSaveUtils.GetSavePathSavesSubDir()` joined with
 `XmlSaveLoad.Instance.CurrentStationName`. Not `CurrentWorldSave.RootDir`, which is a temp extraction
@@ -147,7 +156,7 @@ replaced, and four of the reasons a file is unreadable say nothing about which f
 
 **A loaded world's pressure ceiling comes only from its own file.** Two paths may produce a non-null
 ceiling and no others: a sidecar read successfully for the world now loaded, and the
-`terraform ceiling <kPa> confirm` verb, which is a deliberate act on a world that has a file.
+`terraform set MaxPressureKPa <kPa> confirm`, which is a deliberate act on a world that has a file.
 
 Everything else sets it to null: a missing file, an unreadable one, a future version, the read
 throwing, the self-test having disabled the sidecar, a station name whose folder did not resolve, a
@@ -194,7 +203,7 @@ Inferring it from whether a name or a folder is set does not work. `FileCommand.
 `LoadGameCommand.NewGameTask` call `World.StartNewWorld` without `XmlSaveLoad.ClearAll()` first, so a
 world started from the console carries the previous world's `CurrentStationName`, which resolves to
 the previous world's folder. That world would read another world's settings, and until `NewSave`
-fires a `terraform ceiling ... confirm` would write into the other world's file. The menu path does
+fires a `terraform set ... confirm` would write into the other world's file. The menu path does
 clear it (`GameManager.ClearGameAll` calls `ClearAll`), which is why this is easy to miss.
 
 The flag is an optional patch, and that is safe: without it every world start reads as a load, so a
@@ -213,8 +222,8 @@ one declaration (`Limits` in `src/Settings.cs`) that `Plugin.BindConfig` also bu
 `AcceptableValueRange` from, so the two cannot drift. Values that are not finite are refused too.
 
 **A field that fails is treated as not recorded**, which is already what the file means by a field
-the version that wrote it did not know: `MaxPressureKPa` becomes null, the other five fall back to
-the config. One log line names the path and every field it refused, with the value and the range.
+the version that wrote it did not know: `MaxPressureKPa` becomes null, the rest fall back to the
+config. One log line names the path and every field it refused, with the value and the range.
 
 For the two fields the config flags with 0, the file's range excludes 0: in the file that state is an
 absent element, so a 0 there is the config's sentinel leaking through a hand edit and is out of range
@@ -248,61 +257,35 @@ Without that rule the fallback would cause the damage it exists to prevent: a pl
 100 kPa ceiling for a new world and then loads an old Venus at 9,000 kPa would have 99% of its
 atmosphere deleted over the next in-game day, permanently.
 
-The way back is a console command, `terraform ceiling <kPa> confirm`, following the pattern
+The way back is `terraform set MaxPressureKPa <kPa> confirm`, following the pattern
 `terraform size <share> confirm` already set: refuse on a client, require `confirm`, and name the
 pressure the planet is at and the share of air at stake in the prompt.
 
 ## Which settings are world-scoped
 
+Every setting that affects a world. The tier decides whether `terraform set` asks before it acts, and
+what a missing or unreadable file falls back to.
+
 | Setting | Tier | Why |
 | --- | --- | --- |
-| `MaxPressureKPa` | destroys | Scales the whole tank down every tick it is over the cap. The moles are gone and the reduced tank is saved |
-| `MaxExternalOffsetKelvin` | destroys | The clamped value is written back into a saved energy counter, so lowering it permanently deletes banked heat |
-| `ExternalHeatHalfLifeMinutes` | destroys, lesser | Also writes to a saved counter. Fading is intended, but a shorter half-life changes a world's equilibrium for good |
+| `MaxPressureKPa` | destroys | Scales the whole tank down every tick it is over the cap. The moles are gone and the reduced tank is saved. `terraform set` asks before setting or lowering one |
+| `MaxExternalOffsetKelvin` | destroys | The clamped value is written back into a saved energy counter, so lowering it permanently deletes banked heat. `terraform set` asks before lowering it |
+| `ExternalHeatHalfLifeMinutes` | destroys, lesser | Also writes to a saved counter. Fading is intended, but a shorter half-life changes a world's equilibrium for good. `terraform set` asks before shortening it |
 | `GhgResponseScale` | reversible | Read-time only, but the temperature it produces drives phase change, and cap contents are saved. Set it back and the matter comes back |
 | `DensityResponseScale` | reversible | Same |
 | `AirlessAlbedo` | reversible | Same, and narrower: it only feeds the airless base, so only the Moon and Mimas |
+| `DynamicSky` | reversible | Only how the sky is drawn. Switched off mid-game, the sky keeps the look it has until the world is loaded again, because the game only sets it from the world's data at a world start |
+| `WeatherOnWeatherlessWorlds` | reversible | Decides whether a full cloud may rain or snow. The cloud has already emptied into the air either way |
+| The nine `Storms` settings | reversible | Decide whether a storm is scheduled. Suppressing one writes nothing the save carries: `WeatherManager.CreateSaveData` then holds "no event, and a cooldown long past", the state the unmodded game sits in between storms. Turning a rule back on schedules exactly one storm, then the world's own cadence resumes |
 
-Not world-scoped: `Enabled`, `DynamicSky`, `SyncIntervalSeconds`, `StatusLogSeconds`,
-`WeatherOnWeatherlessWorlds`, `PlanetSize`, `CustomPlanetSize`, and all nine `Storms` settings.
+Not world-scoped:
 
-### The nine `Storms` settings: settled, global, no schema v2
-
-Now that the rules are built the question can be answered, and the answer is that none of the nine
-belongs in a world's file. **The schema stays at version 1.**
-
-The tier rule above decides it: *a setting that destroys state is world-scoped; a setting that only
-changes behaviour is not*. All nine only change behaviour, and the evidence is what suppression
-actually touches.
-
-- **Suppressing an event writes nothing.** The rules answer `CanScheduleWeatherEvent` and turn away
-  the argument to `ScheduleWeatherEvent`. Neither call has a side effect the save carries. What the
-  game persists about weather is `WeatherManager.CreateSaveData`: the current event's id, days since
-  the last one, whether one is running or scheduled, its length and start offset, and the last
-  cooldown. A suppressed world saves "no event, and a cooldown long past" — which is the state the
-  unmodded game sits in between storms anyway.
-- **Turning a rule back on costs nothing and loses nothing.** The event cooldown is already satisfied,
-  so exactly one storm schedules at once and the world's own three-to-twelve-day cadence resumes from
-  it. There is no burst and no debt. Contrast `MaxExternalOffsetKelvin`, which writes its clamp back
-  into a saved energy counter, and `MaxPressureKPa`, which deletes moles.
-- **Nothing downstream of a storm is saved either.** A storm's temperature offset is read from the
-  event every time it is needed rather than banked (`GlobalGasMix.GetGlobalGasMixTemperature`), and
-  its `SolarRatio` is read the same way by `GetSolarRatioAt`. Rain and snow are not touched at all.
-- **`WeatherOnWeatherlessWorlds` is the precedent.** It also decides whether an event is scheduled,
-  it has always been global, and nothing about it has ever needed a world's file.
-
-**`MildAtmosphereStopsSolarStorms`, looked at on its own**, because it is the one with a power
-consequence. `Data/weather.xml` gives both solar storms a `SolarRatio` of 4, so while one runs a
-solar panel makes four times its normal power. Suppressing one denies a player that windfall. But
-power is made and spent in the moment: nothing about it is written to the save, so a suppressed solar
-storm is indistinguishable, afterwards, from a quiet week. Turn the setting off and the next one
-arrives. It is behaviour, not state, and it is off by default in any case.
-
-**What is given up, said plainly.** A player running several worlds at different stages cannot have
-storms on a raw Vulcan and off on a finished Mars: the settings are one set for all of them. That is
-a preference, not damage, and this file exists to stop one world's settings damaging another, not to
-be a per-world preferences store. If it is ever wanted, it is a clean v2: nine nullable fields, the
-same absent-means-a-version-gap rule, and no migration work beyond the version bump.
+- `Enabled`, the master switch. Off means nothing is patched at all, which is also the way out if a
+  game update breaks the mod, so it has to be decided before any world exists.
+- `SyncIntervalSeconds` and `StatusLogSeconds`. How often this machine sends packets and writes its
+  log say nothing about a planet.
+- `PlanetSize` and `CustomPlanetSize`. The game already saves the planet's size inside the world, and
+  `terraform size <share> confirm` changes it.
 
 ## Not an in-save block
 
@@ -341,9 +324,18 @@ no file, a file that is not XML, a world with no name, a folder that moved, a fi
 this build does not understand, and one read after the session has stood down.
 
 Then a control, because "the ceiling was off" is worth nothing if the rule never runs:
-`terraform ceiling 0.5 confirm`, the one way a loaded world may acquire one. It deleted 83.3 % of the
+`terraform set MaxPressureKPa 0.5 confirm`, the one way a loaded world may acquire one. It deleted 83.3 % of the
 planet in two ticks. Through all nineteen refused files before it, the planet held
 2,379,749.934 mol and varied by 0.000.
+
+`tools\LiveCheck\run.ps1 -Sessions` plays several worlds in one game session, switching with the
+console's own `file start`, because both transition bugs found so far were state carried from one
+world into the next. World A is created and changed with `terraform set`; lowering the heat limit has
+to ask first, a value that is not on or off and an unknown key have to be refused. Then the config is
+changed the way the config editor changes it, through the BepInEx entry. World B is created and has
+to start from the new config; A, loaded again, has to still have what `terraform set` gave it; B,
+loaded again, has to still have what it started with. At every step the values in force and the
+values in the file are both read and compared.
 
 ## Known limits
 
@@ -354,9 +346,10 @@ launch and exit, so the sidecar and the save move together.
 you get the current snapshot, not the one in force when that autosave was written. The alternative is
 per-save sidecars, which delete saves.
 
-**A host and a client can read different outdoor temperatures.** The client skips the file, but it
-still evaluates the three response scales locally for its own readout. Today both sides read the same
-global config and agree; afterwards a host with a sidecar and a client on defaults will not. The
+**A host and a client can read different outdoor temperatures.** The client skips the file and runs
+on its own config for anything it works out locally: the three response scales for its temperature
+readout, and whether its own sky follows the air. A host with a world file and a client on its config
+can therefore disagree. The
 planet state itself is synced and unaffected. Fixing it means a new message kind in `Sync` carrying
 the three values, so an older client ignores rather than misreads it.
 

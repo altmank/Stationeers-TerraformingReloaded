@@ -85,7 +85,9 @@ more: the hot-world treatment above applies only to the mod's filled-in response
   world whose nights are colder than that cannot hold CO2 in its starting air either.
 - **A world that both declares a storm and ships a mild atmosphere loses that storm straight away.**
   A mild atmosphere stops a world's own storms, and a world whose starting air is already temperate,
-  thick and clean qualifies on turn one. Turn off *Mild air stops storms* in the config to keep it.
+  thick and clean qualifies on turn one. A player keeps it by turning off *Mild air stops storms*
+  in the config before creating the world, or with `terraform set StormsStopWhenAtmosphereIsMild off`
+  once it exists.
   Stripping does not have this problem: an untouched world is at 100 % of its own starting air, so
   that rule never fires until a player removes something.
 

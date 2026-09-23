@@ -116,16 +116,17 @@ reads only. `Gate.Describe()` says which condition is false, for the status read
 | Pressure ceiling off by default | It was the old mod's behaviour, not the game's |
 | `terraform reset` needs `confirm` | It cannot be undone except by loading an earlier save |
 | A loaded world's pressure ceiling comes only from its own file, never from the config | It is the one setting that deletes rather than changes. Every other path sets it off, so a bug in the read path costs a player nothing. Enforced by a private field behind three named mutators, and pinned by `tools/ci/check_repo.py` |
-| The storm rules read `Settings`, not `Effective` | Suppressing an event writes nothing a save carries, so none of the nine is world-scoped: turning a rule back on schedules one storm at once and resumes the world's own cadence (SIDECAR.md) |
 | `CanScheduleWeatherEvent` is hooked as well as `ScheduleWeatherEvent` | The game evaluates `GetNextWeatherEvent()` as the argument to the second, so turning the pick away there still rolls a shared static `Random` about sixty times a second, for ever, on a world that will never get a storm |
 | The scheduler's predicate is only answered when EVERY event a world ships is suppressed | Stripping never stops a solar storm. On a world with one of each, answering it would stop the solar storm too; the pick is turned away instead, at the cost of a roll per frame |
 | The day forecast is cached on the air, and the two heat offsets are added back every tick | The sweep is 37 evaluations of the game's temperature formula. Latent and external heat are the same at every angle, so they come out of the cached figures and go back in fresh; the orbit and a running storm move it too, so the cache is keyed on those as well |
 | Settings a world owns are read from `Effective`, not `Settings` | `Settings` is the config and BepInEx writes it whenever a slider moves. Overwriting it would show numbers in the editor that are not in force, and would need restoring when a world is left |
+| Every setting that affects a world is world-scoped, and the config never reaches a world in play | LaunchPad has no save-scoped config, so the config can only mean one thing for every world. It decides what a new world starts with; `terraform set` changes the world being played. `Enabled` is the exception, because off means nothing is patched at all |
+| The sky patch is always installed and asks `Gate.SkyEnabled` every frame | Whether the sky follows the air is per world, so it cannot be decided when patches are applied at startup |
 | Status logging runs from `Update`, not the tick | It must still report when the simulation is paused or the planet is off, which is when it is needed |
 
 ## Console
 
-`terraform` (status), `terraform size <share> confirm`, `terraform ceiling <kPa> confirm`,
+`terraform` (status), `terraform set [<key> [<value> [confirm]]]`, `terraform size <share> confirm`,
 `terraform reset confirm`,
 `terraform curves export`, `terraform curves reload`. Status totals are read off the simulation
 thread and so lag a tick while gas is moving. The rescale takes the tank lock, so it cannot

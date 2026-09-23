@@ -39,7 +39,9 @@ built-in curves, delete the file and reload.
 If the file cannot be read, the mod says so in the log and uses the built-in curves.
 
 For a stronger or weaker response you do not need this file at all: the
-**Greenhouse strength** and **Air density strength** settings in the mod's config apply at once.
+**Greenhouse strength** and **Air density strength** settings do it. The config sets what a new
+world starts with; for the world you are playing, use `terraform set GhgResponseScale <value>` or
+`terraform set DensityResponseScale <value>` at the console. Either applies at once.
 Greenhouse strength multiplies the greenhouse response (on Venus and Vulcan only its cooling side,
 see below). Air density strength sets how quickly thickening air evens out day and night: 0 is off,
 above 1 it bites sooner, and air thick enough to end the swing ends it at any strength.

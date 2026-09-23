@@ -142,7 +142,8 @@ F3 opens the console.
 | --- | --- |
 | `terraform` | Whether the mod is live and why not if it is not, the self-test result, planet pressure and temperature, how many kelvin the mod is adding, gases per outdoor cell, and what the clouds and the ice caps are holding |
 | `terraform size <share> confirm` | Rescales the planet you are playing to that share of the size the world ships at, which changes how long terraforming takes and nothing else. Prints the size, cells, moles and pressure before and after. Host only. `terraform size <share>` alone explains and asks |
-| `terraform ceiling <kPa> confirm` | Sets the pressure ceiling for the world you are playing, which no other world shares. 0 means no ceiling. **Destructive when it bites**: the prompt names the planet's pressure now and how much air the first tick would delete. Host only. `terraform ceiling` alone reports the ceiling in force |
+| `terraform set` | Lists the settings the world you are playing keeps for itself, with the value in force and, where it differs, what a new world would start with. Host only |
+| `terraform set <key> <value>` | Changes one of them for this world only, and records it beside the save. Uses the same key names as the config. A change that deletes something for good asks first and needs `confirm` on the end: setting or lowering the pressure ceiling (the prompt names the planet's pressure now and how much air the first tick would delete), lowering the added heat limit, and making added heat fade sooner. Host only. `terraform set <key>` alone reports the one in force |
 | `terraform reset confirm` | Puts the whole planet back exactly as the world ships: starting air, empty clouds and ice caps, no stored heat. Host only. `terraform reset` alone explains and asks |
 | `terraform curves export` | Writes the built-in temperature curves to `BepInEx\config\TerraformingReloaded.curves.xml`. Never overwrites |
 | `terraform curves reload` | Applies that file at once, no restart |
@@ -175,8 +176,12 @@ Clients without it can still join; they miss the changed outdoor readings and sk
 ## Config
 
 Every setting shows in the StationeersLaunchPad config editor with a label and a range, and is
-also in `BepInEx/config/xceled.stationeers.terraformingreloaded.cfg`. All apply at once except
-those marked as needing a restart.
+also in `BepInEx/config/xceled.stationeers.terraformingreloaded.cfg`.
+
+**The config sets what a new world starts with.** Every setting that affects a world is then kept
+by that world, in its own file, and changing the config does not reach a world you have already
+made. To change the world you are playing, use `terraform set` at the console. The exceptions are
+`Enabled`, which needs a restart, and the multiplayer and diagnostics settings, which apply at once.
 
 **[docs/SETTINGS.md](docs/SETTINGS.md) is the full list**, generated from the source, with every
 key, its label, its description and its default.
@@ -185,13 +190,10 @@ The few worth knowing before you start:
 
 - **`PlanetSize`** decides how long terraforming takes and nothing else. See Pace above.
 - **`MaxPressureKPa`** is **destructive**. 0 means no ceiling, which is the default. Set it, and air
-  above it is deleted for good at the planet's hottest hour, and the loss is saved. It sets what a
-  **new** world starts with; each world then keeps its own, and `terraform ceiling <kPa> confirm`
-  changes the one you are playing. A world made before this version loads with no ceiling whatever
-  the config says, deliberately, so that tuning one save can never eat another.
-- **Six settings belong to a world rather than to your config**: the pressure ceiling, both response
-  strengths, the airless reflectivity and both heat settings. Change one while playing and it takes
-  effect at once and is recorded for that world only.
+  above it is deleted for good at the planet's hottest hour, and the loss is saved.
+  `terraform set MaxPressureKPa <kPa> confirm` changes the one you are playing. A world made before
+  this version loads with no ceiling whatever the config says, deliberately, so that tuning one save
+  can never eat another. Every other setting a world did not record is taken from the config.
 - **`GhgResponseScale`** and **`DensityResponseScale`** tune the temperature response on worlds that
   ship without their own curves. To reshape it rather than scale it, see [CURVES.md](CURVES.md),
   which also ships in the mod's folder.

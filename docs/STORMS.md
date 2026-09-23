@@ -418,9 +418,11 @@ built, so it must not ship before the feature does. *Both now ship in 0.10.0, so
 | Checking the game still counts the same five gases as toxic | `SelfTest.CheckToxinList`, called from `Patcher` |
 | The live test | `tools/LiveCheck/run.ps1 -Schedule`, and `-Orbit <degrees> -OrbitTick <n>` for the other scenarios |
 
-The nine settings are **global, not world-scoped**, and the per-world file stays at schema version 1.
-Suppressing an event writes nothing a save carries, so turning a rule back on schedules one storm at
-once and resumes the world's own cadence. The evidence is in SIDECAR.md, *The nine `Storms` settings*.
+The nine settings are world-scoped, like every setting that affects a world: each world keeps its
+own copy, the config only decides what a new world starts with, and `terraform set` changes the world
+being played. None of them asks before it acts. Suppressing an event writes nothing a save carries,
+so turning a rule back on schedules one storm at once and resumes the world's own cadence
+(SIDECAR.md, *Which settings are world-scoped*).
 
 ## Three things the specification did not say, and two it got wrong
 
