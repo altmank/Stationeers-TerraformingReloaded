@@ -51,7 +51,9 @@
   taken out.
 - Fixed: on a custom world whose planet declares no volume, the mod stood down correctly but said so
   three different wrong ways, one of them printing a pressure of NaN.
-- Fixed: choosing a planet-size preset overwrote a custom size you had typed, and saved it over yours.
+- **Custom planet size shows each preset's size**, greyed out, so you can see what Short, Standard, Long and
+  Unmodded mean. It is only used when Planet size is Custom, and a size you typed there comes back when
+  you choose Custom again.
 
 ## 0.9.1
 
