@@ -215,6 +215,12 @@ namespace TerraformingReloaded.LiveCheck
         // scheduled or falling at a save is gone after the load. Phase 1 fills a cloud, lets the
         // planet tick schedule the rain for real, and saves; phase 2 loads and reads what came back.
         private static readonly string RainSave = Environment.GetEnvironmentVariable("TR_LIVECHECK_RAINSAVE") ?? "";
+
+        // A world made by the previous release, loaded by this one: what it takes from the config,
+        // what it refuses to take, what file it writes, and whether the planet keeps its air.
+        private static readonly bool Upgrade = Environment.GetEnvironmentVariable("TR_LIVECHECK_UPGRADE") == "1";
+        private int _upgradeStep;
+        private bool _upgradeDone;
         private int _rainStep;
         private bool _rainDone;
         private int _sessionStep;
@@ -363,6 +369,10 @@ namespace TerraformingReloaded.LiveCheck
             if (RainSave.Length > 0 && !_rainDone && GameManager.GameTickCount >= 15)
             {
                 RainSaveStep();
+            }
+            if (Upgrade && !_upgradeDone)
+            {
+                UpgradeStep();
             }
             if (!_statusAgain && StatusAgainTick > 0 && GameManager.GameTickCount >= StatusAgainTick)
             {
@@ -1192,6 +1202,73 @@ namespace TerraformingReloaded.LiveCheck
             }
         }
 
+        /// <summary>
+        /// Readings at tick 5, 20 and 60 of the loaded world. Five is as early as the planet has
+        /// ticked; sixty is long enough for a ceiling that was wrongly let through to have cut the
+        /// planet many times over, since the rule cuts on every tick it is over.
+        /// </summary>
+        private void UpgradeStep()
+        {
+            uint[] at = { 5, 20, 60 };
+            if (_upgradeStep >= at.Length || GameManager.GameTickCount < at[_upgradeStep])
+            {
+                return;
+            }
+            if (WorldManager.IsGamePaused)
+            {
+                WorldManager.SetGamePause(pauseGame: false);
+            }
+            // Also run against the earlier release as a control, which has no Sidecar or Effective,
+            // so everything that belongs to this build is looked up rather than assumed.
+            Type sidecar = AccessTools.TypeByName("TerraformingReloaded.Patching.Sidecar");
+            string path = sidecar != null ? AccessTools.Property(sidecar, "FilePath")?.GetValue(null, null) as string : null;
+            string text = path != null && File.Exists(path) ? File.ReadAllText(path) : "";
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            double inTank = tank?.TotalQuantity().ToDouble() ?? double.NaN;
+            double inReservoirs = 0.0;
+            foreach (string field in new[] { "_liquidClouds", "_iceClouds", "_iceCaps" })
+            {
+                inReservoirs += (AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), field)?.GetValue(null) as GlobalGasMix)?.TotalQuantity().ToDouble() ?? 0.0;
+            }
+            double store = inTank + inReservoirs;
+            // Outdoor cells too: the world was saved with gas spread over them, and it drains back
+            // into the tank after the load, so tank and reservoirs alone would read that as a gain.
+            double cells = 0.0;
+            AtmosphericsManager.AllAtmospheres.ForEach((Action<Atmosphere>)(a =>
+            {
+                if (a != null && a.Mode == AtmosphereHelper.AtmosphereMode.World)
+                {
+                    cells += a.GasMixture.GetTotalMolesGassesAndLiquids.ToDouble();
+                }
+            }));
+            store += cells;
+            double shipped = WorldSetting.Current?.Data?.GlobalAtmosphereData?.Volume?.Value ?? double.NaN;
+            BepInEx.Configuration.ConfigFile config = ModConfig();
+            config.TryGetEntry("Pace", "CustomPlanetSizeTyped", out BepInEx.Configuration.ConfigEntry<double> typed);
+            config.TryGetEntry("Climate", "MaxPressureKPa", out BepInEx.Configuration.ConfigEntry<double> configCeiling);
+            Func<string, string> effective = member => EffectiveType != null ? EffectiveShown(member) : "n/a";
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: upgrade parts tick{0} | tank {1:R} | reservoirs {2:R} | outdoor {3:R}",
+                at[_upgradeStep], inTank, inReservoirs, cells));
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: upgrade tick{0} | ceiling {1} | configceiling {2} | ghg {3} | limitK {4} | stripped {5} | size {6:0.####} | typed {7} | store {8:R} | pressure {9:0.###} | fileceiling {10} | fileghg {11} | filelimitK {12} | filestripped {13} | file {14}",
+                at[_upgradeStep], effective("MaxPressureKPa"), configCeiling != null ? Shown(configCeiling.Value) : "absent",
+                effective("GhgResponseScale"), effective("MaxExternalOffsetKelvin"), effective("StormsStopWhenStripped"),
+                tank != null ? tank.Volume.ToDouble() / shipped : double.NaN,
+                typed != null ? Shown(typed.Value) : "absent", store, PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble(),
+                Element(text, "MaxPressureKPa"), Element(text, "GhgResponseScale"), Element(text, "MaxExternalOffsetKelvin"),
+                Element(text, "StormsStopWhenStripped"), path ?? "none"));
+            if (_upgradeStep == 0)
+            {
+                RunCommand("status");
+            }
+            if (++_upgradeStep >= at.Length)
+            {
+                _upgradeDone = true;
+                Logger.LogInfo("LiveCheck: upgrade done");
+            }
+        }
+
         private void RainSaveStep()
         {
             if (WorldManager.IsGamePaused)
@@ -1365,7 +1442,11 @@ namespace TerraformingReloaded.LiveCheck
         private static string Element(string xml, string name)
         {
             System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(xml, "<" + name + ">([^<]*)</" + name + ">");
-            return m.Success ? m.Groups[1].Value : "absent";
+            if (m.Success)
+            {
+                return m.Groups[1].Value;
+            }
+            return System.Text.RegularExpressions.Regex.IsMatch(xml, "<" + name + " xsi:nil=\"true\"\\s*/>") ? "nil" : "absent";
         }
 
         private static Type StormsType => AccessTools.TypeByName("TerraformingReloaded.Patching.Storms");

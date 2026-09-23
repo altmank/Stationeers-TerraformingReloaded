@@ -25,6 +25,12 @@
                lets the planet tick empty it into the air and schedule rain for real, saves, then
                loads that save in a fresh instance. The game saves no weather state on such a
                world, so the rain is expected to be gone; what must not change is the planet's gas.
+    -Upgrade -OldRoot <checkout>  A world made by an earlier release, loaded by this one. Builds the
+               mod in <checkout> (a git worktree of the earlier tag), makes a Mars world with it under
+               a tuned config and no ceiling, saves, then sets the config's ceiling to 0.5 kPa, the
+               damage case, and loads the world with this build. The world must take everything but
+               the ceiling from the config, refuse the ceiling, write its own settings file, and keep
+               every mole. The mod's config file is restored byte for byte afterwards.
     -SaveLoad  Same injection, then save while the gas is spread over thousands of outdoor cells,
                stop, load that save in a fresh instance. The total after the load must equal the
                total at the save. The game's loader rebuilds every saved outdoor cell by cloning
@@ -139,6 +145,10 @@ param(
     [switch]$Sidecar,
     [switch]$Sessions,
     [switch]$RainSave,
+    [switch]$Upgrade,
+    [switch]$Control,
+    [double]$UpgradeCeiling = 0.5,
+    [string]$OldRoot = '',
     [switch]$Reset,
     [string]$Dump,
     [switch]$Observe,
@@ -185,7 +195,8 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
-if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld and -Strip.' }
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Upgrade, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Upgrade, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld and -Strip.' }
+if ($Upgrade -and -not (Test-Path (Join-Path $OldRoot 'src\TerraformingReloaded.csproj'))) { throw '-Upgrade needs -OldRoot, a checkout of the earlier release (git worktree add <dir> v0.9.1).' }
 if (($Orbit -ne 0) -and ($OrbitTick -le 0)) { throw '-Orbit needs -OrbitTick, the tick to move the season at.' }
 if (($OrbitTick -gt 0) -and ($Orbit -eq 0)) { throw '-OrbitTick needs -Orbit, how many degrees of the world orbit to move; 360 is a year.' }
 if ($Schedule -and ($Orbit -ne 0)) { throw '-Schedule walks the whole year itself and picks the two seasons it judges; -Orbit is for the other scenarios.' }
@@ -250,7 +261,7 @@ $envKeys = @(
     'TR_LIVECHECK_STRIP_TICK', 'TR_LIVECHECK_STRIP_TICKS', 'TR_LIVECHECK_STRIP_CELLS',
     'TR_LIVECHECK_STRIP_PER_CELL', 'TR_LIVECHECK_STRIP_FLOOR', 'TR_LIVECHECK_STRIP_SHARE',
     'TR_LIVECHECK_WALKCOST', 'TR_LIVECHECK_SIDECAR_TICK',
-    'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK', 'TR_LIVECHECK_SESSIONS', 'TR_LIVECHECK_RAINSAVE')
+    'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK', 'TR_LIVECHECK_SESSIONS', 'TR_LIVECHECK_RAINSAVE', 'TR_LIVECHECK_UPGRADE')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -966,6 +977,103 @@ try {
         if ([math]::Abs($vs.LatentJ) -gt 1.27e7) { $problems += 'latent heat is not near zero' }
         if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: after reset and mod removal, ' + ($problems -join '; ')) }
         Write-Host 'LiveCheck OK: the unmodded game finds a stock planet.'
+        return
+    }
+
+    if ($Upgrade) {
+        $station = 'trupgrade'
+        $modDir = Join-Path $mods 'TerraformingReloaded'
+        dotnet build (Join-Path $OldRoot 'src\TerraformingReloaded.csproj') -c Release -p:GameDir="$GameDir" --nologo -v quiet
+        if ($LASTEXITCODE -ne 0) { throw 'The earlier release did not build.' }
+        $oldVersion = ([regex]::Match((Get-Content (Join-Path $OldRoot 'About\About.xml') -Raw), '<Version>([^<]+)</Version>')).Groups[1].Value
+        Remove-Item (Join-Path $modDir '*') -Recurse -Force
+        New-Item -ItemType Directory -Path (Join-Path $modDir 'About') -Force | Out-Null
+        Copy-Item (Join-Path $OldRoot 'About\*') (Join-Path $modDir 'About')
+        Copy-Item (Join-Path $OldRoot 'src\bin\Release\TerraformingReloaded.dll') $modDir
+
+        # A config a player might have had: tuned, a custom size, no ceiling.
+        $tuned = "[Pace]`r`n`r`nPlanetSize = Custom`r`n`r`nCustomPlanetSize = 0.02`r`n`r`n[Climate]`r`n`r`nGhgResponseScale = 1.7`r`n`r`nMaxPressureKPa = 0`r`n`r`n[Heat]`r`n`r`nMaxExternalOffsetKelvin = 33`r`n"
+        [System.IO.File]::WriteAllText($configFile, $tuned)
+        $log = Invoke-Game @('-file', 'start', $station, 'Mars2') @{ TR_LIVECHECK_SAVE_AFTER_TICKS = '20' } `
+            { param($l) @($l -match 'LiveCheck: saving at tick').Count -gt 0 } "a world made with $oldVersion to be saved"
+        if (-not ($log -match "Terraforming Reloaded $([regex]::Escape($oldVersion))|Terraforming Reloaded\] Active:")) { throw "The $oldVersion mod did not load." }
+        Start-Sleep -Seconds 20
+        $log = @(Get-Content $bepLog)
+        Stop-Game
+        # The planet's total at the save: the last sample taken before the save was asked for, tank
+        # plus outdoor cells, which is what the save holds (Mars has no clouds or ice caps yet here).
+        $saveTick = [int](@($log -match 'LiveCheck: saving at tick')[0] -replace '.*saving at tick (\d+).*', '$1')
+        $atSave = @(Get-Rows $log | Where-Object { $_.Tick -le $saveTick }) | Select-Object -Last 1
+        Write-Host "--- phase 1: $oldVersion ---"
+        if ($atSave) { Write-Host ("  at the save, tick {0}: tank {1:N3} + outdoor cells {2:N3} = {3:N3} mol" -f $atSave.Tick, $atSave.Tank, $atSave.Held, $atSave.Sum) }
+        else { throw "$oldVersion logged no planet total before its save." }
+        $sidecarFile = Join-Path $GameDir "saves\$station\terraforming-reloaded.xml"
+        if (Test-Path $sidecarFile) { throw "$oldVersion wrote a settings file, so this is not an upgrade from a release without one." }
+
+        # The player then turns the ceiling on in the config, meaning it for a new world. Under the
+        # earlier release that reached every world; loaded by this one, the old world must refuse it.
+        $cfg = [System.IO.File]::ReadAllText($configFile)
+        if ($cfg -notmatch '(?m)^MaxPressureKPa = 0\r?$') { throw "$oldVersion did not keep the config's MaxPressureKPa = 0." }
+        $ceilingText = $UpgradeCeiling.ToString([cultureinfo]::InvariantCulture)
+        [System.IO.File]::WriteAllText($configFile, ($cfg -replace '(?m)^MaxPressureKPa = 0(\r?)$', ('MaxPressureKPa = ' + $ceilingText + '$1')))
+
+        # -Control loads the world with the earlier release again, to tell what the upgrade changes
+        # from what that release already did with its own save.
+        $phase2Root = if ($Control) { $OldRoot } else { $root }
+        Remove-Item (Join-Path $modDir '*') -Recurse -Force
+        New-Item -ItemType Directory -Path (Join-Path $modDir 'About') -Force | Out-Null
+        Copy-Item (Join-Path $phase2Root 'About\*') (Join-Path $modDir 'About')
+        Copy-Item (Join-Path $phase2Root 'src\bin\Release\TerraformingReloaded.dll') $modDir
+        $log2 = Invoke-Game @('-file', 'start', $station) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_UPGRADE = '1' } `
+            { param($l) @($l -match 'LiveCheck: upgrade done|LiveCheck stopped').Count -gt 0 } 'the same world to load with this build'
+        if (-not $Control) { Assert-ModLive $log2 }
+        if ($log2 -match 'LiveCheck stopped') { throw ('LiveCheck FAILED: ' + (@($log2 -match 'LiveCheck stopped')[0])) }
+
+        Write-Host ('--- phase 2: ' + $(if ($Control) { "$oldVersion again, the control" } else { 'this build' }) + ' ---')
+        @($log2 -match 'LiveCheck: upgrade parts') | ForEach-Object { '  ' + ($_ -replace '^.*LiveCheck: upgrade parts ', '') } | Write-Host
+        @($log2 -match 'Per-world settings') | ForEach-Object { '  ' + ($_ -replace '^\[[^\]]*\]\s*', '') } | Write-Host
+        $rows = @{}
+        foreach ($line in @($log2 -match 'LiveCheck: upgrade tick')) {
+            if ($line -match 'upgrade (tick\d+) \| ceiling (\S+) \| configceiling (\S+) \| ghg (\S+) \| limitK (\S+) \| stripped (\S+) \| size (\S+) \| typed (\S+) \| store (\S+) \| pressure (\S+) \| fileceiling (\S+) \| fileghg (\S+) \| filelimitK (\S+) \| filestripped (\S+) \| file (.*)$') {
+                $rows[$Matches[1]] = [pscustomobject]@{ Tick = $Matches[1]; Ceiling = $Matches[2]; ConfigCeiling = $Matches[3]; Ghg = $Matches[4]
+                    LimitK = $Matches[5]; Stripped = $Matches[6]; Size = $Matches[7]; Typed = $Matches[8]; Store = [double]$Matches[9]; Pressure = $Matches[10]
+                    FileCeiling = $Matches[11]; FileGhg = $Matches[12]; FileLimitK = $Matches[13]; FileStripped = $Matches[14]; File = $Matches[15].Trim() }
+            }
+        }
+        @('tick5', 'tick20', 'tick60') | ForEach-Object { $rows[$_] } | Where-Object { $_ } |
+            Format-Table Tick, Ceiling, ConfigCeiling, Ghg, LimitK, Stripped, Size, Typed, @{ n = 'store'; e = { '{0:N3}' -f $_.Store } }, Pressure, FileCeiling, FileGhg, FileLimitK, FileStripped -AutoSize |
+            Out-String -Width 220 | Write-Host
+        $status = @($log2 -match 'LiveCheck: cmd status -> ') | Select-Object -First 1
+        if ($status) { ($status -split ' / ') | Where-Object { $_ -match 'world settings|storms:|pressure ceiling' } | ForEach-Object { Write-Host ('  ' + $_.Trim()) } }
+
+        if ($Control) {
+            $first = $rows['tick5']; $last = $rows['tick60']
+            Write-Host ("control: planet store {0:N3} mol at the save, {1:N3} at tick 5 after the load, {2:N3} at tick 60; pressure {3} kPa" -f $atSave.Sum, $first.Store, $last.Store, $last.Pressure)
+            return
+        }
+        $problems = @()
+        foreach ($t in 'tick5', 'tick20', 'tick60') { if (-not $rows[$t]) { $problems += "no reading at $t" } }
+        if ($problems.Count -eq 0) {
+            $first = $rows['tick5']; $last = $rows['tick60']
+            if (-not (Test-Path $sidecarFile)) { $problems += 'this build did not write the world a settings file' }
+            if ([double]$first.ConfigCeiling -ne $UpgradeCeiling) { $problems += "the config was not asking for a $UpgradeCeiling kPa ceiling (it said $($first.ConfigCeiling))" }
+            foreach ($r in $first, $last) {
+                if ($r.Ceiling -ne 'none' -or $r.FileCeiling -ne 'nil') { $problems += "$($r.Tick): the old world took a ceiling ($($r.Ceiling), file $($r.FileCeiling))" }
+                if ($r.Ghg -ne '1.7' -or $r.FileGhg -ne '1.7') { $problems += "$($r.Tick): greenhouse strength is $($r.Ghg) (file $($r.FileGhg)), not the config's 1.7" }
+                if ($r.LimitK -ne '33' -or $r.FileLimitK -ne '33') { $problems += "$($r.Tick): heat limit is $($r.LimitK) (file $($r.FileLimitK)), not the config's 33" }
+                if ($r.Stripped -ne 'True' -or $r.FileStripped -ne 'true') { $problems += "$($r.Tick): a new storm setting did not take the config's default" }
+            }
+            if ([math]::Abs([double]$first.Size - 0.02) -gt 1e-6) { $problems += "the world is $($first.Size) of shipped, not the 0.02 it was made at" }
+            if ($first.Typed -ne '0.02') { $problems += "the custom size typed under $oldVersion came through as $($first.Typed), not 0.02" }
+            # Judged against the save, as -SaveLoad judges it. Tick 5 is printed but not judged: loaded
+            # outdoor cells read high for a few ticks while they settle, by the same amount under the
+            # earlier release (run with -Control -UpgradeCeiling 0), so it is not the upgrade's doing.
+            $drift = $last.Store - $atSave.Sum
+            Write-Host ("planet store {0:N3} mol at the save, {1:N3} at tick 5 after the load, {2:N3} at tick 60: {3:N3} mol against the save; pressure {4} kPa against a config ceiling of {5}" -f $atSave.Sum, $first.Store, $last.Store, $drift, $last.Pressure, $UpgradeCeiling)
+            if ([math]::Abs($drift) -gt $Tolerance) { $problems += "the planet's gas is $drift mol away from what was saved" }
+        }
+        if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: ' + ($problems -join '; ')) }
+        Write-Host "LiveCheck OK: a world made with $oldVersion loaded under this build took the config for everything but the ceiling, refused the $UpgradeCeiling kPa ceiling the config asked for (0 is none), recorded its own settings file, kept the custom size typed under $oldVersion, and kept every mole."
         return
     }
 
