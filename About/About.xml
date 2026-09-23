@@ -29,6 +29,7 @@ Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they 
 [*]Cold worlds warm in stages. Vent a gas that freezes at the temperature you have now and it just snows into the ice caps, doing nothing. So you start with a gas that stays airborne while it is still that cold, let it lift the planet a little, and that unlocks the next gas up. Everything that froze on the way is still there, and the caps hand it back as the planet warms.
 [*]The Moon and Mimas start with nothing. Their first air swings hard between day and night until it thickens.
 [*]Storms are milder on a world you have cooled.
+[*]Storms answer to what you have done. Take away most of a world's air, or make it temperate, thick and clean, and it stops getting its own storms. Solar storms keep coming unless you choose otherwise: on the Moon one is four times the usual solar power.
 [*]A world you have not touched reads exactly as it does without the mod.
 [*]Custom worlds work. WORLDS.md in the mod folder is for world authors.
 [/list]
@@ -57,6 +58,7 @@ Size changes nothing else about the world: the air, pressure and temperature you
 [h2]Console (F3)[/h2]
 [list]
 [*][b]terraform[/b] : pressure, temperature, gases, and whether the mod is running
+[*][b]terraform set[/b] : the settings the world you are playing keeps for itself. [b]terraform set &lt;key&gt; &lt;value&gt;[/b] changes one for this world only. One that deletes something for good asks first
 [*][b]terraform size &lt;share&gt; confirm[/b] : change how much air the planet holds, and so how long it takes. Pressure, mix and temperature stay where they are
 [*][b]terraform reset confirm[/b] : put the planet back as the world ships. Your base is untouched
 [*][b]terraform curves export[/b] / [b]reload[/b] : tune the temperature response. See CURVES.md
@@ -69,7 +71,7 @@ Your changed planet lives in the save, so deleting the mod does not undo it. Run
 [hr][/hr]
 [h2]Good to know[/h2]
 [list]
-[*]Settings are in the StationeersLaunchPad config editor and apply at once, except those marked as needing a restart.
+[*]The StationeersLaunchPad config editor sets what a new world starts with. Each world then keeps its own settings beside its save, so tuning one save never changes another. Change the world you are playing with [b]terraform set[/b].
 [*]The pressure ceiling deletes air permanently. Leave it at 0 unless you mean it.
 [*]Multiplayer: the host needs the mod. Clients without it can still join. Untested.
 [*]Tutorials are left alone.

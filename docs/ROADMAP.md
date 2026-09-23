@@ -5,8 +5,8 @@
 1. **Hold the model to the game.** `run.ps1 -Model` judges it and passes within 0.2 K on Venus,
    Vulcan, Europa mid-route, the Moon, Mimas with heat, ice caps melting back, a forced storm, and a gas
    cycling across its freeze threshold every night (TEMPERATURE.md). Still to run: Vulcan at
-   the near end of its orbit (the model says 320 K, 3 K inside the limit; needs a way to set the
-   orbit position).
+   the near end of its orbit (the model says 320 K, 3 K inside the limit). The harness can now move
+   the orbit (`-Orbit <degrees> -OrbitTick <n>`), so this is a run, not a missing tool.
 2. **Mimas's heat, as a player would make it.** Held at +25 K by the test driver, volatiles stay a
    gas: the mechanism works. Not shown: that a base venting warm gas reaches +25 K (BALANCE.md sizes
    it on paper). That is what decides whether 60 min and 50 K are the right defaults for
@@ -30,12 +30,17 @@
    time outside the test driver, -131.044 K to 273.04 K. Still not seen by a person: the sky, frame
    time in a large base (defect
    D10, and the temperature postfix recomputes the greenhouse index per call, ASSUMPTIONS.md M9),
-   rain and snow frequency on a small planet, and a session long enough, with `StatusLogSeconds`
-   set, to say what a real base moves per hour.
+   rain and snow frequency on a small planet, a world's storms stopping because a player stripped it
+   or made its air mild (the rules are proved headless by `-Schedule`, the states have never been
+   reached by play), and a session long enough, with `StatusLogSeconds` set, to say what a real
+   base moves per hour.
 7. **Test what has never run live.** D2 (build over an occupied outdoor cell), D6 (weather guard)
-   and a custom world are done, headless, 2026-09-21 (VERIFICATION.md). Left: the heat decay rate,
-   and multiplayer sync with and without the mod on the client, which needs a second machine.
-   The zero-volume custom world found three wrong lines in the readout on that path, D19.
+   and a custom world are done, headless, 2026-09-21; the storm scheduler, per-world settings and
+   several worlds in one session, 2026-09-22 (VERIFICATION.md). Left: the heat decay rate, and
+   multiplayer sync with and without the mod on the client, which needs a second machine. A client
+   runs on its own config for what it works out locally (SIDECAR.md, *Known limits*), and its storm
+   readout defers to the host; neither has been seen on a real client. The zero-volume custom world
+   found three wrong lines in the readout on that path, D19.
 
 ## Before 1.0
 
