@@ -14,9 +14,9 @@ namespace TerraformingReloaded
     /// <summary>Console command: what the planet holds and what the mod is doing about it.</summary>
     public sealed class TerraformCommand : CommandBase
     {
-        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'curves export' and 'curves reload' are for tuning the temperature response. 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'ceiling <kPa> confirm' sets the pressure ceiling for the planet you are playing, above which its air is deleted for good, and 0 means no ceiling (host only). 'reset confirm' puts the whole planet back as the world ships, which is also how to remove the mod cleanly (host only).";
+        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'set' lists the settings the world you are playing keeps for itself, and 'set <key> <value>' changes one for this world only; the config only decides what a new world starts with (host only). 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships, which is also how to remove the mod cleanly (host only). 'curves export' and 'curves reload' are for tuning the temperature response.";
 
-        public override string[] Arguments => new[] { "[status | size <share> confirm | ceiling <kPa> confirm | reset confirm | curves export | curves reload]" };
+        public override string[] Arguments => new[] { "[status | set [<key> [<value> [confirm]]] | size <share> confirm | reset confirm | curves export | curves reload]" };
 
         public override bool IsLaunchCmd => false;
 
@@ -35,8 +35,8 @@ namespace TerraformingReloaded
                     return Status();
                 case "size":
                     return Size(args);
-                case "ceiling":
-                    return Ceiling(args);
+                case "set":
+                    return Set(args);
                 case "reset":
                     return Reset(args.Length > 1 && args[1].ToLowerInvariant() == "confirm");
                 case "curves":
@@ -207,22 +207,101 @@ namespace TerraformingReloaded
                 IdealGas.Pressure(tank.TotalQuantityGas(), PlanetaryAtmosphereSimulation.AggregateTemperature, tank.VolumeForGas()).ToDouble());
         }
 
-        // The range the MaxPressureKPa setting accepts, read from the one declaration the config
-        // editor and the settings file check both use, so no two ways to set a ceiling can disagree.
-        private static readonly double MinCeiling = Limits.MaxPressureKPa.Min;
-        private static readonly double MaxCeiling = Limits.MaxPressureKPa.Max;
+        // ---- terraform set ----------------------------------------------------------------------
 
         /// <summary>
-        /// terraform ceiling &lt;kPa&gt; confirm: sets the pressure ceiling for the planet being
-        /// played, and records it beside that world's save. This is the way back for a world whose
-        /// settings file forced the ceiling off, which every world from before that file existed
-        /// does, and the only way the ceiling moves at all: the config entry waits for a restart,
-        /// because dragging a slider that deletes a planet's air must not delete it.
-        ///
-        /// The config setting is deliberately left alone, like the size verb: it is the default for
-        /// a new world, and making it live would apply a ceiling to every save a player loads.
+        /// One world setting as the console sees it, under the same key the config entry has, so one
+        /// settings reference covers both. A value is a bool for a switch, and a double? for a
+        /// number, where null is "none" for the two settings the config flags with 0.
         /// </summary>
-        private static string Ceiling(string[] args)
+        private sealed class WorldKey
+        {
+            public string Name;
+            public string Label;
+            public string Unit = "";
+            public Range? Limits;           // null for a switch
+            public string ZeroMeans;        // what 0 means when the setting reads 0 as none
+            public Func<object> Get;        // the value in force for this world
+            public Func<object> Config;     // what a new world would start with
+            public Action<object> Set;      // called under the tank lock
+        }
+
+        private static WorldKey Switch(string name, string label, Func<bool> get, Func<bool> config, Action<bool> set)
+        {
+            return new WorldKey { Name = name, Label = label, Get = () => get(), Config = () => config(), Set = v => set((bool)v) };
+        }
+
+        private static WorldKey Number(string name, string label, string unit, Range limits, Func<double> get, Func<double> config, Action<double> set)
+        {
+            return new WorldKey
+            {
+                Name = name, Label = label, Unit = unit, Limits = limits,
+                Get = () => (double?)get(), Config = () => (double?)config(), Set = v => set(((double?)v).Value),
+            };
+        }
+
+        /// <summary>
+        /// Every setting a world keeps its own copy of, in the order the config editor shows them.
+        /// Adding one to the world file means adding it here too, or it has no way to change.
+        /// </summary>
+        private static readonly WorldKey[] WorldKeys =
+        {
+            Switch("DynamicSky", "Sky follows the air", () => Effective.DynamicSky, () => Settings.DynamicSky, v => Effective.DynamicSky = v),
+            Number("GhgResponseScale", "Greenhouse strength", "", Limits.GhgResponseScale,
+                () => Effective.GhgResponseScale, () => Settings.GhgResponseScale, v => Effective.GhgResponseScale = v),
+            Number("DensityResponseScale", "Air density strength", "", Limits.DensityResponseScale,
+                () => Effective.DensityResponseScale, () => Settings.DensityResponseScale, v => Effective.DensityResponseScale = v),
+            Number("AirlessAlbedo", "Airless world reflectivity", "", Limits.AirlessAlbedo,
+                () => Effective.AirlessAlbedo, () => Settings.AirlessAlbedo, v => Effective.AirlessAlbedo = v),
+            new WorldKey
+            {
+                Name = "MaxPressureKPa", Label = "Pressure ceiling", Unit = "kPa", Limits = Limits.MaxPressureKPa, ZeroMeans = "no ceiling",
+                Get = () => Effective.MaxPressureKPa,
+                Config = () => Settings.MaxPressureKPa > 0.0 ? (double?)Settings.MaxPressureKPa : null,
+                Set = v => Effective.CeilingByConsoleCommand((double?)v),
+            },
+            Switch("WeatherOnWeatherlessWorlds", "Rain or snow on worlds with no weather",
+                () => Effective.WeatherOnWeatherlessWorlds, () => Settings.WeatherOnWeatherlessWorlds, v => Effective.WeatherOnWeatherlessWorlds = v),
+            new WorldKey
+            {
+                Name = "ExternalHeatHalfLifeMinutes", Label = "Added heat half-life", Unit = "min", Limits = Limits.ExternalHeatHalfLifeMinutes, ZeroMeans = "never fades",
+                Get = () => Effective.ExternalHeatHalfLifeMinutes,
+                Config = () => Settings.ExternalHeatHalfLifeMinutes > 0.0 ? (double?)Settings.ExternalHeatHalfLifeMinutes : null,
+                Set = v => Effective.ExternalHeatHalfLifeMinutes = (double?)v,
+            },
+            Number("MaxExternalOffsetKelvin", "Added heat limit", "K", Limits.MaxExternalOffsetKelvin,
+                () => Effective.MaxExternalOffsetKelvin, () => Settings.MaxExternalOffsetKelvin, v => Effective.MaxExternalOffsetKelvin = v),
+            Switch("StormsStopWhenStripped", "Stripping the air stops storms",
+                () => Effective.StormsStopWhenStripped, () => Settings.StormsStopWhenStripped, v => Effective.StormsStopWhenStripped = v),
+            Number("StrippedAtmosphereShare", "Stripped below (% of start)", "%", Limits.StrippedAtmosphereShare,
+                () => Effective.StrippedAtmosphereShare, () => Settings.StrippedAtmosphereShare, v => Effective.StrippedAtmosphereShare = v),
+            Switch("StormsStopWhenAtmosphereIsMild", "Mild air stops storms",
+                () => Effective.StormsStopWhenAtmosphereIsMild, () => Settings.StormsStopWhenAtmosphereIsMild, v => Effective.StormsStopWhenAtmosphereIsMild = v),
+            Number("MildAtmosphereColdestKelvin", "Coldest air", "K", Limits.MildAtmosphereColdestKelvin,
+                () => Effective.MildAtmosphereColdestKelvin, () => Settings.MildAtmosphereColdestKelvin, v => Effective.MildAtmosphereColdestKelvin = v),
+            Number("MildAtmosphereHottestKelvin", "Hottest air", "K", Limits.MildAtmosphereHottestKelvin,
+                () => Effective.MildAtmosphereHottestKelvin, () => Settings.MildAtmosphereHottestKelvin, v => Effective.MildAtmosphereHottestKelvin = v),
+            Number("MildAtmosphereMinPressureKpa", "Minimum pressure", "kPa", Limits.MildAtmosphereMinPressureKpa,
+                () => Effective.MildAtmosphereMinPressureKpa, () => Settings.MildAtmosphereMinPressureKpa, v => Effective.MildAtmosphereMinPressureKpa = v),
+            Number("MildAtmosphereMaxPressureKpa", "Maximum pressure", "kPa", Limits.MildAtmosphereMaxPressureKpa,
+                () => Effective.MildAtmosphereMaxPressureKpa, () => Settings.MildAtmosphereMaxPressureKpa, v => Effective.MildAtmosphereMaxPressureKpa = v),
+            Number("MildAtmosphereMaxToxinsKpa", "Most toxins", "kPa", Limits.MildAtmosphereMaxToxinsKpa,
+                () => Effective.MildAtmosphereMaxToxinsKpa, () => Settings.MildAtmosphereMaxToxinsKpa, v => Effective.MildAtmosphereMaxToxinsKpa = v),
+            Switch("MildAtmosphereStopsSolarStorms", "Mild air stops solar storms too",
+                () => Effective.MildAtmosphereStopsSolarStorms, () => Settings.MildAtmosphereStopsSolarStorms, v => Effective.MildAtmosphereStopsSolarStorms = v),
+        };
+
+        /// <summary>
+        /// terraform set [&lt;key&gt; [&lt;value&gt; [confirm]]]: shows or changes a setting of the
+        /// world being played, and records it beside that world's save. The only way a world's own
+        /// settings move: the config is what a new world starts with and never reaches a world in
+        /// play, so tuning it for a new save cannot change or damage this one.
+        ///
+        /// Only a change that deletes something for good asks first: setting or lowering the
+        /// pressure ceiling, lowering the added heat limit, and making added heat fade sooner.
+        /// Everything else can be put back with the same command, so it happens at once.
+        /// </summary>
+        private static string Set(string[] args)
         {
             CultureInfo c = CultureInfo.InvariantCulture;
             if (NetworkManager.IsClient)
@@ -232,61 +311,236 @@ namespace TerraformingReloaded
             GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
             if (tank == null)
             {
-                return "No planet loaded, so there is no pressure ceiling to change.";
+                return "No world is being played, so there are no world settings to change.";
             }
-            double? now = Effective.MaxPressureKPa;
             if (args.Length < 2)
             {
-                // Reporting comes before refusing, the way the size verb reports the size it cannot
-                // change: a player asking what the ceiling is should always be told, and a reason
-                // they cannot change it is part of the answer rather than instead of it.
+                return ListWorldKeys(c);
+            }
+            WorldKey key = FindWorldKey(args[1]);
+            if (key == null)
+            {
+                return "'" + args[1] + "' is not a world setting. The world settings are: " + string.Join(", ", Array.ConvertAll(WorldKeys, k => k.Name)) + ".";
+            }
+            object now = key.Get();
+            if (args.Length < 3)
+            {
+                // Reporting comes before refusing: a player asking what a setting is should always
+                // be told, and a reason they cannot change it is part of the answer.
                 string cannot = Sidecar.RecordRefusal();
-                return string.Format(c, "This planet's pressure ceiling is {0}. {1}{2} To change it: terraform ceiling <kPa> confirm, where <kPa> is between {3:0} and {4:0} and 0 means no ceiling. It is recorded for this world alone; the setting in the config is the default for a new world.{5}",
-                    Ceiling(now), PressureNow(c), GatePart(), MinCeiling, MaxCeiling,
+                return string.Format(c, "{0} ({1}) for this world is {2}. It can be {3}. A new world starts with {4}, from the config. To change it: terraform set {1} <value>.{5}",
+                    key.Label, key.Name, Show(key, now), Allowed(key, c), Show(key, key.Config()),
                     cannot != null ? " " + cannot : "");
             }
-            // TryParse turns away anything that is not a number; NaN is refused on its own, and a
-            // negative or an infinity (which some runtimes do parse by name) falls outside the range.
-            if (!double.TryParse(args[1], NumberStyles.Float, c, out double kpa)
-                || double.IsNaN(kpa) || kpa < MinCeiling || kpa > MaxCeiling)
+            if (!Parse(key, args[2], c, out object asked))
             {
-                return string.Format(c, "'{0}' is not a pressure ceiling. It is a pressure in kilopascals between {1:0} and {2:0}, and 0 means no ceiling.",
-                    args[1], MinCeiling, MaxCeiling);
+                return string.Format(c, "'{0}' is not a value for {1}. It can be {2}.", args[2], key.Name, Allowed(key, c));
             }
-            // 0 is how a player says "none" at a console that has no word for nothing. It stops here:
-            // what the rule is handed either is a ceiling or is not one.
-            double? asked = kpa > 0.0 ? (double?)kpa : null;
-            if (asked.HasValue == now.HasValue && (!asked.HasValue || Math.Abs(asked.Value - now.Value) <= 1e-9 * Math.Max(1.0, now.Value)))
+            if (Same(now, asked))
             {
-                return "This planet's pressure ceiling is already " + Ceiling(now) + "; nothing was changed.";
+                return key.Label + " for this world is already " + Show(key, now) + "; nothing was changed.";
             }
-            // Asked before the prompt, so it never promises something that would then be turned away.
+            // Asked before any prompt, so it never promises something that would then be turned away.
             string refused = Sidecar.RecordRefusal();
             if (refused != null)
             {
                 return refused;
             }
-            // It deletes air that cannot be got back, so it asks once, like the reset and the rescale.
-            if (args.Length < 3 || args[2].ToLowerInvariant() != "confirm")
+            bool confirmed = args.Length > 3 && args[3].ToLowerInvariant() == "confirm";
+            if (!confirmed)
             {
-                return CeilingPrompt(c, tank, now, asked, kpa);
+                string prompt = Prompt(key, now, asked, tank, c);
+                if (prompt != null)
+                {
+                    return prompt;
+                }
             }
 
-            // The change goes in under the same lock the planet tick holds: the tick reads the
-            // ceiling in the upkeep it runs while holding it, and a nullable double is two writes,
-            // so an unlocked change could be read half done.
+            // The change goes in under the same lock the planet tick holds: the tick reads these in
+            // the upkeep it runs while holding it, and a nullable double is two writes, so an
+            // unlocked change could be read half done.
             //
             // The write to disk does NOT. A FileStream that no one else may share, plus an XmlWriter
             // flush, takes as long as the disk, the antivirus or the cloud sync feels like taking,
             // and the planet tick would be stopped for all of it. The lock is over before the file
             // is touched, so the worst a slow disk can do is leave the change holding for this
             // session only, which is what Record already says when it fails.
-            Planet.UnderTankLock(() => Effective.CeilingByConsoleCommand(asked));
+            Planet.UnderTankLock(() => key.Set(asked));
             string problem = Sidecar.Record();
-            return "Pressure ceiling for this planet: " + Ceiling(now) + " -> " + Ceiling(asked) + "." + Environment.NewLine
-                + "  " + (problem ?? "recorded in " + Sidecar.FilePath) + Environment.NewLine
-                + GateLine()
-                + string.Format(c, "  The pressure ceiling in the config is still {0:0.###} kPa, where 0 means none, and still applies to a new world, not to this one.", Settings.MaxPressureKPa);
+            StringBuilder text = new StringBuilder();
+            text.AppendLine(key.Label + " for this world: " + Show(key, now) + " -> " + Show(key, asked) + ".");
+            text.AppendLine("  " + (problem ?? "recorded in " + Sidecar.FilePath));
+            if (key.Name == "MaxPressureKPa")
+            {
+                text.Append(GateLine());
+            }
+            if (key.Name == "DynamicSky" && !(bool)asked)
+            {
+                text.AppendLine("  The sky stops following the air now, and keeps the look it has until this world is loaded again.");
+            }
+            text.Append("  The config's " + key.Name + " is " + Show(key, key.Config()) + ", and only decides what a new world starts with.");
+            return text.ToString();
+        }
+
+        private static WorldKey FindWorldKey(string name)
+        {
+            foreach (WorldKey key in WorldKeys)
+            {
+                if (string.Equals(key.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return key;
+                }
+            }
+            return null;
+        }
+
+        private static string ListWorldKeys(CultureInfo c)
+        {
+            StringBuilder text = new StringBuilder();
+            text.AppendLine("World settings for the world you are playing, " + (Sidecar.FilePath != null
+                ? "recorded in " + Sidecar.FilePath
+                : "not recorded yet: " + (Sidecar.Source ?? "this world has not been saved yet")));
+            if (Sidecar.Source != null && Sidecar.FilePath != null)
+            {
+                text.AppendLine("  " + Sidecar.Source);
+            }
+            foreach (WorldKey key in WorldKeys)
+            {
+                object config = key.Config();
+                object now = key.Get();
+                text.AppendLine(string.Format(c, "  {0,-32} {1,-14} {2}{3}", key.Name, Show(key, now), key.Label,
+                    Same(now, config) ? "" : "; a new world would start with " + Show(key, config)));
+            }
+            text.Append("To change one: terraform set <key> <value>. A change that deletes something for good asks first. The config only decides what a new world starts with.");
+            return text.ToString();
+        }
+
+        private static string Show(WorldKey key, object value)
+        {
+            if (value is bool on)
+            {
+                return on ? "on" : "off";
+            }
+            double? number = (double?)value;
+            if (!number.HasValue)
+            {
+                return key.ZeroMeans ?? "none";
+            }
+            return number.Value.ToString("0.###", CultureInfo.InvariantCulture) + (key.Unit.Length > 0 ? (key.Unit == "%" ? "%" : " " + key.Unit) : "");
+        }
+
+        private static string Allowed(WorldKey key, CultureInfo c)
+        {
+            if (!key.Limits.HasValue)
+            {
+                return "on or off";
+            }
+            Range limits = key.Limits.Value;
+            return string.Format(c, "from {0:0.###} to {1:0.###}{2}{3}", limits.Min, limits.Max,
+                key.Unit.Length > 0 ? " " + key.Unit : "",
+                key.ZeroMeans != null ? ", where 0 means " + key.ZeroMeans : "");
+        }
+
+        /// <summary>
+        /// A value as typed. TryParse turns away anything that is not a number, NaN is refused on
+        /// its own, and a negative or an infinity (which some runtimes do parse by name) falls
+        /// outside the range. 0 is how a player says "none" at a console that has no word for
+        /// nothing, and it stops here: what a rule is handed either is a value or is not one.
+        /// </summary>
+        private static bool Parse(WorldKey key, string typed, CultureInfo c, out object value)
+        {
+            value = null;
+            string word = typed.ToLowerInvariant();
+            if (!key.Limits.HasValue)
+            {
+                if (word == "on" || word == "true" || word == "yes" || word == "1")
+                {
+                    value = true;
+                    return true;
+                }
+                if (word == "off" || word == "false" || word == "no" || word == "0")
+                {
+                    value = false;
+                    return true;
+                }
+                return false;
+            }
+            if (key.ZeroMeans != null && word == "none")
+            {
+                value = (double?)null;
+                return true;
+            }
+            if (!double.TryParse(typed, NumberStyles.Float, c, out double number) || !key.Limits.Value.Holds(number))
+            {
+                return false;
+            }
+            value = key.ZeroMeans != null && number == 0.0 ? null : (double?)number;
+            return true;
+        }
+
+        private static bool Same(object a, object b)
+        {
+            if (a is bool x && b is bool y)
+            {
+                return x == y;
+            }
+            double? p = (double?)a;
+            double? q = (double?)b;
+            if (!p.HasValue || !q.HasValue)
+            {
+                return p.HasValue == q.HasValue;
+            }
+            return Math.Abs(p.Value - q.Value) <= 1e-9 * Math.Max(1.0, Math.Abs(p.Value));
+        }
+
+        /// <summary>
+        /// The question a change that deletes something for good asks before it happens, or null
+        /// when the change can simply be put back and so happens at once.
+        /// </summary>
+        private static string Prompt(WorldKey key, object now, object asked, GlobalGasMix tank, CultureInfo c)
+        {
+            double? was = now as double?;
+            double? want = asked as double?;
+            switch (key.Name)
+            {
+                case "MaxPressureKPa":
+                    // Setting a ceiling where there was none, or lowering one. Raising or clearing
+                    // one deletes nothing.
+                    if (want.HasValue && (!was.HasValue || want.Value < was.Value))
+                    {
+                        return CeilingPrompt(c, tank, was, want);
+                    }
+                    return null;
+                case "MaxExternalOffsetKelvin":
+                    if (want.Value < was.Value)
+                    {
+                        return string.Format(c, "Added heat is shifting this planet by {0:0.##} K right now, and heat from freezing and thawing by {1:0.##} K. Lowering the limit from {2} to {3} cuts either shift beyond {3} on the next planet tick; the heat cut is gone for good and the loss is saved, and raising the limit again does not bring it back.{4} "
+                            + "This is recorded for the world you are playing and nothing else. To go ahead: terraform set {5} {6} confirm",
+                            PlanetaryAtmosphereSimulation.ExternalInputOffset.ToDouble(), PlanetaryAtmosphereSimulation.LatentOffset.ToDouble(),
+                            Show(key, now), Show(key, asked), GateNote(), key.Name, want.Value.ToString("0.###", c));
+                    }
+                    return null;
+                case "ExternalHeatHalfLifeMinutes":
+                    // Fading sooner, or fading at all where it never did.
+                    if (want.HasValue && (!was.HasValue || want.Value < was.Value))
+                    {
+                        return string.Format(c, "Added heat is shifting this planet by {0:0.##} K right now, and heat from freezing and thawing by {1:0.##} K. With a half-life of {2} instead of {3}, both fade faster from the next planet tick; what fades is gone for good and the loss is saved, and a longer half-life later does not bring it back.{4} "
+                            + "This is recorded for the world you are playing and nothing else. To go ahead: terraform set {5} {6} confirm",
+                            PlanetaryAtmosphereSimulation.ExternalInputOffset.ToDouble(), PlanetaryAtmosphereSimulation.LatentOffset.ToDouble(),
+                            Show(key, asked), Show(key, now), GateNote(), key.Name, want.Value.ToString("0.###", c));
+                    }
+                    return null;
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>The heat prompts' version of <see cref="GatePart"/>: nothing is cut while the mod is not running this planet.</summary>
+        private static string GateNote()
+        {
+            return Gate.Enabled()
+                ? ""
+                : " Terraforming Reloaded is not running this planet (" + Gate.Describe() + "), so nothing is cut until it is.";
         }
 
         /// <summary>
@@ -344,7 +598,7 @@ namespace TerraformingReloaded
         /// undone, that the cut goes on until the planet is under the ceiling at the hottest hour of
         /// the day, and that this world is the only one it touches.
         /// </summary>
-        private static string CeilingPrompt(CultureInfo c, GlobalGasMix tank, double? now, double? asked, double kpa)
+        private static string CeilingPrompt(CultureInfo c, GlobalGasMix tank, double? now, double? asked)
         {
             StringBuilder text = new StringBuilder();
             text.Append(string.Format(c, "The pressure ceiling for this planet is {0} and you are asking for {1}; 0 means no ceiling. {2} ",
@@ -382,7 +636,7 @@ namespace TerraformingReloaded
                 text.Append(gate.TrimStart()).Append(" ");
             }
             text.Append("This is recorded for the world you are playing and nothing else; the setting in the config is not changed. ");
-            text.Append(string.Format(c, "To go ahead: terraform ceiling {0:0.###} confirm", kpa));
+            text.Append(string.Format(c, "To go ahead: terraform set MaxPressureKPa {0:0.###} confirm", asked ?? 0.0));
             return text.ToString();
         }
 
@@ -480,7 +734,7 @@ namespace TerraformingReloaded
         }
 
         /// <summary>
-        /// The six settings that decide how this particular world behaves, and where they came from.
+        /// The settings that decide how this particular world behaves, and where they came from.
         /// They are the values in force, not the config: a world keeps what was recorded beside its
         /// save, so tuning the config for a new save cannot change or damage an older one. When they
         /// did not come from the file, the reason is on its own line, because that is the case where
@@ -500,6 +754,9 @@ namespace TerraformingReloaded
                 Effective.MaxExternalOffsetKelvin,
                 Effective.ExternalHeatHalfLifeMinutes.HasValue ? string.Format(c, "{0:0.##} min", Effective.ExternalHeatHalfLifeMinutes.Value) : "never fades",
                 Effective.GhgResponseScale, Effective.DensityResponseScale, Effective.AirlessAlbedo));
+            text.AppendLine("    sky follows the air " + (Effective.DynamicSky ? "on" : "off")
+                + ", rain or snow on worlds with no weather " + (Effective.WeatherOnWeatherlessWorlds ? "on" : "off")
+                + "; the storm settings are under storms below; all of them with terraform set");
         }
 
         /// <summary>

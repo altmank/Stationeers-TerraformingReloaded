@@ -48,21 +48,35 @@ namespace TerraformingReloaded.Patching
         public double? GhgResponseScale;
         public double? DensityResponseScale;
         public double? AirlessAlbedo;
+
+        public bool? DynamicSky;
+        public bool? WeatherOnWeatherlessWorlds;
+
+        public bool? StormsStopWhenStripped;
+        public double? StrippedAtmosphereShare;
+        public bool? StormsStopWhenAtmosphereIsMild;
+        public double? MildAtmosphereColdestKelvin;
+        public double? MildAtmosphereHottestKelvin;
+        public double? MildAtmosphereMinPressureKpa;
+        public double? MildAtmosphereMaxPressureKpa;
+        public double? MildAtmosphereMaxToxinsKpa;
+        public bool? MildAtmosphereStopsSolarStorms;
     }
 
     /// <summary>
     /// Per-world settings. One global config decides how a particular world behaves, so tuning a
     /// setting for a new save silently changes or damages an older one; MaxPressureKPa is the worst,
-    /// because it deletes air above the ceiling for good and saves the loss. This records the
-    /// world-scoped settings beside the save and assigns <see cref="Effective"/> whole at every
-    /// world start, so nothing needs restoring when a player leaves a world.
+    /// because it deletes air above the ceiling for good and saves the loss. This records every
+    /// setting that affects a world beside its save and assigns <see cref="Effective"/> whole at
+    /// every world start, so nothing needs restoring when a player leaves a world. The config only
+    /// decides what a new world starts with, and fills in what a world did not record.
     ///
     /// Read and write are asymmetric, because on a new world neither the folder nor the save name
     /// exists when the planet is built, while on a load both do:
     ///   read            prefix on PlanetaryAtmosphereSimulation.CreateGlobalAtmosphere;
     ///   write, new      postfix on SaveHelper.CreateSaveDirectory, the one place a folder is born;
     ///   write, loaded   inside the read prefix, when the folder exists but the file does not;
-    ///   write, changed  the console command, or a live config edit, debounced.
+    ///   write, changed  terraform set, and nothing else. A config edit never reaches a world.
     ///
     /// New and loaded are told apart by the game's own flag, taken from World.Initialize, and never
     /// inferred from whether a name or a folder happens to be set: the console's own new-game paths
@@ -79,7 +93,7 @@ namespace TerraformingReloaded.Patching
     /// must not stop a world loading, so the prefix catches everything and falls back, the postfix
     /// catches and logs, and nothing of the player's is deleted or moved: a file that could not be
     /// believed is copied aside before it is replaced, so a hand edit with one typo in it is not
-    /// thrown away along with the five settings it got right.
+    /// thrown away along with the settings it got right.
     /// </summary>
     public static class Sidecar
     {
@@ -120,9 +134,7 @@ namespace TerraformingReloaded.Patching
         private static string _source;
         private static string _noFolder;
         private static string _standDown;
-        private static bool _dirty;
         private static int _writeFaults;
-        private static DateTime _lastWrite;
         private static string _salvage;
         private static bool _newWorld;
 
@@ -189,7 +201,6 @@ namespace TerraformingReloaded.Patching
                 _folder = null;
                 _filePath = null;
                 _fileVersion = 0;
-                _dirty = false;
                 _salvage = null;
                 _newWorld = false;
                 if (_standDown != null)
@@ -227,7 +238,6 @@ namespace TerraformingReloaded.Patching
                 _folder = null;
                 _filePath = null;
                 _fileVersion = 0;
-                _dirty = false;
                 _salvage = null;
                 TakeFromConfig();
                 _source = "this world's settings file could not be looked at (" + e.Message
@@ -243,7 +253,6 @@ namespace TerraformingReloaded.Patching
             _folder = null;
             _filePath = null;
             _fileVersion = 0;
-            _dirty = false;
             _salvage = null;
             TakeFromConfig();
 
@@ -273,6 +282,7 @@ namespace TerraformingReloaded.Patching
                 Effective.CeilingForNewWorld(ConfigCeiling());
                 _source = "this world is being created, so the config is in force for it; it is recorded when the world is first saved";
                 _noFolder = "This world has not been saved yet, so there is nowhere to record settings for it. Save the world first.";
+                Log.Info("Per-world settings: " + _source + ".");
                 return;
             }
 
@@ -407,7 +417,7 @@ namespace TerraformingReloaded.Patching
         ///
         /// A field that fails is treated as not recorded at all, which is what the file already
         /// means by a field the version that wrote it did not know: the ceiling falls to none, the
-        /// other five fall back to the config.
+        /// rest fall back to the config.
         ///
         /// Null in the two fields the config flags with 0 is a recorded state, not an absence: no
         /// ceiling, and heat that never fades. A 0 in either of them in the file is the config's
@@ -449,6 +459,31 @@ namespace TerraformingReloaded.Patching
                 Recorded(file.AirlessAlbedo, Limits.AirlessAlbedo, "AirlessAlbedo", bad)
                 ?? Settings.AirlessAlbedo;
 
+            // A switch has no range to be outside of, so it is either recorded or not.
+            Effective.DynamicSky = file.DynamicSky ?? Settings.DynamicSky;
+            Effective.WeatherOnWeatherlessWorlds = file.WeatherOnWeatherlessWorlds ?? Settings.WeatherOnWeatherlessWorlds;
+            Effective.StormsStopWhenStripped = file.StormsStopWhenStripped ?? Settings.StormsStopWhenStripped;
+            Effective.StrippedAtmosphereShare =
+                Recorded(file.StrippedAtmosphereShare, Limits.StrippedAtmosphereShare, "StrippedAtmosphereShare", bad)
+                ?? Settings.StrippedAtmosphereShare;
+            Effective.StormsStopWhenAtmosphereIsMild = file.StormsStopWhenAtmosphereIsMild ?? Settings.StormsStopWhenAtmosphereIsMild;
+            Effective.MildAtmosphereColdestKelvin =
+                Recorded(file.MildAtmosphereColdestKelvin, Limits.MildAtmosphereColdestKelvin, "MildAtmosphereColdestKelvin", bad)
+                ?? Settings.MildAtmosphereColdestKelvin;
+            Effective.MildAtmosphereHottestKelvin =
+                Recorded(file.MildAtmosphereHottestKelvin, Limits.MildAtmosphereHottestKelvin, "MildAtmosphereHottestKelvin", bad)
+                ?? Settings.MildAtmosphereHottestKelvin;
+            Effective.MildAtmosphereMinPressureKpa =
+                Recorded(file.MildAtmosphereMinPressureKpa, Limits.MildAtmosphereMinPressureKpa, "MildAtmosphereMinPressureKpa", bad)
+                ?? Settings.MildAtmosphereMinPressureKpa;
+            Effective.MildAtmosphereMaxPressureKpa =
+                Recorded(file.MildAtmosphereMaxPressureKpa, Limits.MildAtmosphereMaxPressureKpa, "MildAtmosphereMaxPressureKpa", bad)
+                ?? Settings.MildAtmosphereMaxPressureKpa;
+            Effective.MildAtmosphereMaxToxinsKpa =
+                Recorded(file.MildAtmosphereMaxToxinsKpa, Limits.MildAtmosphereMaxToxinsKpa, "MildAtmosphereMaxToxinsKpa", bad)
+                ?? Settings.MildAtmosphereMaxToxinsKpa;
+            Effective.MildAtmosphereStopsSolarStorms = file.MildAtmosphereStopsSolarStorms ?? Settings.MildAtmosphereStopsSolarStorms;
+
             if (bad.Count == 0)
             {
                 _source = null;
@@ -461,7 +496,7 @@ namespace TerraformingReloaded.Patching
                 + " treated as not recorded: this world's pressure ceiling is off and the rest is from the config";
             Log.Warn("Per-world settings: " + path + " records " + fields + " outside what the setting accepts, so "
                 + them + " treated as not recorded: this world's pressure ceiling is off, and the rest of them fall back to the config."
-                + " Fix the file, or set them again from the config and they will be written back.");
+                + " Fix the file, or set them with terraform set and they will be written back.");
         }
 
         /// <summary>
@@ -486,8 +521,8 @@ namespace TerraformingReloaded.Patching
         /// <summary>
         /// Copies the config into the values in force, except the pressure ceiling, which this
         /// cannot touch: a loaded world's ceiling comes out of its own file or nowhere, and a new
-        /// world's out of <see cref="Effective.CeilingForNewWorld"/>. The other five can delete
-        /// nothing, so they fall back to the config.
+        /// world's out of <see cref="Effective.CeilingForNewWorld"/>. None of the rest can delete
+        /// air, so they fall back to the config.
         ///
         /// The ONE place that knows BepInEx cannot express a nullable double, so the config uses 0
         /// as a flag and this file does not: the translation happens here, on the way in, and the
@@ -502,6 +537,33 @@ namespace TerraformingReloaded.Patching
             Effective.GhgResponseScale = Settings.GhgResponseScale;
             Effective.DensityResponseScale = Settings.DensityResponseScale;
             Effective.AirlessAlbedo = Settings.AirlessAlbedo;
+            Effective.DynamicSky = Settings.DynamicSky;
+            Effective.WeatherOnWeatherlessWorlds = Settings.WeatherOnWeatherlessWorlds;
+            Effective.StormsStopWhenStripped = Settings.StormsStopWhenStripped;
+            Effective.StrippedAtmosphereShare = Settings.StrippedAtmosphereShare;
+            Effective.StormsStopWhenAtmosphereIsMild = Settings.StormsStopWhenAtmosphereIsMild;
+            Effective.MildAtmosphereColdestKelvin = Settings.MildAtmosphereColdestKelvin;
+            Effective.MildAtmosphereHottestKelvin = Settings.MildAtmosphereHottestKelvin;
+            Effective.MildAtmosphereMinPressureKpa = Settings.MildAtmosphereMinPressureKpa;
+            Effective.MildAtmosphereMaxPressureKpa = Settings.MildAtmosphereMaxPressureKpa;
+            Effective.MildAtmosphereMaxToxinsKpa = Settings.MildAtmosphereMaxToxinsKpa;
+            Effective.MildAtmosphereStopsSolarStorms = Settings.MildAtmosphereStopsSolarStorms;
+        }
+
+        /// <summary>
+        /// A config entry changed. The config is what a new world starts with and nothing more, so
+        /// this never reaches a world being played or its file. With no world in play the values in
+        /// force are the config's, so they follow it, which keeps the new-world screen's readouts in
+        /// step with what the player is setting up. Under the tank lock, like every other writer.
+        /// </summary>
+        public static void ConfigEdited()
+        {
+            GameState state = GameManager.GameState;
+            if (state == GameState.Running || state == GameState.Paused)
+            {
+                return;
+            }
+            Planet.UnderTankLock(TakeFromConfig);
         }
 
         /// <summary>The config's ceiling as a rule sees one: a pressure, or nothing at all.</summary>
@@ -551,63 +613,18 @@ namespace TerraformingReloaded.Patching
                 }
                 _folder = directoryInfo.FullName;
                 _noFolder = null;
-                Save();
+                if (Save())
+                {
+                    // What is in force is now what the file records, so the readout must stop
+                    // saying this world has yet to be saved.
+                    _source = null;
+                }
             }
             catch (Exception e)
             {
                 // The save itself must be unaffected by anything that happens here.
                 WriteFailed(e.Message);
             }
-        }
-
-        // ---- a setting changed -------------------------------------------------------------------
-
-        /// <summary>
-        /// A live config edit while a world is in play. The config editor and docs/SETTINGS.md both
-        /// promise these take effect at once, so the edit wins over what the file recorded and is
-        /// written back; without this they would silently stop being live once a world had a file.
-        ///
-        /// Each config entry hands in the assignment of its own setting and nothing else, so nudging
-        /// one slider cannot put the other four back to the config in a world that recorded
-        /// different ones. MaxPressureKPa is not among them: it is restart-flagged, so its apply
-        /// never fires mid-game, and terraform ceiling is its only way to move.
-        ///
-        /// The assignment runs under the lock the planet tick holds. Guards.Settle reads the fade
-        /// half-life on the tick thread and a nullable double is two writes, so an unlocked change
-        /// could be read half done, which would give a world a fade at the moment a player asked
-        /// for none.
-        /// </summary>
-        public static void ConfigChanged(Action assign)
-        {
-            if (assign == null)
-            {
-                return;
-            }
-            Planet.UnderTankLock(assign);
-            _dirty = true;
-        }
-
-        /// <summary>
-        /// Called every frame from the plugin. Writes at most once a second, so a dragged slider
-        /// does not write sixty times a second, and only while a world is in play, so a config edit
-        /// at the main menu does not reach into the last world that was played.
-        /// </summary>
-        public static void Flush()
-        {
-            if (!_dirty)
-            {
-                return;
-            }
-            GameState state = GameManager.GameState;
-            if (state != GameState.Running && state != GameState.Paused)
-            {
-                return;
-            }
-            if ((DateTime.UtcNow - _lastWrite).TotalSeconds < 1.0)
-            {
-                return;
-            }
-            Save();
         }
 
         /// <summary>
@@ -650,8 +667,6 @@ namespace TerraformingReloaded.Patching
             {
                 return false;
             }
-            _dirty = false;
-            _lastWrite = DateTime.UtcNow;
             try
             {
                 if (!Directory.Exists(folder))
@@ -667,6 +682,17 @@ namespace TerraformingReloaded.Patching
                     GhgResponseScale = Effective.GhgResponseScale,
                     DensityResponseScale = Effective.DensityResponseScale,
                     AirlessAlbedo = Effective.AirlessAlbedo,
+                    DynamicSky = Effective.DynamicSky,
+                    WeatherOnWeatherlessWorlds = Effective.WeatherOnWeatherlessWorlds,
+                    StormsStopWhenStripped = Effective.StormsStopWhenStripped,
+                    StrippedAtmosphereShare = Effective.StrippedAtmosphereShare,
+                    StormsStopWhenAtmosphereIsMild = Effective.StormsStopWhenAtmosphereIsMild,
+                    MildAtmosphereColdestKelvin = Effective.MildAtmosphereColdestKelvin,
+                    MildAtmosphereHottestKelvin = Effective.MildAtmosphereHottestKelvin,
+                    MildAtmosphereMinPressureKpa = Effective.MildAtmosphereMinPressureKpa,
+                    MildAtmosphereMaxPressureKpa = Effective.MildAtmosphereMaxPressureKpa,
+                    MildAtmosphereMaxToxinsKpa = Effective.MildAtmosphereMaxToxinsKpa,
+                    MildAtmosphereStopsSolarStorms = Effective.MildAtmosphereStopsSolarStorms,
                 };
                 string path = Path.Combine(folder, FileName);
                 Salvage(path);
@@ -721,7 +747,6 @@ namespace TerraformingReloaded.Patching
 
         private static void WriteFailed(string message)
         {
-            _dirty = false;                 // best effort: do not hammer a read-only folder every second
             if (_writeFaults++ == 0)
             {
                 Log.Warn("This world's settings could not be written; the session carries on with them in memory, and nothing was deleted or moved. " + message);

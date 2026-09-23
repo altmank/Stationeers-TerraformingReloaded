@@ -291,7 +291,7 @@ namespace TerraformingReloaded.Patching
                 {
                     return false;
                 }
-                if (WeatherManager.WorldHasWeather || Settings.WeatherOnWeatherlessWorlds)
+                if (WeatherManager.WorldHasWeather || Effective.WeatherOnWeatherlessWorlds)
                 {
                     return true;
                 }

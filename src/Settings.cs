@@ -140,13 +140,22 @@ namespace TerraformingReloaded
         public static readonly Range GhgResponseScale = new Range(0.0, 5.0);
         public static readonly Range DensityResponseScale = new Range(0.0, 5.0);
         public static readonly Range AirlessAlbedo = new Range(0.0, 0.95);
+
+        public static readonly Range StrippedAtmosphereShare = new Range(0.0, 100.0);
+        public static readonly Range MildAtmosphereColdestKelvin = new Range(0.0, 1000.0);
+        public static readonly Range MildAtmosphereHottestKelvin = new Range(0.0, 1000.0);
+        public static readonly Range MildAtmosphereMinPressureKpa = new Range(0.0, 10000.0);
+        public static readonly Range MildAtmosphereMaxPressureKpa = new Range(0.0, 10000.0);
+        public static readonly Range MildAtmosphereMaxToxinsKpa = new Range(0.0, 1000.0);
     }
 
     /// <summary>
-    /// The world-scoped values in force for the world being played. Six settings decide how a
-    /// particular world behaves, so tuning them for a new save would otherwise change or damage an
+    /// The world-scoped values in force for the world being played. Every setting that decides how
+    /// a particular world behaves is here, so tuning one for a new save cannot change or damage an
     /// older one; <see cref="Patching.Sidecar"/> records them per world and assigns these whole at
-    /// every world start. The patches read these, never <see cref="Settings"/>, which stays the
+    /// every world start. The config only decides what a new world starts with, and what a world
+    /// that recorded nothing falls back to. Changing a world's own values is the console's job
+    /// (terraform set). The patches read these, never <see cref="Settings"/>, which stays the
     /// config and is never written back: BepInEx saves it whenever the config editor moves a slider,
     /// so overwriting it would show numbers that are not in force and would need restoring on
     /// leaving a world. Assigned whole every time, so there is nothing to restore.
@@ -203,7 +212,7 @@ namespace TerraformingReloaded
             _maxPressureKPa = InRange(kpa);
         }
 
-        /// <summary>terraform ceiling &lt;kPa&gt; confirm, on the world being played.</summary>
+        /// <summary>terraform set MaxPressureKPa &lt;kPa&gt; confirm, on the world being played.</summary>
         public static void CeilingByConsoleCommand(double? kpa)
         {
             _maxPressureKPa = InRange(kpa);
@@ -218,8 +227,10 @@ namespace TerraformingReloaded
             return kpa.HasValue && Limits.MaxPressureKPa.AboveMin.Holds(kpa.Value) ? kpa : null;
         }
 
-        // ---- the five that only change behaviour --------------------------------------------------
-        // None of these can delete anything, so they are plain fields and fall back to the config.
+        // ---- everything else ----------------------------------------------------------------------
+        // Plain fields, falling back to the config. The two heat settings do write into counters the
+        // save carries, which is why terraform set asks before lowering them, but a wrong fallback
+        // for them costs a world some banked heat, not its air.
 
         /// <summary>Real-time minutes for stored external heat to halve. Null means it never fades.</summary>
         public static double? ExternalHeatHalfLifeMinutes;
@@ -230,6 +241,19 @@ namespace TerraformingReloaded
         public static double GhgResponseScale = 1.0;
         public static double DensityResponseScale = 1.0;
         public static double AirlessAlbedo = 0.3;
+
+        public static bool DynamicSky = true;
+        public static bool WeatherOnWeatherlessWorlds = true;
+
+        public static bool StormsStopWhenStripped = true;
+        public static double StrippedAtmosphereShare = 5.0;
+        public static bool StormsStopWhenAtmosphereIsMild = true;
+        public static double MildAtmosphereColdestKelvin = 263.15;
+        public static double MildAtmosphereHottestKelvin = 323.15;
+        public static double MildAtmosphereMinPressureKpa = 20.0;
+        public static double MildAtmosphereMaxPressureKpa = 607.95;
+        public static double MildAtmosphereMaxToxinsKpa = 1.0;
+        public static bool MildAtmosphereStopsSolarStorms = false;
     }
 
     /// <summary>

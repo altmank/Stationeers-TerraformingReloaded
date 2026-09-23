@@ -83,6 +83,8 @@ namespace TerraformingReloaded.Patching
                     GhgResponseScale = 0.0,
                     DensityResponseScale = 1.0,
                     AirlessAlbedo = 0.3,
+                    DynamicSky = false,
+                    WeatherOnWeatherlessWorlds = null,
                 };
                 string xml = Sidecar.ToXml(written);
                 if (!xml.Contains("xsi:nil=\"true\""))
@@ -116,6 +118,12 @@ namespace TerraformingReloaded.Patching
                 {
                     return "a recorded zero came back as nothing rather than as zero";
                 }
+                // The same for a switch: a world that turned something off must stay off, not fall
+                // back to the config's on.
+                if (read.DynamicSky != false || read.WeatherOnWeatherlessWorlds.HasValue)
+                {
+                    return "a recorded off, or a switch that is not set, did not survive the round trip";
+                }
 
                 SidecarFile partial = Sidecar.FromXml(OneElement);
                 if (partial == null || partial.MaxExternalOffsetKelvin != 7.0)
@@ -124,7 +132,8 @@ namespace TerraformingReloaded.Patching
                 }
                 if (partial.MaxPressureKPa.HasValue || partial.ExternalHeatHalfLifeMinutes.HasValue
                     || partial.GhgResponseScale.HasValue || partial.DensityResponseScale.HasValue
-                    || partial.AirlessAlbedo.HasValue)
+                    || partial.AirlessAlbedo.HasValue || partial.DynamicSky.HasValue
+                    || partial.StormsStopWhenStripped.HasValue || partial.MildAtmosphereColdestKelvin.HasValue)
                 {
                     return "a file holding one setting invented values for the rest";
                 }
@@ -137,7 +146,7 @@ namespace TerraformingReloaded.Patching
         }
 
         /// <summary>
-        /// A file with one setting in it and nothing else, as a version that predated the other five
+        /// A file with one setting in it and nothing else, as an older build that knew fewer
         /// fields would have written. Every field this build knows and that file does not must come
         /// back unset, so the fallback rule can tell a version gap from a recorded value.
         /// </summary>

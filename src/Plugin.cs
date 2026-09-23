@@ -102,10 +102,6 @@ namespace TerraformingReloaded
         /// </summary>
         private void Update()
         {
-            // A live config edit writes through to the world's own settings file, debounced here so
-            // a dragged slider does not write sixty times a second. Cheap when nothing has changed.
-            Sidecar.Flush();
-
             double seconds = Settings.StatusLogSeconds;
             if (seconds <= 0.0 || _statusFailed || UnityEngine.Time.unscaledTime < _nextStatus)
             {
@@ -137,7 +133,7 @@ namespace TerraformingReloaded
             Bind("General", "Enabled", Settings.Enabled, "Master switch. Off leaves the game exactly as shipped.",
                 v => Settings.Enabled = v, null, "Enabled", 0, null, true);
             Bind("General", "DynamicSky", Settings.DynamicSky, "Let the sky thin and thicken with the planet air.",
-                v => Settings.DynamicSky = v, null, "Sky follows the air", 1, null, true);
+                v => Settings.DynamicSky = v, null, "Sky follows the air", 1, world: true);
 
             ConfigEntry<PlanetSizePreset> preset = null;
             ConfigEntry<double> custom = null;
@@ -174,63 +170,63 @@ namespace TerraformingReloaded
             applySize();
 
             Bind("Climate", "GhgResponseScale", Settings.GhgResponseScale,
-                "Strength of the greenhouse response on worlds that ship without one. 0 turns it off. Mars is not affected by this. On worlds that start hot under greenhouse air (Venus, Vulcan) the warming side is fixed by where the world starts and where bare rock would be, so this only changes their cooling side. Takes effect at once.",
-                v => { Settings.GhgResponseScale = v; Sidecar.ConfigChanged(() => Effective.GhgResponseScale = v); },
-                Bounds(Limits.GhgResponseScale), "Greenhouse strength", 10, "%.2f");
+                "Strength of the greenhouse response on worlds that ship without one. 0 turns it off. Mars is not affected by this. On worlds that start hot under greenhouse air (Venus, Vulcan) the warming side is fixed by where the world starts and where bare rock would be, so this only changes their cooling side.",
+                v => Settings.GhgResponseScale = v,
+                Bounds(Limits.GhgResponseScale), "Greenhouse strength", 10, "%.2f", world: true);
             Bind("Climate", "DensityResponseScale", Settings.DensityResponseScale,
-                "How quickly thickening air evens out day and night on worlds that ship without a density response. 0 turns it off, above 1 it bites sooner. Air thick enough to end the swing ends it at any strength. Mars is not affected by this. Takes effect at once.",
-                v => { Settings.DensityResponseScale = v; Sidecar.ConfigChanged(() => Effective.DensityResponseScale = v); },
-                Bounds(Limits.DensityResponseScale), "Air density strength", 11, "%.2f");
+                "How quickly thickening air evens out day and night on worlds that ship without a density response. 0 turns it off, above 1 it bites sooner. Air thick enough to end the swing ends it at any strength. Mars is not affected by this.",
+                v => Settings.DensityResponseScale = v,
+                Bounds(Limits.DensityResponseScale), "Air density strength", 11, "%.2f", world: true);
             Bind("Climate", "AirlessAlbedo", Settings.AirlessAlbedo,
                 "Share of sunlight an airless world (Moon, Mimas) reflects. Sets the temperature its first air settles toward: lower is warmer.",
-                v => { Settings.AirlessAlbedo = v; Sidecar.ConfigChanged(() => Effective.AirlessAlbedo = v); },
-                Bounds(Limits.AirlessAlbedo), "Airless world reflectivity", 12, "%.2f");
+                v => Settings.AirlessAlbedo = v,
+                Bounds(Limits.AirlessAlbedo), "Airless world reflectivity", 12, "%.2f", world: true);
             Bind("Climate", "MaxPressureKPa", Settings.MaxPressureKPa,
-                "Ceiling on the planet air pressure for a NEW world. 0 means no ceiling. Each world then keeps its own; to change the one you are playing, use terraform ceiling <kPa> confirm. DESTRUCTIVE: whenever a planet is above its ceiling, at its hottest hour, the excess air is deleted for good and the loss is saved. Set it below a world's starting pressure and most of its air is gone within a day.",
-                v => Settings.MaxPressureKPa = v, Bounds(Limits.MaxPressureKPa), "Pressure ceiling (kPa)", 13, "%.0f", restart: true);
+                "Ceiling on the planet air pressure. 0 means no ceiling. DESTRUCTIVE: whenever a planet is above its ceiling, at its hottest hour, the excess air is deleted for good and the loss is saved. Set it below a world's starting pressure and most of its air is gone within a day.",
+                v => Settings.MaxPressureKPa = v, Bounds(Limits.MaxPressureKPa), "Pressure ceiling (kPa)", 13, "%.0f", world: true);
             Bind("Climate", "WeatherOnWeatherlessWorlds", Settings.WeatherOnWeatherlessWorlds,
                 "Let filled clouds rain and snow on worlds that ship with no weather of their own, such as Mimas. Clouds only fill once you have given the world air.",
-                v => Settings.WeatherOnWeatherlessWorlds = v, null, "Rain or snow on worlds with no weather", 14);
+                v => Settings.WeatherOnWeatherlessWorlds = v, null, "Rain or snow on worlds with no weather", 14, world: true);
 
             Bind("Heat", "ExternalHeatHalfLifeMinutes", Settings.ExternalHeatHalfLifeMinutes,
                 "Heat your base and vented gas add to the planet fades like a planet radiating to space. Real-time minutes for it to halve. 0 never fades, which lets it build without limit.",
-                v => { Settings.ExternalHeatHalfLifeMinutes = v; Sidecar.ConfigChanged(() => Effective.ExternalHeatHalfLifeMinutes = v > 0.0 ? (double?)v : null); },
-                Bounds(Limits.ExternalHeatHalfLifeMinutes), "Added heat half-life (min)", 20, "%.0f");
+                v => Settings.ExternalHeatHalfLifeMinutes = v,
+                Bounds(Limits.ExternalHeatHalfLifeMinutes), "Added heat half-life (min)", 20, "%.0f", world: true);
             Bind("Heat", "MaxExternalOffsetKelvin", Settings.MaxExternalOffsetKelvin,
                 "Most that added heat may shift the planet temperature, in kelvin, either way.",
-                v => { Settings.MaxExternalOffsetKelvin = v; Sidecar.ConfigChanged(() => Effective.MaxExternalOffsetKelvin = v); },
-                Bounds(Limits.MaxExternalOffsetKelvin), "Added heat limit (K)", 21, "%.0f");
+                v => Settings.MaxExternalOffsetKelvin = v,
+                Bounds(Limits.MaxExternalOffsetKelvin), "Added heat limit (K)", 21, "%.0f", world: true);
 
             // Storms. Two independent rules, either of which stops a world scheduling its own storm,
             // and every threshold one of them uses (docs/STORMS.md). Their own section because Climate
             // already carries five settings and nine more would swamp it.
             Bind("Storms", "StormsStopWhenStripped", Settings.StormsStopWhenStripped,
                 "Once most of a world's starting air is gone, it stops scheduling its own storm. Does not apply to solar storms.",
-                v => Settings.StormsStopWhenStripped = v, null, "Stripping the air stops storms", 50);
+                v => Settings.StormsStopWhenStripped = v, null, "Stripping the air stops storms", 50, world: true);
             Bind("Storms", "StrippedAtmosphereShare", Settings.StrippedAtmosphereShare,
                 "Share of the air the world started with, below which storms stop. 0 means every last mole.",
-                v => Settings.StrippedAtmosphereShare = v, new AcceptableValueRange<double>(0.0, 100.0), "Stripped below (% of start)", 51, "%.1f");
+                v => Settings.StrippedAtmosphereShare = v, Bounds(Limits.StrippedAtmosphereShare), "Stripped below (% of start)", 51, "%.1f", world: true);
             Bind("Storms", "StormsStopWhenAtmosphereIsMild", Settings.StormsStopWhenAtmosphereIsMild,
                 "A world whose air is temperate, thick and clean stops scheduling its own storm.",
-                v => Settings.StormsStopWhenAtmosphereIsMild = v, null, "Mild air stops storms", 52);
+                v => Settings.StormsStopWhenAtmosphereIsMild = v, null, "Mild air stops storms", 52, world: true);
             Bind("Storms", "MildAtmosphereColdestKelvin", Settings.MildAtmosphereColdestKelvin,
                 "Coldest the air may get across a day, in kelvin, and still count as mild.",
-                v => Settings.MildAtmosphereColdestKelvin = v, new AcceptableValueRange<double>(0.0, 1000.0), "Coldest air (K)", 53, "%.2f");
+                v => Settings.MildAtmosphereColdestKelvin = v, Bounds(Limits.MildAtmosphereColdestKelvin), "Coldest air (K)", 53, "%.2f", world: true);
             Bind("Storms", "MildAtmosphereHottestKelvin", Settings.MildAtmosphereHottestKelvin,
                 "Hottest the air may get across a day, in kelvin, and still count as mild.",
-                v => Settings.MildAtmosphereHottestKelvin = v, new AcceptableValueRange<double>(0.0, 1000.0), "Hottest air (K)", 54, "%.2f");
+                v => Settings.MildAtmosphereHottestKelvin = v, Bounds(Limits.MildAtmosphereHottestKelvin), "Hottest air (K)", 54, "%.2f", world: true);
             Bind("Storms", "MildAtmosphereMinPressureKpa", Settings.MildAtmosphereMinPressureKpa,
                 "Least air pressure that counts as mild.",
-                v => Settings.MildAtmosphereMinPressureKpa = v, new AcceptableValueRange<double>(0.0, 10000.0), "Minimum pressure (kPa)", 55, "%.2f");
+                v => Settings.MildAtmosphereMinPressureKpa = v, Bounds(Limits.MildAtmosphereMinPressureKpa), "Minimum pressure (kPa)", 55, "%.2f", world: true);
             Bind("Storms", "MildAtmosphereMaxPressureKpa", Settings.MildAtmosphereMaxPressureKpa,
                 "Most air pressure that counts as mild.",
-                v => Settings.MildAtmosphereMaxPressureKpa = v, new AcceptableValueRange<double>(0.0, 10000.0), "Maximum pressure (kPa)", 56, "%.2f");
+                v => Settings.MildAtmosphereMaxPressureKpa = v, Bounds(Limits.MildAtmosphereMaxPressureKpa), "Maximum pressure (kPa)", 56, "%.2f", world: true);
             Bind("Storms", "MildAtmosphereMaxToxinsKpa", Settings.MildAtmosphereMaxToxinsKpa,
                 "Most toxic gas allowed, in kilopascals, measured at the hottest point of the day.",
-                v => Settings.MildAtmosphereMaxToxinsKpa = v, new AcceptableValueRange<double>(0.0, 1000.0), "Most toxins (kPa)", 57, "%.2f");
+                v => Settings.MildAtmosphereMaxToxinsKpa = v, Bounds(Limits.MildAtmosphereMaxToxinsKpa), "Most toxins (kPa)", 57, "%.2f", world: true);
             Bind("Storms", "MildAtmosphereStopsSolarStorms", Settings.MildAtmosphereStopsSolarStorms,
                 "Air shields radiation, so a mild world stops solar storms as well. Off by default: on the Moon they give four times normal solar power.",
-                v => Settings.MildAtmosphereStopsSolarStorms = v, null, "Mild air stops solar storms too", 58);
+                v => Settings.MildAtmosphereStopsSolarStorms = v, null, "Mild air stops solar storms too", 58, world: true);
 
             Bind("Multiplayer", "SyncIntervalSeconds", Settings.SyncIntervalSeconds,
                 "How often the host sends the planet state to clients.",
@@ -240,11 +236,8 @@ namespace TerraformingReloaded
                 "Write the terraform status to the log this often, in seconds. 0 is off. The console command shows the same thing.",
                 v => Settings.StatusLogSeconds = v, new AcceptableValueRange<double>(0.0, 3600.0), "Status to log every (s)", 40, "%.0f");
 
-            // The values in force start as the config, said here rather than left to happen because
-            // Bind calls each apply eagerly. That is a side effect, not a promise: drop one
-            // ConfigChanged from one lambda and the world-scoped values would silently fall back to
-            // the field literals in Effective instead. The pressure ceiling is not seeded, and
-            // cannot be: no world is being played, and a ceiling belongs to a world.
+            // The values in force start as the config, because no world is being played yet. The
+            // pressure ceiling is not seeded, and cannot be: a ceiling belongs to a world.
             Sidecar.SeedFromConfig();
         }
 
@@ -261,8 +254,14 @@ namespace TerraformingReloaded
 
         private ConfigEntry<T> Bind<T>(string section, string key, T fallback, string description, Action<T> apply,
             AcceptableValueBase range = null, string label = null, int order = 0, string format = null, bool restart = false,
-            bool? disabled = null)
+            bool? disabled = null, bool world = false)
         {
+            if (world)
+            {
+                // Said in the entry itself, because the config editor is where a player would
+                // otherwise expect a change to reach the world they are in.
+                description += " This is what a NEW world starts with. Each world keeps its own; to change the world you are playing, use terraform set " + key + " <value>.";
+            }
             var tags = new System.Collections.Generic.List<object> { new System.Collections.Generic.KeyValuePair<string, int>("Order", order) };
             if (disabled.HasValue)
             {
@@ -285,7 +284,16 @@ namespace TerraformingReloaded
             apply(entry.Value);
             if (!restart)
             {
-                entry.SettingChanged += (_, __) => apply(entry.Value);      // a restart setting really does wait for the restart
+                // A restart setting really does wait for the restart. A world setting reaches the
+                // values in force only while no world is being played (Sidecar.ConfigEdited).
+                entry.SettingChanged += (_, __) =>
+                {
+                    apply(entry.Value);
+                    if (world)
+                    {
+                        Sidecar.ConfigEdited();
+                    }
+                };
             }
             return entry;
         }

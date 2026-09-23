@@ -271,12 +271,12 @@ namespace TerraformingReloaded.Patching
             }
             // A share of 0 means every last mole. GlobalGasMix has no minimum-quantity cleanup, so a
             // literal zero test would never fire; the game's own smallest quantity is the floor.
-            double threshold = Math.Max(shippedPerCell * Settings.StrippedAtmosphereShare / 100.0,
+            double threshold = Math.Max(shippedPerCell * Effective.StrippedAtmosphereShare / 100.0,
                 Chemistry.MINIMUM_QUANTITY_MOLES.ToDouble());
             snapshot.ShareKnown = true;
             snapshot.Share = perCell / shippedPerCell;
             snapshot.ThresholdShare = threshold / shippedPerCell;
-            snapshot.Stripped = Settings.StormsStopWhenStripped && perCell < threshold;
+            snapshot.Stripped = Effective.StormsStopWhenStripped && perCell < threshold;
         }
 
         /// <summary>
@@ -362,28 +362,28 @@ namespace TerraformingReloaded.Patching
             List<string> failures = new List<string>(5);
             // Written as the negation of the bound holding, so a figure that is not a number fails
             // rather than slips through: NaN loses every comparison.
-            if (!(snapshot.Coldest >= Settings.MildAtmosphereColdestKelvin))
+            if (!(snapshot.Coldest >= Effective.MildAtmosphereColdestKelvin))
             {
-                failures.Add(string.Format(c, "coldest {0:0.0} K is below the {1:0.##} K floor", snapshot.Coldest, Settings.MildAtmosphereColdestKelvin));
+                failures.Add(string.Format(c, "coldest {0:0.0} K is below the {1:0.##} K floor", snapshot.Coldest, Effective.MildAtmosphereColdestKelvin));
             }
-            if (!(snapshot.Hottest <= Settings.MildAtmosphereHottestKelvin))
+            if (!(snapshot.Hottest <= Effective.MildAtmosphereHottestKelvin))
             {
-                failures.Add(string.Format(c, "hottest {0:0.0} K is above the {1:0.##} K ceiling", snapshot.Hottest, Settings.MildAtmosphereHottestKelvin));
+                failures.Add(string.Format(c, "hottest {0:0.0} K is above the {1:0.##} K ceiling", snapshot.Hottest, Effective.MildAtmosphereHottestKelvin));
             }
-            if (!(snapshot.PressureCold >= Settings.MildAtmosphereMinPressureKpa))
+            if (!(snapshot.PressureCold >= Effective.MildAtmosphereMinPressureKpa))
             {
-                failures.Add(string.Format(c, "pressure {0:0.##} kPa at the coldest hour is below the {1:0.##} kPa minimum", snapshot.PressureCold, Settings.MildAtmosphereMinPressureKpa));
+                failures.Add(string.Format(c, "pressure {0:0.##} kPa at the coldest hour is below the {1:0.##} kPa minimum", snapshot.PressureCold, Effective.MildAtmosphereMinPressureKpa));
             }
-            if (!(snapshot.PressureHot <= Settings.MildAtmosphereMaxPressureKpa))
+            if (!(snapshot.PressureHot <= Effective.MildAtmosphereMaxPressureKpa))
             {
-                failures.Add(string.Format(c, "pressure {0:0.##} kPa at the hottest hour is above the {1:0.##} kPa maximum", snapshot.PressureHot, Settings.MildAtmosphereMaxPressureKpa));
+                failures.Add(string.Format(c, "pressure {0:0.##} kPa at the hottest hour is above the {1:0.##} kPa maximum", snapshot.PressureHot, Effective.MildAtmosphereMaxPressureKpa));
             }
-            if (_toxinBoundOff == null && !(snapshot.Toxins <= Settings.MildAtmosphereMaxToxinsKpa))
+            if (_toxinBoundOff == null && !(snapshot.Toxins <= Effective.MildAtmosphereMaxToxinsKpa))
             {
-                failures.Add(string.Format(c, "toxins {0:0.###} kPa at the hottest hour are above the {1:0.##} kPa ceiling", snapshot.Toxins, Settings.MildAtmosphereMaxToxinsKpa));
+                failures.Add(string.Format(c, "toxins {0:0.###} kPa at the hottest hour are above the {1:0.##} kPa ceiling", snapshot.Toxins, Effective.MildAtmosphereMaxToxinsKpa));
             }
             snapshot.MildFailures = failures;
-            snapshot.Mild = Settings.StormsStopWhenAtmosphereIsMild && failures.Count == 0;
+            snapshot.Mild = Effective.StormsStopWhenAtmosphereIsMild && failures.Count == 0;
         }
 
         /// <summary>
@@ -460,7 +460,7 @@ namespace TerraformingReloaded.Patching
             {
                 return true;
             }
-            return snapshot.Mild && (!solar || Settings.MildAtmosphereStopsSolarStorms);
+            return snapshot.Mild && (!solar || Effective.MildAtmosphereStopsSolarStorms);
         }
 
         /// <summary>
@@ -489,7 +489,7 @@ namespace TerraformingReloaded.Patching
             {
                 return false;
             }
-            if (snapshot.HasSolar && !(snapshot.Mild && Settings.MildAtmosphereStopsSolarStorms))
+            if (snapshot.HasSolar && !(snapshot.Mild && Effective.MildAtmosphereStopsSolarStorms))
             {
                 return false;
             }
@@ -575,7 +575,7 @@ namespace TerraformingReloaded.Patching
 
         private static string Stripped(Snapshot snapshot, CultureInfo c)
         {
-            if (!Settings.StormsStopWhenStripped)
+            if (!Effective.StormsStopWhenStripped)
             {
                 return "the rule is off in the config" + (snapshot.ShareKnown
                     ? string.Format(c, "; this planet holds {0:0.0}% of this world's starting air", snapshot.Share * 100.0)
@@ -610,7 +610,7 @@ namespace TerraformingReloaded.Patching
             {
                 headline = "no, " + string.Join("; ", snapshot.MildFailures.ToArray());
             }
-            else if (!Settings.StormsStopWhenAtmosphereIsMild)
+            else if (!Effective.StormsStopWhenAtmosphereIsMild)
             {
                 headline = "yes at this point in the orbit, but the rule is off in the config";
             }
@@ -620,13 +620,13 @@ namespace TerraformingReloaded.Patching
             }
             yield return "mild:      " + headline;
             yield return string.Format(c, "           coldest {0:0.0} K (floor {1:0.##})    hottest {2:0.0} K (ceiling {3:0.##})",
-                snapshot.Coldest, Settings.MildAtmosphereColdestKelvin, snapshot.Hottest, Settings.MildAtmosphereHottestKelvin);
+                snapshot.Coldest, Effective.MildAtmosphereColdestKelvin, snapshot.Hottest, Effective.MildAtmosphereHottestKelvin);
             yield return string.Format(c, "           pressure {0:0.##} to {1:0.##} kPa ({2:0.##} to {3:0.##})  toxins {4:0.###} kPa ({5})",
                 snapshot.PressureCold, snapshot.PressureHot,
-                Settings.MildAtmosphereMinPressureKpa, Settings.MildAtmosphereMaxPressureKpa, snapshot.Toxins,
+                Effective.MildAtmosphereMinPressureKpa, Effective.MildAtmosphereMaxPressureKpa, snapshot.Toxins,
                 _toxinBoundOff != null
                     ? "bound off: " + _toxinBoundOff
-                    : string.Format(c, "ceiling {0:0.##}", Settings.MildAtmosphereMaxToxinsKpa));
+                    : string.Format(c, "ceiling {0:0.##}", Effective.MildAtmosphereMaxToxinsKpa));
         }
 
         private static string Solar(Snapshot snapshot)
@@ -635,7 +635,7 @@ namespace TerraformingReloaded.Patching
             {
                 return "this world has none";
             }
-            if (!Settings.MildAtmosphereStopsSolarStorms)
+            if (!Effective.MildAtmosphereStopsSolarStorms)
             {
                 return "not suppressed; stripping never stops one, and the setting that would let mild air stop one is off";
             }
@@ -663,7 +663,7 @@ namespace TerraformingReloaded.Patching
                 string.IsNullOrEmpty(last) ? "weather" : last,
                 count,
                 count == 1 ? "" : "s",
-                Settings.WeatherOnWeatherlessWorlds ? "was off; it is on now, so the next one falls" : "is off");
+                Effective.WeatherOnWeatherlessWorlds ? "was off; it is on now, so the next one falls" : "is off");
         }
     }
 }

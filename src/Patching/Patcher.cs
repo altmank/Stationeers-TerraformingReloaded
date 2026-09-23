@@ -354,23 +354,22 @@ namespace TerraformingReloaded.Patching
                 harmony.Patch(createPlanet, postfix: Body(typeof(Planet), nameof(Planet.CreatePostfix)));
             });
 
-            if (Settings.DynamicSky)
+            // Always installed: whether the sky follows the air is a per-world setting, so the rewritten
+            // question asks Gate.SkyEnabled every frame instead of the patch being left out.
+            Extra(report, "dynamic sky", () =>
             {
-                Extra(report, "dynamic sky", () =>
+                MethodInfo update = AccessTools.DeclaredMethod(typeof(AtmosphericScattering), "ManagerUpdate");
+                MethodInfo blend = AccessTools.DeclaredMethod(typeof(AtmosphericScattering), "UpdateAtmosphericScatteringToGlobalAtmosphere");
+                Need(update);
+                Need(blend);
+                if (Gate.CountCallSites(update) != 1)
                 {
-                    MethodInfo update = AccessTools.DeclaredMethod(typeof(AtmosphericScattering), "ManagerUpdate");
-                    MethodInfo blend = AccessTools.DeclaredMethod(typeof(AtmosphericScattering), "UpdateAtmosphericScatteringToGlobalAtmosphere");
-                    Need(update);
-                    Need(blend);
-                    if (Gate.CountCallSites(update) != 1)
-                    {
-                        throw new InvalidOperationException("the sky update does not ask the question exactly once");
-                    }
-                    // Throttle first, so the sky is never switched on without it.
-                    harmony.Patch(blend, prefix: Body(typeof(Guards), nameof(Guards.SkyPrefix)), postfix: Body(typeof(Guards), nameof(Guards.SkyPostfix)));
-                    harmony.Patch(update, transpiler: Body(typeof(Gate), nameof(Gate.Transpiler)));
-                });
-            }
+                    throw new InvalidOperationException("the sky update does not ask the question exactly once");
+                }
+                // Throttle first, so the sky is never switched on without it.
+                harmony.Patch(blend, prefix: Body(typeof(Guards), nameof(Guards.SkyPrefix)), postfix: Body(typeof(Guards), nameof(Guards.SkyPostfix)));
+                harmony.Patch(update, transpiler: Body(typeof(Gate), nameof(Gate.SkyTranspiler)));
+            });
 
             return report;
         }

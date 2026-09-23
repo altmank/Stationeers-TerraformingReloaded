@@ -28,6 +28,7 @@ namespace TerraformingReloaded.Patching
 
         internal static MethodInfo VanillaGetter;
         private static readonly MethodInfo EnabledMethod = AccessTools.Method(typeof(Gate), nameof(Enabled));
+        private static readonly MethodInfo SkyEnabledMethod = AccessTools.Method(typeof(Gate), nameof(SkyEnabled));
 
         public static bool Armed => _armed;
 
@@ -109,7 +110,26 @@ namespace TerraformingReloaded.Patching
             return count;
         }
 
+        /// <summary>
+        /// The sky's own question: the planet is live and this world's settings let the sky follow
+        /// its air. Per world, so the sky patch is always installed and this decides every frame.
+        /// Switched off mid-game, the sky keeps the last look it was given until the world reloads,
+        /// because the game only sets it from the world's data when a world starts.
+        /// </summary>
+        public static bool SkyEnabled() => Effective.DynamicSky && Enabled();
+
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
+        {
+            return Rewrite(instructions, original, EnabledMethod);
+        }
+
+        /// <summary>The same rewrite for the sky update, asking <see cref="SkyEnabled"/>.</summary>
+        public static IEnumerable<CodeInstruction> SkyTranspiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
+        {
+            return Rewrite(instructions, original, SkyEnabledMethod);
+        }
+
+        private static IEnumerable<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions, MethodBase original, MethodInfo target)
         {
             int count = 0;
             foreach (CodeInstruction instruction in instructions)
@@ -118,7 +138,7 @@ namespace TerraformingReloaded.Patching
                 {
                     // Reassign in place so labels and exception blocks on the instruction survive.
                     instruction.opcode = OpCodes.Call;
-                    instruction.operand = EnabledMethod;
+                    instruction.operand = target;
                     count++;
                 }
                 yield return instruction;
