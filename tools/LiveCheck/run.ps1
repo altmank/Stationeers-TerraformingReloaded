@@ -15,7 +15,16 @@
                does not understand. With the config asking for a 500 kPa ceiling throughout, the
                ceiling in force has to stay off for every one of them, and the planet has to be
                where it was. Ends with a control: a ceiling set the one way it may be, by
-               terraform ceiling, which must delete most of the planet.
+               terraform set MaxPressureKPa, which must delete most of the planet.
+    -Sessions  Several worlds in one game session, switched with the console's own file start.
+               World A: change settings with terraform set (one of them must ask first, a bad value
+               and an unknown key must be refused), then change the config. World B is created
+               next and must start from the config. Back to A: it must still have what terraform
+               set gave it, not the config. Back to B: still the config it started with.
+    -RainSave  Rain on a world that ships no weather (Mimas), across a save and a load. Fills a cloud,
+               lets the planet tick empty it into the air and schedule rain for real, saves, then
+               loads that save in a fresh instance. The game saves no weather state on such a
+               world, so the rain is expected to be gone; what must not change is the planet's gas.
     -SaveLoad  Same injection, then save while the gas is spread over thousands of outdoor cells,
                stop, load that save in a fresh instance. The total after the load must equal the
                total at the save. The game's loader rebuilds every saved outdoor cell by cloning
@@ -128,6 +137,8 @@ param(
     [switch]$Vanilla,
     [switch]$SaveLoad,
     [switch]$Sidecar,
+    [switch]$Sessions,
+    [switch]$RainSave,
     [switch]$Reset,
     [string]$Dump,
     [switch]$Observe,
@@ -174,7 +185,7 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
-if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld and -Strip.' }
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld and -Strip.' }
 if (($Orbit -ne 0) -and ($OrbitTick -le 0)) { throw '-Orbit needs -OrbitTick, the tick to move the season at.' }
 if (($OrbitTick -gt 0) -and ($Orbit -eq 0)) { throw '-OrbitTick needs -Orbit, how many degrees of the world orbit to move; 360 is a year.' }
 if ($Schedule -and ($Orbit -ne 0)) { throw '-Schedule walks the whole year itself and picks the two seasons it judges; -Orbit is for the other scenarios.' }
@@ -220,6 +231,11 @@ if ($preexisting.Count -gt 0) {
 $bepLog = Join-Path $GameDir 'BepInEx\LogOutput.log'
 $curvesFile = Join-Path $GameDir 'BepInEx\config\TerraformingReloaded.curves.xml'
 $curvesExisted = Test-Path $curvesFile
+# The mod's config is the player's real one, shared with normal play, and a run that moves a setting
+# the way the config editor does (-Sessions) makes BepInEx save it. Byte for byte back at the end.
+$configFile = Join-Path $GameDir 'BepInEx\config\xceled.stationeers.terraformingreloaded.cfg'
+$configSaved = $null
+if (Test-Path $configFile) { $configSaved = [System.IO.File]::ReadAllBytes($configFile) }
 $unityLog = Join-Path $env:TEMP 'tr-livecheck-unity.log'
 $script:game = $null
 # Every variable the driver reads, cleared before each launch and again at the end, so one scenario
@@ -234,7 +250,7 @@ $envKeys = @(
     'TR_LIVECHECK_STRIP_TICK', 'TR_LIVECHECK_STRIP_TICKS', 'TR_LIVECHECK_STRIP_CELLS',
     'TR_LIVECHECK_STRIP_PER_CELL', 'TR_LIVECHECK_STRIP_FLOOR', 'TR_LIVECHECK_STRIP_SHARE',
     'TR_LIVECHECK_WALKCOST', 'TR_LIVECHECK_SIDECAR_TICK',
-    'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK')
+    'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK', 'TR_LIVECHECK_SESSIONS', 'TR_LIVECHECK_RAINSAVE')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -367,10 +383,12 @@ function Get-Storms($log) {
     }
 }
 
-function Assert-ModLive($log) {
+function Assert-ModLive($log, [switch]$Airless) {
     if (-not ($log -match 'Terraforming Reloaded\] Active:')) { throw 'The mod never reported Active. It did not load or did not arm.' }
     if (-not ($log -match 'Planet tick is running\. live')) { throw 'The planet tick never ran with the mod live.' }
-    if (-not ($log -match 'Self-test passed: take and give')) { throw 'The in-game self-test did not pass.' }
+    # A world with no air has nothing to take, so the self-test says so and waits for the first air.
+    $selfTest = if ($Airless) { 'Self-test (passed: take and give|skipped: no air on the planet yet)' } else { 'Self-test passed: take and give' }
+    if (-not ($log -match $selfTest)) { throw 'The in-game self-test did not pass.' }
     if ($log -match '\[(Error|Warning)\s*:\s*Terraforming Reloaded\]') { throw 'The mod logged a warning or error.' }
 }
 
@@ -951,6 +969,105 @@ try {
         return
     }
 
+    if ($RainSave) {
+        $station = 'trrainsave'
+        $log = Invoke-Game @('-file', 'start', $station, 'MimasHerschel') @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_RAINSAVE = '1' } `
+            { param($l) @($l -match 'LiveCheck: rainsave done|LiveCheck stopped').Count -gt 0 } 'a cloud to fill on Mimas, rain to be scheduled, and a save'
+        Assert-ModLive $log -Airless
+        if ($log -match 'LiveCheck stopped') { throw ('LiveCheck FAILED: ' + (@($log -match 'LiveCheck stopped')[0])) }
+        # The save is written asynchronously; give it time to land before the instance is stopped.
+        Start-Sleep -Seconds 20
+        $log = @(Get-Content $bepLog)
+        Stop-Game
+        $log2 = Invoke-Game @('-file', 'start', $station) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_RAINSAVE = '2' } `
+            { param($l) @($l -match 'LiveCheck: rainsave done|LiveCheck stopped').Count -gt 0 } 'the save to load'
+        Assert-ModLive $log2 -Airless
+        if ($log2 -match 'LiveCheck stopped') { throw ('LiveCheck FAILED: ' + (@($log2 -match 'LiveCheck stopped')[0])) }
+
+        $rows = @{}
+        foreach ($line in @($log + $log2) -match 'LiveCheck: rainsave \S+ \| tick ') {
+            if ($line -match 'rainsave (\S+) \| tick (\d+) \| world (\S*) \| hasweather (\S+) \| event (\S+) \| scheduled (\S+) \| running (\S+) \| tank (\S+) \| reservoirs (\S+) \| store (\S+)') {
+                $rows[$Matches[1]] = [pscustomobject]@{ Step = $Matches[1]; Tick = [int]$Matches[2]; World = $Matches[3]; HasWeather = $Matches[4]
+                    Event = $Matches[5]; Scheduled = $Matches[6]; Running = $Matches[7]
+                    Tank = [double]$Matches[8]; Reservoirs = [double]$Matches[9]; Store = [double]$Matches[10] }
+            }
+        }
+        @('before', 'rain', 'saved', 'loaded') | ForEach-Object { $rows[$_] } | Where-Object { $_ } |
+            Format-Table Step, Tick, World, HasWeather, Event, Scheduled, Running,
+                @{ n = 'tank'; e = { '{0:N3}' -f $_.Tank } }, @{ n = 'reservoirs'; e = { '{0:N3}' -f $_.Reservoirs } }, @{ n = 'store'; e = { '{0:N3}' -f $_.Store } } -AutoSize |
+            Out-String -Width 200 | Write-Host
+
+        $problems = @()
+        foreach ($step in 'before', 'rain', 'saved', 'loaded') { if (-not $rows[$step]) { $problems += "no reading for $step" } }
+        if ($problems.Count -eq 0) {
+            $rain = $rows['rain']; $saved = $rows['saved']; $loaded = $rows['loaded']
+            if ($rain.HasWeather -ne 'False') { $problems += "the world is not one that ships no weather ($($rain.World))" }
+            if ($rain.Event -ne 'Rain' -or ($rain.Scheduled -ne 'True' -and $rain.Running -ne 'True')) { $problems += "the planet tick did not schedule rain (event $($rain.Event), scheduled $($rain.Scheduled), running $($rain.Running))" }
+            if ($loaded.Scheduled -eq 'True' -or $loaded.Running -eq 'True') { $problems += 'rain came back after the load, which the game should not be able to do on this world; re-read CreateSaveData' }
+            $allowed = [math]::Max(0.01, 1e-9 * $saved.Store)
+            $drift = $loaded.Store - $saved.Store
+            Write-Host ("planet store {0:N3} mol after the save, {1:N3} mol after the load: changed by {2:N3} mol" -f $saved.Store, $loaded.Store, $drift)
+            if ([math]::Abs($drift) -gt $allowed) { $problems += "the planet's gas changed by $drift mol across the save and load" }
+        }
+        if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: ' + ($problems -join '; ')) }
+        Write-Host 'LiveCheck OK: on a world that ships no weather, rain the planet scheduled was dropped by the save as the game does, and the planet kept every mole.'
+        return
+    }
+
+    if ($Sessions) {
+        # Several worlds in one process. The launch creates world A; everything after that is the
+        # driver at the in-game console, the way a player would do it.
+        $log = Invoke-Game @('-file', 'start', 'trsessiona', 'Mars2') @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_SESSIONS = '1' } `
+            { param($l) @($l -match 'LiveCheck: sessions done|LiveCheck stopped').Count -gt 0 } 'world A, world B, and back to each'
+        Assert-ModLive $log
+        if ($log -match 'LiveCheck stopped') { throw ('LiveCheck FAILED: ' + (@($log -match 'LiveCheck stopped')[0])) }
+        $rows = @{}
+        $order = @()
+        foreach ($line in @($log -match 'LiveCheck: sessions \S+ \| station ')) {
+            if ($line -match 'sessions (\S+) \| station (\S*) \| ghg (\S+) \| coldest (\S+) \| stripped (\S+) \| sky (\S+) \| skygate (\S+) \| limitK (\S+) \| fileghg (\S+) \| filecoldest (\S+) \| filesky (\S+) \| filelimitK (\S+) \| file (.*)$') {
+                $row = [pscustomobject]@{ Step = $Matches[1]; Station = $Matches[2]; Ghg = $Matches[3]; Coldest = $Matches[4]
+                    Stripped = $Matches[5]; Sky = $Matches[6]; SkyGate = $Matches[7]; LimitK = $Matches[8]
+                    FileGhg = $Matches[9]; FileColdest = $Matches[10]; FileSky = $Matches[11]; FileLimitK = $Matches[12]; File = $Matches[13].Trim() }
+                $rows[$row.Step] = $row
+                $order += $row
+            }
+        }
+        $order | Format-Table Step, Station, Ghg, Coldest, Stripped, Sky, SkyGate, LimitK, FileGhg, FileColdest, FileSky, FileLimitK -AutoSize | Out-String -Width 220 | Write-Host
+        Write-Host '--- the console, as the driver saw it ---'
+        @($log -match 'LiveCheck: (cmd set|sessions switching)') | ForEach-Object { ($_ -replace '^\[[^\]]*\]\s*', '') -replace '(.{400}).+', '$1 ...' } | Write-Host
+
+        $problems = @()
+        # Step, station, then the values in force and in the file. '*' is not checked.
+        $want = @(
+            @('A-new',          'trsessiona', '1',   '263.15', 'True',  'True',  'True',  '50', '1',   '263.15', 'true',  '50'),
+            @('A-asked',        'trsessiona', '2.5', '250',    'False', 'False', 'False', '50', '2.5', '250',    'false', '50'),
+            @('A-set',          'trsessiona', '2.5', '250',    'False', 'False', 'False', '20', '2.5', '250',    'false', '20'),
+            @('A-after-config', 'trsessiona', '2.5', '250',    'False', 'False', 'False', '20', '2.5', '250',    'false', '20'),
+            @('B-new',          'trsessionb', '0.7', '270',    'True',  'True',  'True',  '35', '0.7', '270',    'true',  '35'),
+            @('A-again',        'trsessiona', '2.5', '250',    'False', 'False', 'False', '20', '2.5', '250',    'false', '20'),
+            @('B-again',        'trsessionb', '0.7', '270',    'True',  'True',  'True',  '35', '0.7', '270',    'true',  '35'))
+        $names = 'Station', 'Ghg', 'Coldest', 'Stripped', 'Sky', 'SkyGate', 'LimitK', 'FileGhg', 'FileColdest', 'FileSky', 'FileLimitK'
+        foreach ($w in $want) {
+            $row = $rows[$w[0]]
+            if (-not $row) { $problems += "no row for $($w[0])"; continue }
+            for ($i = 0; $i -lt $names.Count; $i++) {
+                $got = $row.($names[$i])
+                if ($w[$i + 1] -ne '*' -and $got -ne $w[$i + 1]) { $problems += "$($w[0]): $($names[$i]) is $got, expected $($w[$i + 1])" }
+            }
+        }
+        $cmds = @($log -match 'LiveCheck: cmd set ')
+        $asked = @($cmds -match 'cmd set MaxExternalOffsetKelvin 20 -> ')
+        if ($asked.Count -eq 0 -or $asked[0] -notmatch 'To go ahead: terraform set MaxExternalOffsetKelvin 20 confirm') { $problems += 'lowering the heat limit did not ask first' }
+        if (@($cmds -match 'cmd set WeatherOnWeatherlessWorlds banana -> .*is not a value').Count -eq 0) { $problems += 'a value that is not on or off was not refused' }
+        if (@($cmds -match 'cmd set NoSuchSetting 1 -> .*is not a world setting').Count -eq 0) { $problems += 'an unknown key was not refused' }
+        if (@($cmds -match 'cmd set -> World settings for the world you are playing').Count -lt 2) { $problems += 'terraform set alone did not list the world settings' }
+        # Once a new world has been saved, what is in force is what its file records, so the list must not still say it is waiting for a first save.
+        if (@($cmds -match 'cmd set -> .*is being created').Count -gt 0) { $problems += 'terraform set still said the world was being created after it had been saved' }
+        if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: ' + ($problems -join '; ')) }
+        Write-Host 'LiveCheck OK: each world kept its own settings across four world switches in one session; terraform set changed only the world in play and wrote its file; the config changed only what the next new world started with.'
+        return
+    }
+
     if ($Sidecar) {
         # Per-world settings. Two phases, because a world can only be created once: the first makes
         # the world, which is the only moment the CreateSaveDirectory postfix can record what it was
@@ -1211,6 +1328,8 @@ finally {
     foreach ($key in $envKeys) { Remove-Item "Env:$key" -ErrorAction SilentlyContinue }
     # BepInEx\config is the real one, shared with normal play. Only remove a curves file this run made.
     if (-not $curvesExisted -and (Test-Path $curvesFile)) { Remove-Item $curvesFile -Force }
+    if ($null -ne $configSaved) { [System.IO.File]::WriteAllBytes($configFile, $configSaved) }
+    elseif (Test-Path $configFile) { Remove-Item $configFile -Force }
     if ($Keep) {
         Write-Host "Kept for inspection in ${GameDir}: $($names -join ', '). Delete them before the next run."
     }

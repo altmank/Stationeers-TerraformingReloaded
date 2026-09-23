@@ -203,6 +203,27 @@ namespace TerraformingReloaded.LiveCheck
         private bool _stormsDone;
         private string _stormsJudging;
 
+        // Several worlds in one process. World A is created by the launch; the driver changes its
+        // settings with terraform set, changes the config, creates world B, then goes back to A and
+        // to B again, switching with the console's own file start. Both transition bugs found so far
+        // were state carried from one world into the next, and nothing else plays two worlds in one
+        // session.
+        private static readonly bool Sessions = Environment.GetEnvironmentVariable("TR_LIVECHECK_SESSIONS") == "1";
+
+        // Rain on a world that ships no weather, across a save and a load. The game saves no weather
+        // state at all on such a world (WeatherManager.CreateSaveData returns null), so rain that is
+        // scheduled or falling at a save is gone after the load. Phase 1 fills a cloud, lets the
+        // planet tick schedule the rain for real, and saves; phase 2 loads and reads what came back.
+        private static readonly string RainSave = Environment.GetEnvironmentVariable("TR_LIVECHECK_RAINSAVE") ?? "";
+        private int _rainStep;
+        private bool _rainDone;
+        private int _sessionStep;
+        private bool _sessionsDone;
+        private object _sessionTank;
+        private string _sessionWant;
+        private bool _sessionArrived;
+        private uint _sessionSeenTick;
+
         // Moving the season. Writing SimulationTimeSeconds alone does nothing: the distances the
         // solar percent derives from are recomputed by SetAllBodies, which SetSimulationTime calls.
         // One unit of simulation time is one degree of the world's own orbit, so 360 is a year
@@ -334,6 +355,14 @@ namespace TerraformingReloaded.LiveCheck
             if (WeatherTick > 0 && _weatherStage < 2 && GameManager.GameTickCount >= WeatherTick)
             {
                 CheckWeather();
+            }
+            if (Sessions && !_sessionsDone)
+            {
+                SessionsStep();
+            }
+            if (RainSave.Length > 0 && !_rainDone && GameManager.GameTickCount >= 15)
+            {
+                RainSaveStep();
             }
             if (!_statusAgain && StatusAgainTick > 0 && GameManager.GameTickCount >= StatusAgainTick)
             {
@@ -1083,11 +1112,210 @@ namespace TerraformingReloaded.LiveCheck
         // thread, with the game's own cooldowns cleared, and reads back whether an event was set.
         // Nothing here reimplements either rule: every verdict judged is the mod's own.
 
+        // ---- several worlds in one session ------------------------------------------------------
+
+        private void SessionsStep()
+        {
+            // A world started from the console can come up paused, and the launch's own unpause only
+            // ever ran once.
+            if (WorldManager.IsGamePaused)
+            {
+                WorldManager.SetGamePause(pauseGame: false);
+            }
+            object tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            string station = Assets.Scripts.Serialization.XmlSaveLoad.Instance?.CurrentStationName;
+            if (_sessionWant != null)
+            {
+                // Arrived means a new planet under the name asked for. The name alone is not enough:
+                // a world being created carries the previous world's name until its first save.
+                if (tank == null || ReferenceEquals(tank, _sessionTank) || station != _sessionWant)
+                {
+                    return;
+                }
+                if (!_sessionArrived)
+                {
+                    _sessionArrived = true;
+                    _sessionSeenTick = GameManager.GameTickCount;
+                    return;
+                }
+                if (GameManager.GameTickCount < _sessionSeenTick + 10)
+                {
+                    return;
+                }
+                _sessionWant = null;
+                _sessionArrived = false;
+            }
+            else if (GameManager.GameTickCount < 15 || string.IsNullOrEmpty(station))
+            {
+                return;
+            }
+
+            switch (_sessionStep++)
+            {
+                case 0:
+                    LogSession("A-new");
+                    RunCommand("set", "GhgResponseScale", "2.5");
+                    RunCommand("set", "StormsStopWhenStripped", "off");
+                    RunCommand("set", "DynamicSky", "off");
+                    RunCommand("set", "MildAtmosphereColdestKelvin", "250");
+                    // Lowering the heat limit deletes banked heat, so it must ask before it acts.
+                    RunCommand("set", "MaxExternalOffsetKelvin", "20");
+                    LogSession("A-asked");
+                    RunCommand("set", "MaxExternalOffsetKelvin", "20", "confirm");
+                    RunCommand("set", "WeatherOnWeatherlessWorlds", "banana");
+                    RunCommand("set", "NoSuchSetting", "1");
+                    RunCommand("set");
+                    LogSession("A-set");
+                    // The config editor, the way a player moves it: through the entry, so BepInEx
+                    // fires the same SettingChanged the mod listens to.
+                    SetConfigEntry("Climate", "GhgResponseScale", 0.7);
+                    SetConfigEntry("Storms", "MildAtmosphereColdestKelvin", 270.0);
+                    SetConfigEntry("Heat", "MaxExternalOffsetKelvin", 35.0);
+                    LogSession("A-after-config");
+                    SwitchWorld(tank, "trsessionb", "Mars2");
+                    break;
+                case 1:
+                    LogSession("B-new");
+                    SwitchWorld(tank, "trsessiona", null);
+                    break;
+                case 2:
+                    LogSession("A-again");
+                    SwitchWorld(tank, "trsessionb", null);
+                    break;
+                default:
+                    LogSession("B-again");
+                    RunCommand("set");
+                    _sessionsDone = true;
+                    Logger.LogInfo("LiveCheck: sessions done");
+                    break;
+            }
+        }
+
+        private void RainSaveStep()
+        {
+            if (WorldManager.IsGamePaused)
+            {
+                WorldManager.SetGamePause(pauseGame: false);
+            }
+            if (RainSave == "2")
+            {
+                // The load. Read once, a few ticks in, so the planet tick has run on the loaded state.
+                LogRain("loaded");
+                _rainDone = true;
+                Logger.LogInfo("LiveCheck: rainsave done");
+                return;
+            }
+            switch (_rainStep)
+            {
+                case 0:
+                    LogRain("before");
+                    FillLiquidClouds();
+                    _rainStep = 1;
+                    return;
+                case 1:
+                    // Wait for the planet tick to empty the cloud into the air and ask for rain.
+                    if (!Weather.WeatherManager.IsWeatherEventScheduled && !Weather.WeatherManager.IsWeatherEventRunning)
+                    {
+                        return;
+                    }
+                    LogRain("rain");
+                    _rainStep = 2;
+                    Logger.LogInfo("LiveCheck: rainsave saving at tick " + GameManager.GameTickCount);
+                    Util.Commands.CommandLine.Process("file save");
+                    return;
+                case 2:
+                    // One more reading after the save, so the figure the load is compared with is
+                    // taken with the save already on disk.
+                    LogRain("saved");
+                    _rainDone = true;
+                    Logger.LogInfo("LiveCheck: rainsave done");
+                    return;
+            }
+        }
+
+        /// <summary>
+        /// The planet's whole store, tank plus the three reservoirs, and the weather state. The whole
+        /// store because the cloud empties into the tank on the tick that asks for rain.
+        /// </summary>
+        private void LogRain(string name)
+        {
+            double total = PlanetaryAtmosphereSimulation.GetGlobalGasMix()?.TotalQuantity().ToDouble() ?? double.NaN;
+            double clouds = 0.0;
+            object mixes = AccessTools.Method(AccessTools.TypeByName("TerraformingReloaded.Patching.Planet"), "ReservoirMixes").Invoke(null, null);
+            foreach (GlobalGasMix mix in (GlobalGasMix[])mixes)
+            {
+                if (mix != null)
+                {
+                    clouds += mix.TotalQuantity().ToDouble();
+                }
+            }
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: rainsave {0} | tick {1} | world {2} | hasweather {3} | event {4} | scheduled {5} | running {6} | tank {7:R} | reservoirs {8:R} | store {9:R}",
+                name, GameManager.GameTickCount, WorldSetting.Current?.Id, Weather.WeatherManager.WorldHasWeather,
+                Weather.WeatherManager.CurrentWeatherEvent?.Id ?? "none",
+                Weather.WeatherManager.IsWeatherEventScheduled, Weather.WeatherManager.IsWeatherEventRunning,
+                total, clouds, total + clouds));
+        }
+
+        private void SwitchWorld(object tank, string station, string world)
+        {
+            _sessionTank = tank;
+            _sessionWant = station;
+            _sessionArrived = false;
+            string command = "file start " + station + (world != null ? " " + world : "");
+            Logger.LogInfo("LiveCheck: sessions switching | " + command);
+            Util.Commands.CommandLine.Process(command);
+        }
+
+        private void SetConfigEntry(string section, string key, double value)
+        {
+            // StationeersLaunchPad loads the mod, not BepInEx's chainloader, so it is found as the
+            // component it is rather than looked up by its GUID.
+            BepInEx.BaseUnityPlugin mod = (BepInEx.BaseUnityPlugin)UnityEngine.Object.FindObjectOfType(AccessTools.TypeByName("TerraformingReloaded.Plugin"));
+            if (mod == null)
+            {
+                throw new InvalidOperationException("the mod's plugin component was not found");
+            }
+            if (!mod.Config.TryGetEntry(section, key, out BepInEx.Configuration.ConfigEntry<double> entry))
+            {
+                throw new InvalidOperationException("no config entry " + section + "/" + key);
+            }
+            entry.Value = value;
+        }
+
+        private void LogSession(string name)
+        {
+            Type sidecar = AccessTools.TypeByName("TerraformingReloaded.Patching.Sidecar");
+            Type gate = AccessTools.TypeByName("TerraformingReloaded.Patching.Gate");
+            string path = AccessTools.Property(sidecar, "FilePath").GetValue(null, null) as string;
+            string text = path != null && File.Exists(path) ? File.ReadAllText(path) : "";
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: sessions {0} | station {1} | ghg {2} | coldest {3} | stripped {4} | sky {5} | skygate {6} | limitK {7} | fileghg {8} | filecoldest {9} | filesky {10} | filelimitK {11} | file {12}",
+                name, Assets.Scripts.Serialization.XmlSaveLoad.Instance?.CurrentStationName,
+                EffectiveShown("GhgResponseScale"), EffectiveShown("MildAtmosphereColdestKelvin"),
+                EffectiveShown("StormsStopWhenStripped"), EffectiveShown("DynamicSky"),
+                AccessTools.Method(gate, "SkyEnabled").Invoke(null, null),
+                EffectiveShown("MaxExternalOffsetKelvin"),
+                Element(text, "GhgResponseScale"), Element(text, "MildAtmosphereColdestKelvin"),
+                Element(text, "DynamicSky"), Element(text, "MaxExternalOffsetKelvin"),
+                path ?? "none"));
+        }
+
+        private static string Element(string xml, string name)
+        {
+            System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(xml, "<" + name + ">([^<]*)</" + name + ">");
+            return m.Success ? m.Groups[1].Value : "absent";
+        }
+
         private static Type StormsType => AccessTools.TypeByName("TerraformingReloaded.Patching.Storms");
 
+        /// <summary>
+        /// A world setting in force, set directly: the storm cases are about the rules, and the
+        /// rules read the per-world values. terraform set itself is exercised by -Sessions.
+        /// </summary>
         private static void SetSetting(string field, object value)
         {
-            AccessTools.Field(AccessTools.TypeByName("TerraformingReloaded.Settings"), field).SetValue(null, value);
+            AccessTools.Field(AccessTools.TypeByName("TerraformingReloaded.Effective"), field).SetValue(null, value);
         }
 
         /// <summary>
@@ -2032,12 +2260,12 @@ namespace TerraformingReloaded.LiveCheck
                         // air, so "off" above is a result and not a rule that never runs.
                         name = "control-bites";
                         read = false;
-                        RunCommand("ceiling", "0.5", "confirm");
+                        RunCommand("set", "MaxPressureKPa", "0.5", "confirm");
                         break;
                     case 16:
                         name = "control-cleared";
                         read = false;
-                        RunCommand("ceiling", "0", "confirm");
+                        RunCommand("set", "MaxPressureKPa", "0", "confirm");
                         break;
                     case 17:
                         name = "future-version";
