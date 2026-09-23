@@ -135,37 +135,60 @@ namespace TerraformingReloaded
             Bind("General", "DynamicSky", Settings.DynamicSky, "Let the sky thin and thicken with the planet air.",
                 v => Settings.DynamicSky = v, null, "Sky follows the air", 1, world: true);
 
+            // The size slider always shows the size in force, so a player can see what each preset
+            // means, and is greyed out and ignored unless the preset is Custom. Showing a preset's size
+            // means writing it into the slider's entry, and BepInEx saves every write, so the share a
+            // player typed for Custom is kept in a hidden entry of its own and put back when they
+            // choose Custom again.
             ConfigEntry<PlanetSizePreset> preset = null;
             ConfigEntry<double> custom = null;
+            ConfigEntry<double> typed = null;
             Action<bool> dimCustom = null;
+            bool showing = false;
             Action applySize = () =>
             {
-                if (preset == null || custom == null)
+                if (preset == null || custom == null || typed == null || showing)
                 {
                     return;
                 }
-                double size;
-                switch (preset.Value)
+                bool isCustom = preset.Value == PlanetSizePreset.Custom;
+                double size = isCustom ? typed.Value : PresetSize(preset.Value);
+                showing = true;
+                try
                 {
-                    case PlanetSizePreset.Short: size = 0.01; break;
-                    case PlanetSizePreset.Standard: size = 0.05; break;
-                    case PlanetSizePreset.Long: size = 0.25; break;
-                    case PlanetSizePreset.UnmoddedBaseline: size = 1.0; break;
-                    default: size = custom.Value; break;
+                    if (custom.Value != size)
+                    {
+                        custom.Value = size;
+                    }
+                }
+                finally
+                {
+                    showing = false;
                 }
                 Settings.PlanetSize = size;
-                // Grey the number below out while a preset is in force, and do NOT write the preset's
-                // size into it. BepInEx saves on every set, so that would overwrite a share the player
-                // typed and lose it from the file for good, including on the next start.
-                dimCustom?.Invoke(preset.Value != PlanetSizePreset.Custom);
+                dimCustom?.Invoke(!isCustom);
             };
             preset = Bind("Pace", "PlanetSize", PlanetSizePreset.Standard,
                 "How big the planet is, which sets how long terraforming takes and nothing else: the air, pressure and temperature you start with are the same at any size.",
                 _ => applySize(), null, "Planet size", 5);
             custom = Bind("Pace", "CustomPlanetSize", 0.05,
-                "Planet size as a share of the shipped planet, used when Planet size is Custom. 0.05 is one twentieth. Time to terraform scales in proportion.",
-                _ => applySize(), new AcceptableValueRange<double>(0.0001, 10.0), "Custom planet size", 6, "%.4f",
+                "Planet size as a share of the shipped planet. Shows the size of the preset chosen above; used when Planet size is Custom. 0.05 is one twentieth. Time to terraform scales in proportion.",
+                v =>
+                {
+                    // Only a player's own edit, made while Custom is chosen, is theirs to keep.
+                    if (!showing && typed != null && preset != null && preset.Value == PlanetSizePreset.Custom)
+                    {
+                        typed.Value = v;
+                    }
+                    applySize();
+                },
+                new AcceptableValueRange<double>(0.0001, 10.0), "Custom planet size", 6, "%.4f",
                 disabled: preset.Value != PlanetSizePreset.Custom);
+            // Seeded from the slider on the first start of this version, which is the best record of
+            // what the player last had there, so an existing custom size carries over.
+            typed = Bind("Pace", "CustomPlanetSizeTyped", custom.Value,
+                "The share typed for Custom, kept while a preset is shown in Custom planet size.",
+                _ => applySize(), new AcceptableValueRange<double>(0.0001, 10.0), visible: false);
             dimCustom = Dimmer(custom);
             applySize();
 
@@ -254,7 +277,7 @@ namespace TerraformingReloaded
 
         private ConfigEntry<T> Bind<T>(string section, string key, T fallback, string description, Action<T> apply,
             AcceptableValueBase range = null, string label = null, int order = 0, string format = null, bool restart = false,
-            bool? disabled = null, bool world = false)
+            bool? disabled = null, bool world = false, bool visible = true)
         {
             if (world)
             {
@@ -266,6 +289,10 @@ namespace TerraformingReloaded
             if (disabled.HasValue)
             {
                 tags.Add(new System.Collections.Generic.KeyValuePair<string, bool>("Disabled", disabled.Value));
+            }
+            if (!visible)
+            {
+                tags.Add(new System.Collections.Generic.KeyValuePair<string, bool>("Visible", false));
             }
             if (label != null)
             {
@@ -296,6 +323,17 @@ namespace TerraformingReloaded
                 };
             }
             return entry;
+        }
+
+        private static double PresetSize(PlanetSizePreset preset)
+        {
+            switch (preset)
+            {
+                case PlanetSizePreset.Short: return 0.01;
+                case PlanetSizePreset.Long: return 0.25;
+                case PlanetSizePreset.UnmoddedBaseline: return 1.0;
+                default: return 0.05;
+            }
         }
 
         /// <summary>

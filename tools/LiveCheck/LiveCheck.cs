@@ -1153,6 +1153,7 @@ namespace TerraformingReloaded.LiveCheck
             switch (_sessionStep++)
             {
                 case 0:
+                    CheckSizeSlider();
                     LogSession("A-new");
                     RunCommand("set", "GhgResponseScale", "2.5");
                     RunCommand("set", "StormsStopWhenStripped", "off");
@@ -1265,6 +1266,66 @@ namespace TerraformingReloaded.LiveCheck
             string command = "file start " + station + (world != null ? " " + world : "");
             Logger.LogInfo("LiveCheck: sessions switching | " + command);
             Util.Commands.CommandLine.Process(command);
+        }
+
+        /// <summary>
+        /// The planet size dropdown and the slider below it, driven through their config entries the
+        /// way the config editor drives them. The slider must show each preset's size and be greyed
+        /// out, and a share typed under Custom must survive a trip through the presets.
+        /// </summary>
+        private void CheckSizeSlider()
+        {
+            BepInEx.Configuration.ConfigFile config = ModConfig();
+            // The preset's enum is the mod's own type, so it is reached untyped.
+            BepInEx.Configuration.ConfigEntryBase preset = config[new BepInEx.Configuration.ConfigDefinition("Pace", "PlanetSize")];
+            config.TryGetEntry("Pace", "CustomPlanetSize", out BepInEx.Configuration.ConfigEntry<double> slider);
+            config.TryGetEntry("Pace", "CustomPlanetSizeTyped", out BepInEx.Configuration.ConfigEntry<double> typed);
+            if (preset == null || slider == null || typed == null)
+            {
+                throw new InvalidOperationException("a planet size config entry is missing");
+            }
+            Type presets = AccessTools.TypeByName("TerraformingReloaded.PlanetSizePreset");
+            Action<string> choose = name => preset.BoxedValue = Enum.Parse(presets, name);
+            Action<string> log = step =>
+            {
+                bool dimmed = false;
+                foreach (object tag in slider.Description.Tags)
+                {
+                    if (tag is System.Collections.Generic.KeyValuePair<string, bool> pair && pair.Key == "Disabled")
+                    {
+                        dimmed = pair.Value;
+                    }
+                }
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                    "LiveCheck: sizeui {0} | preset {1} | slider {2:R} | dimmed {3} | typed {4:R} | inforce {5}",
+                    step, preset.BoxedValue, slider.Value, dimmed, typed.Value,
+                    Shown(AccessTools.Field(AccessTools.TypeByName("TerraformingReloaded.Settings"), "PlanetSize").GetValue(null))));
+            };
+            object startPreset = preset.BoxedValue;
+            log("start");
+            choose("Custom");
+            slider.Value = 0.123;
+            log("custom-typed");
+            choose("Long");
+            log("long");
+            choose("Short");
+            log("short");
+            choose("UnmoddedBaseline");
+            log("unmodded");
+            choose("Custom");
+            log("custom-again");
+            preset.BoxedValue = startPreset;
+            log("restored");
+        }
+
+        private BepInEx.Configuration.ConfigFile ModConfig()
+        {
+            BepInEx.BaseUnityPlugin mod = (BepInEx.BaseUnityPlugin)UnityEngine.Object.FindObjectOfType(AccessTools.TypeByName("TerraformingReloaded.Plugin"));
+            if (mod == null)
+            {
+                throw new InvalidOperationException("the mod's plugin component was not found");
+            }
+            return mod.Config;
         }
 
         private void SetConfigEntry(string section, string key, double value)

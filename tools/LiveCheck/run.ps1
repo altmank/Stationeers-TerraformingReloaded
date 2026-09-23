@@ -1063,6 +1063,29 @@ try {
         if (@($cmds -match 'cmd set -> World settings for the world you are playing').Count -lt 2) { $problems += 'terraform set alone did not list the world settings' }
         # Once a new world has been saved, what is in force is what its file records, so the list must not still say it is waiting for a first save.
         if (@($cmds -match 'cmd set -> .*is being created').Count -gt 0) { $problems += 'terraform set still said the world was being created after it had been saved' }
+        # The planet size dropdown and its slider: the slider shows each preset's size greyed out, and a
+        # share typed under Custom survives a trip through the presets.
+        Write-Host '--- planet size dropdown and slider ---'
+        $size = @{}
+        foreach ($line in @($log -match 'LiveCheck: sizeui ')) {
+            if ($line -match 'sizeui (\S+) \| preset (\S+) \| slider (\S+) \| dimmed (\S+) \| typed (\S+) \| inforce (\S+)') {
+                $size[$Matches[1]] = @($Matches[2], $Matches[3], $Matches[4], $Matches[5], $Matches[6])
+                Write-Host ("  {0,-13} preset {1,-16} slider {2,-6} dimmed {3,-5} typed {4,-6} in force {5}" -f $Matches[1], $Matches[2], $Matches[3], $Matches[4], $Matches[5], $Matches[6])
+            }
+        }
+        $wantSize = @(
+            @('custom-typed', 'Custom',           '0.123', 'False', '0.123', '0.123'),
+            @('long',         'Long',             '0.25',  'True',  '0.123', '0.25'),
+            @('short',        'Short',            '0.01',  'True',  '0.123', '0.01'),
+            @('unmodded',     'UnmoddedBaseline', '1',     'True',  '0.123', '1'),
+            @('custom-again', 'Custom',           '0.123', 'False', '0.123', '0.123'))
+        foreach ($w in $wantSize) {
+            $got = $size[$w[0]]
+            if (-not $got) { $problems += "size slider: no reading for $($w[0])"; continue }
+            for ($i = 0; $i -lt 5; $i++) {
+                if ($got[$i] -ne $w[$i + 1]) { $problems += "size slider $($w[0]): got '$($got -join ' ')', expected '$($w[1..5] -join ' ')'"; break }
+            }
+        }
         if ($problems.Count -gt 0) { throw ('LiveCheck FAILED: ' + ($problems -join '; ')) }
         Write-Host 'LiveCheck OK: each world kept its own settings across four world switches in one session; terraform set changed only the world in play and wrote its file; the config changed only what the next new world started with.'
         return
