@@ -106,7 +106,7 @@ reads only. `Gate.Describe()` says which condition is false, for the status read
 | The temperature postfix catches its own exceptions and builds its per-world entry once, under a lock | It runs on every worker thread for every outdoor cell; a custom world that throws must not throw there every tick |
 | Worlds with their own curves are never adjusted | Mars is the developers' tuning |
 | Guards check `Gate.Enabled()`, not config | A guard acting while the gate is off would change the unmodded game. Exception: `Climate` runs on clients too, since they evaluate the same formula |
-| Sync is optional for clients | LaunchPadBooster sections are skipped by a client without the mod; cells themselves are synced by the game |
+| Sync is optional for clients | LaunchPadBooster sections are skipped by a client without the mod; cells themselves are synced by the game. What such a client then shows is in MULTIPLAYER.md, and the player docs recommend the mod for everyone who joins |
 | Sync payload walks the game's save object by reflection | A gas added in a later game build is carried without a change |
 | The planet size **setting** applies at creation only | The save stores the tank's volume, so a setting that applied live would rescale every save a player loads, including one 40 hours in |
 | A live planet is rescaled only by `terraform size <share> confirm`, and it leaves the setting alone | A player picks the size before they have any feel for what it means, and the only other way to change it was `reset confirm`, which throws the progress away. Deliberate, on this planet, once |

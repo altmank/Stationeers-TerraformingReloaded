@@ -170,8 +170,24 @@ can delete it by hand; the world then starts again from your config, with its pr
 
 ## Multiplayer
 
-The host needs the mod. Clients with it receive the planet from the host every few seconds.
-Clients without it can still join; they miss the changed outdoor readings and sky, nothing else.
+**Everyone who joins should have the mod, on the same version as the host.** The planet's air
+lives in the host's game, and the mod sends it to every player's game every few seconds.
+
+- **A player without the mod can still join, and the game still plays correctly for them**:
+  breathing, damage, machines and the planet itself are all decided by the host. But their game
+  never learns what the host has done to the planet. Inside your base, beside machines that vent
+  outside, and wherever they stand still, they see the real air. Walking across open ground, their
+  helmet, tablet and outdoor sensors show the world as it shipped, and so do the temperature, the
+  sea and the sound of the wind. On a planet you have changed a lot, the helmet reading jumps every
+  time they start or stop walking.
+- **A player on a different version of the mod cannot join**: StationeersLaunchPad turns the
+  connection away. A dedicated server updates only when its admin updates it, so update the server
+  and the players together.
+- **A mod switched on in StationeersLaunchPad loads the next time the game starts.** If a player's
+  readings jump like this with the mod switched on, have them restart the game.
+
+[docs/MULTIPLAYER.md](docs/MULTIPLAYER.md) lists everything a joining player's game works out for
+itself.
 
 ## Config
 

@@ -348,8 +348,9 @@ per-save sidecars, which delete saves.
 
 **A host and a client can read different outdoor temperatures.** The client skips the file and runs
 on its own config for anything it works out locally: the three response scales for its temperature
-readout, and whether its own sky follows the air. A host with a world file and a client on its config
-can therefore disagree. The
+readout. A host with a world file and a client on its config can therefore disagree. (`DynamicSky`
+would be the other, but a client's sky never follows the air at all: MULTIPLAYER.md, *A player with
+the mod*.) The
 planet state itself is synced and unaffected. Fixing it means a new message kind in `Sync` carrying
 the three values, so an older client ignores rather than misreads it.
 

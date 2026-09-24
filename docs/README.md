@@ -17,6 +17,7 @@ what was found, what was decided and why, how it is verified, and what is still 
 | [SETTINGS.md](SETTINGS.md) | Every config entry the mod binds, generated from `src/Plugin.cs`: section, key, label, full description, default |
 | [SIDECAR.md](SIDECAR.md) | Per-world settings: why one global config damages other saves, the sidecar file, and which settings are world-scoped |
 | [STORMS.md](STORMS.md) | How storms respond to terraforming: the two rules, every threshold and where its number comes from, and why the measure is what it is |
+| [MULTIPLAYER.md](MULTIPLAYER.md) | What a joining player's game works out for itself, with and without the mod, from a census of every site that runs there |
 | [ROADMAP.md](ROADMAP.md) | Open work in priority order, open questions, things deliberately not done |
 
 Conventions used throughout:
