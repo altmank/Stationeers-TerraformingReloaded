@@ -85,6 +85,10 @@ True only when: patches armed, no self-test fault, config enabled, the world is 
 and `GameState` is Running or Paused. Called per outdoor cell per tick on worker threads: field
 reads only. `Gate.Describe()` says which condition is false, for the status readout.
 
+`Gate.SkyEnabled()` is `Effective.DynamicSky` and `Enabled()` on a host. On a client it drops the
+client check and asks instead that the host's planet has arrived since the world started
+(`Gate.HostPlanet`), because the client's sky is rebuilt from the synced planet.
+
 ## Decisions, with the reason
 
 | Decision | Reason |
@@ -108,6 +112,8 @@ reads only. `Gate.Describe()` says which condition is false, for the status read
 | Guards check `Gate.Enabled()`, not config | A guard acting while the gate is off would change the unmodded game. Exception: `Climate` runs on clients too, since they evaluate the same formula |
 | Sync is optional for clients | LaunchPadBooster sections are skipped by a client without the mod; cells themselves are synced by the game. What such a client then shows is in MULTIPLAYER.md, and the player docs recommend the mod for everyone who joins |
 | Sync payload walks the game's save object by reflection | A gas added in a later game build is carried without a change |
+| Sync carries the host's response settings and `DynamicSky` after the planet | A client evaluates the temperature rule and rebuilds the sky itself; on its own config it would disagree with the host. Checked against `Limits` on arrival, like the settings file |
+| The Sync section's first byte names its layout, and a shipped layout never changes | An unknown byte is skipped whole, so a peer with another layout loses the sync rather than misreading it |
 | The planet size **setting** applies at creation only | The save stores the tank's volume, so a setting that applied live would rescale every save a player loads, including one 40 hours in |
 | A live planet is rescaled only by `terraform size <share> confirm`, and it leaves the setting alone | A player picks the size before they have any feel for what it means, and the only other way to change it was `reset confirm`, which throws the progress away. Deliberate, on this planet, once |
 | A rescale moves the clouds, the ice caps and both heat stores with the tank | What is frozen out is part of what is left to terraform, so a shrunk planet that kept its ice would melt the old share back into a smaller atmosphere; and the heat stores are energies divided by a heat capacity that has just moved, so leaving them would move the temperature |

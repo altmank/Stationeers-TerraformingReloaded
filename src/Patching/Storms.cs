@@ -510,9 +510,10 @@ namespace TerraformingReloaded.Patching
             Snapshot snapshot = _now;
             if (snapshot == null)
             {
-                // A client evaluates the temperature formula but never runs the planet tick, so it
-                // has no forecast of its own, and one worked out from what it can see would disagree
-                // with the host's. Say whose answer it is rather than invent one.
+                // A client's game runs the planet tick on its own copy, but the mod's upkeep, which
+                // works out this verdict, runs only where Gate.Enabled() is true, never on a client.
+                // One worked out from the client's copy could disagree with the host's, which is the
+                // one that decides. Say whose answer it is rather than invent one.
                 string why = NetworkManager.IsClient
                     ? "the host decides this; a client is not asked"
                     : (Gate.Enabled() ? "not worked out yet" : Gate.Describe());

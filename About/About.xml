@@ -2,7 +2,7 @@
 <ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Name>Terraforming Reloaded</Name>
   <Author>XCeled</Author>
-  <Version>0.10.0</Version>
+  <Version>0.10.1</Version>
   <Description>[h1]Terraform the planet[/h1]
 The air outside is no longer bottomless. What you vent stays. What your base draws in is gone. Move enough of the right gases and the pressure, temperature, sky and weather outside change for good, saved with your world.
 
@@ -73,7 +73,7 @@ Your changed planet lives in the save, so deleting the mod does not undo it. Run
 [list]
 [*]The StationeersLaunchPad config editor sets what a new world starts with. Each world then keeps its own settings beside its save, so tuning one save never changes another. Change the world you are playing with [b]terraform set[/b].
 [*]The pressure ceiling deletes air permanently. Leave it at 0 unless you mean it.
-[*]Multiplayer: the host and everyone who joins need the mod, on the same version. A player without it can still join, but away from your base their helmet, tablet and outdoor sensors show the planet as it shipped. The host's settings decide the planet, and only the host can run [b]terraform size[/b], [b]set[/b] and [b]reset[/b]. For anyone who joins, the sky keeps the world's shipped look. Checked by reading the game's code and by one player's session on a dedicated server, not by long play.
+[*]Multiplayer: the host and everyone who joins need the mod, on the same version; a player without it is turned away unless both games also run another mod that syncs through StationeersLaunchPad. The host's settings decide the planet for everyone, including whether the sky follows the air and how the temperature responds, and only the host can run [b]terraform size[/b], [b]set[/b] and [b]reset[/b]. Checked by reading the game's code and by one player's session on a dedicated server, not by long play.
 [*]Tutorials are left alone.
 [*]If a game update changes what this depends on, the mod switches itself off and says why in the log rather than risk your save.
 [*]The devs appear to be working on this framework themselves, so an update could break this mod or make it obsolete.

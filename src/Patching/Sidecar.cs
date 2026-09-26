@@ -257,12 +257,13 @@ namespace TerraformingReloaded.Patching
             TakeFromConfig();
 
             // A client is handed the host's planet state by Sync and owns no save folder, so it
-            // reads and writes nothing. It still evaluates the temperature response locally for its
-            // own readout, so it runs those on its own config. It never runs the planet upkeep, and
-            // deleting the host's air is not its business, so it holds no ceiling either.
+            // reads and writes nothing. It evaluates the temperature response and the sky locally,
+            // on the host's settings for them once Sync delivers them (TakenFromHost), on its own
+            // config until then. It never runs the planet upkeep, and deleting the host's air is
+            // not its business, so it holds no ceiling either.
             if (NetworkManager.IsClient)
             {
-                _source = "this is a network client, so its own config is in force and no file is read or written";
+                _source = "this is a network client, so no file is read or written, and its own config is in force until the host's planet arrives";
                 _noFolder = "This is a network client; settings for this world are the host's to record. Nothing was changed.";
                 return;
             }
@@ -584,6 +585,14 @@ namespace TerraformingReloaded.Patching
             TakeFromConfig();
             _source = "no world is being played, so the config is in force";
             _noFolder = "No world is being played, so there is nowhere to record settings.";
+        }
+
+        /// <summary>
+        /// A client has been sent the host's response settings and sky setting with its planet.
+        /// </summary>
+        public static void TakenFromHost()
+        {
+            _source = "this is a network client, so no file is read or written; the three response settings and the sky are the host's, sent with its planet, and the rest are not used here";
         }
 
         // ---- SaveHelper.CreateSaveDirectory (postfix, an Extra so it fails soft) ------------------

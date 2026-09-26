@@ -170,11 +170,12 @@ can delete it by hand; the world then starts again from your config, with its pr
 
 ## Multiplayer
 
-**Everyone who joins should have the mod, on the same version as the host.** The planet's air
+**Everyone who joins needs the mod, on the same version as the host.** The planet's air
 lives in the host's game, and the mod sends it to every player's game every few seconds.
 
-- **A player without the mod can still join, and the game still plays correctly for them**:
-  breathing, damage, machines and the planet itself are all decided by the host. But their game
+- **A player without the mod is turned away when they join**, unless both games also run another
+  mod that syncs through StationeersLaunchPad. If they do get in, the game still plays correctly for
+  them: breathing, damage, machines and the planet itself are all decided by the host. But their game
   never learns what the host has done to the planet. Inside your base, beside machines that vent
   outside, and wherever they stand still, they see the real air. Walking across open ground, their
   helmet, tablet and outdoor sensors show the world as it shipped, and so do the temperature, the
@@ -190,12 +191,12 @@ lives in the host's game, and the mod sends it to every player's game every few 
   is sent. `terraform size`, `set` and `reset` work only on the host; on a joining player's game,
   `terraform` shows the planet the host sent.
 - **A joining player gets the host's planet as they join**, before their first look outside, and it is
-  refreshed every few seconds after that.
-- **Two things still follow the joining player's own game.** Their outdoor temperature uses their own
-  config for the temperature response scales, so if the host has changed those for the world, the two
-  can read a different temperature. And for anyone who joins, with the mod or without, the sky keeps the
-  world's shipped look; only the host's sky follows the air.
-- **A host without the mod** runs the game as shipped, and a player who has the mod sees exactly that.
+  refreshed every few seconds after that. Their sky follows it, and their outdoor temperature is worked
+  out with the host's greenhouse strength, air density strength and airless reflectivity, so it reads
+  the same as the host's.
+- **A host without the mod** turns away a player who has it, unless both games also run another mod
+  that syncs through StationeersLaunchPad. Then the game runs as shipped, and the player with the mod
+  sees exactly that.
 
 [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md) lists everything a joining player's game works out for
 itself.

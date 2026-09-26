@@ -5,9 +5,9 @@ What a player who joins someone else's game sees, with and without the mod. Ever
 run a multiplayer session; one player has, and their report is at the end.
 
 The short version: the host decides everything that happens, and a joining player's game shows it.
-The one thing the game never sends is the planet's own air, so a player without the mod sees the
-world as it ships wherever the host has not built a real outdoor cell. Nothing they see is wrong in
-the host's simulation, and nothing they do can change the host's planet.
+The one thing the game never sends is the planet's own air, so a player without the mod, where they
+can join at all, sees the world as it ships wherever the host has not built a real outdoor cell.
+Nothing they see is wrong in the host's simulation, and nothing they do can change the host's planet.
 
 ## How the planet reaches a joining player
 
@@ -43,15 +43,37 @@ the host's simulation, and nothing they do can change the host's planet.
   are sent every `SyncIntervalSeconds` (default 5).
 - **Only an exact version match can join.** A mod present on both sides must have the same version
   string, or LaunchPadBooster closes the connection with "version incompatible"
-  (`DefaultVersionValidator`, `ConnectionState.DoJoinValidateModList`). The mod sets
-  `Networking.Required = false`, so a player without it can join. A player with a different version
-  cannot.
+  (`DefaultVersionValidator`, `ConnectionState.DoJoinValidateModList`).
+- **A peer without LaunchPadBooster networking is refused, both ways.** The first touch of
+  `Mod.Networking` constructs `ModNetworking`, whose `Initialize` patches `VerifyPlayer` and
+  `VerifyPlayerRequest` to append a join header on write and read one on read. A game where no mod
+  touched `Networking` writes no header; the reader's `JoinValidateHeader.Read` takes whatever byte
+  comes next, or 0 at the end of the stream, and `ConnectionState.ReceiveJoinValidateHeader` closes
+  the connection with "Invalid booster networking version" unless it is 2. StationeersLaunchPad
+  itself does not touch `Networking`. So a player without this mod gets in only when both games run
+  another mod that does (any mod using LaunchPadBooster's messages, sections or prefabs); then
+  `Networking.Required = false`, which this mod sets, lets the mod lists differ. The same holds for a
+  player with the mod joining a host without it.
 - **The section is sent with every state update, not once per window.** The host sends state every
   50 to 100 ms (`NetworkServer.NetworkUpdate`, `TickIntervalForBacklog`). `Sync.SerializeUpdateSuffix`
   decides from the tick count and fills a one-second window every five seconds, so the planet goes
-  out about 20 times per window, about 950 bytes each, and 9 bytes otherwise. About 4 KB/s per player.
+  out about 20 times per window, about 1 KB each, and 9 bytes otherwise. About 4 KB/s per player.
+- **The host's settings travel with the planet.** After the planet come the four world settings a
+  joining player's game evaluates itself: `GhgResponseScale`, `DensityResponseScale`, `AirlessAlbedo`
+  (the temperature rule) and `DynamicSky` (the sky), 25 bytes. The player's game checks each number
+  against the same `Limits` a world's settings file is checked against, keeps its own for one that
+  fails, and puts the rest in `Effective` (`Sync.Apply`). None of the other world settings is read on
+  a joining player's game.
+- **The section's first byte says what follows.** 0 nothing, 1 the planet alone (0.10.0 and earlier),
+  2 the planet and the settings (0.10.1 on). A reader takes the planet from 1 or 2 and skips any other
+  value; a layout, once shipped, keeps its byte and a new one takes the next. Mixed versions never
+  meet in practice, because the exact version match above refuses the join, so this guards a
+  hand-built or mis-versioned peer, not a supported mix: a 0.10.0 game reading a 2 would skip the
+  whole section rather than misread it.
 
 ## A player without the mod
+
+Only possible when both games run another mod that uses LaunchPadBooster networking (above).
 
 **Right** wherever a real cell exists: inside rooms, beside vents, machines and anything else that
 exchanges with outside, and under the player while they stand still in a suit. **The world as
@@ -102,19 +124,25 @@ planet: its own takes and gives go to its own copy, which nothing sends back.
   Between refreshes their own game ticks the copy on its own (freezing, melting, cloud tips), which
   the next refresh overwrites.
 - **Temperature.** The temperature rule runs on a joining player's game (`Climate.TemperaturePostfix`
-  checks only `Settings.Enabled`), so the planet's temperature matches, except that it uses that
-  player's own config for the three response scales (SIDECAR.md, *Known limits*).
-- **Sky: does not follow the air.** `Gate.SkyEnabled()` is `Effective.DynamicSky && Enabled()`
-  (`Gate.cs:119`), and `Enabled()` is false on every joining player's game (`Gate.cs:79`). So the sky
-  keeps the shipped look for anyone who joined, with or without the mod. A defect: the design, and
-  earlier versions of the player docs, say players with the mod get it.
+  checks only `Settings.Enabled`), on the host's three response settings once the first planet state
+  has arrived (`Sync.Apply`). `Climate.Lookup` rebuilds its per-world entry when those change, so the
+  planet's temperature matches the host's. Before 0.10.1 it used the player's own config for them.
+- **Sky: follows the host's air.** On a joining player's game `Gate.SkyEnabled()` asks every
+  condition of `Enabled()` except the client check, plus `Gate.HostPlanet`: set when `Sync.Read` has
+  loaded a planet state, cleared at every world start (`Patcher.WorldStartPostfix`). The game rebuilds
+  the sky from `PAS.ReadOnlyGlobal`, which that player's own planet tick rebuilds from the synced
+  planet (`AtmosphericsManager.ProcessAtmospheresClient`), and `Effective.DynamicSky` is the host's,
+  sent with it. Until the host's planet arrives, and for good under a host without the mod, the sky
+  keeps the shipped look. The sky throttle keys on `GameManager.GameTickCount`, which the tick loop
+  advances on a joining player's game too (`GameManager.cs:849`, outside the `RunSimulation` blocks).
+  Before 0.10.1 the sky never followed the air on any joining player's game.
 - **Weather stations** behave as in the unmodded game: the mod's two weather hooks let everything
   through when `Gate.Enabled()` is false (`Guards.ScheduleWeatherPrefix`, `CanScheduleWeatherPrefix`).
 - **Whose settings.** Everything the host's world file and config set runs on the host and reaches
   the player only as the synced planet. `SyncIntervalSeconds` is read where the section is written
   (`Sync.SerializeUpdateSuffix`), so only the host's counts. On the joining player's game, `Sync.Read`
-  loads the host's planet whatever that player's `Enabled` says (it checks only `IsClient`); their
-  `Enabled` and response scales matter only to the temperature rule above.
+  loads the host's planet and settings whatever that player's `Enabled` says (it checks only
+  `IsClient`); their `Enabled` decides only whether the temperature rule and the sky run at all.
 - **`terraform`** reports `planet: off: client, planet comes from the host` with the synced figures;
   `size`, `set` and `reset` answer "Can only be run on the server".
 
@@ -152,14 +180,11 @@ dedicated server at least for readouts; it is a player's account, not a measurem
 
 ## Open
 
-- **Sky for players who join with the mod.** `Gate.SkyEnabled()` would need every condition of
-  `Enabled()` except the client check; the sky reads the synced planet, so it would then follow the
-  host's air. A code change, so a release, and it needs a second machine to see.
+- **Not seen on a second machine:** the sky and the host's settings reaching a joining player
+  (0.10.1). Both are worked out from code only.
 - **The planet goes out about 20 times per sync window.** Harmless; sending once needs state the
-  sync does not keep. The comment in `Sync.SerializeUpdateSuffix` ("one update is written per game
-  tick") is wrong, and so is `Storms.cs:513` ("a client never runs the planet tick"). Fix both with
-  the next real code change.
-- **A joining player without the mod** could be spared the per-update warning only by not riding the
-  update suffix, for example a mod message sent to the players known to have the mod.
-  LaunchPadBooster has `SendToClient`; whether it records which players have which mods was not
-  checked.
+  sync does not keep.
+- **A joining player without the mod** (possible only beside another LaunchPadBooster networking mod)
+  could be spared the per-update warning only by not riding the update suffix, for example a mod
+  message sent to the players known to have the mod. LaunchPadBooster has `SendToClient`; whether it
+  records which players have which mods was not checked.

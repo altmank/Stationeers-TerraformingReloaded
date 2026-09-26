@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.1
+
+- **The sky follows the air for everyone who joins a game with the mod, not only for the host.**
+  Until now a joining player saw the world's shipped sky however far the host had changed the air.
+  Their sky now follows the planet the host sends them, from the moment it arrives as they join, and
+  the host's world decides whether the sky follows the air at all, for every player.
+- **A joining player's outdoor temperature now matches the host's.** The host sends its world's
+  greenhouse strength, air density strength and airless reflectivity with the planet, and a joining
+  player's game works the temperature out with those. Before, it used the joining player's own
+  config, so a host who had changed them for the world read a different temperature from everyone
+  who joined.
+- **Corrected: who can join.** Earlier versions said a player without this mod could still join a
+  game that runs it. The connection is only allowed when both games also run another mod that
+  syncs through StationeersLaunchPad; otherwise StationeersLaunchPad turns it away, and the same
+  goes for a player with this mod joining a host without it. Have everyone install it, on the same
+  version.
+
 ## 0.10.0
 
 - **Storms now respond to what you have done to a world.** A world stops scheduling its own storms

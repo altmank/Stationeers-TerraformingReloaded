@@ -173,6 +173,8 @@ into the ice clouds. It runs in the unmodded game too.
 
 StationeersLaunchPad 0.5.1 on BepInEx 5.4.23.5 (HarmonyX 2.9). `LaunchPadBooster.dll` provides
 `Mod.Networking`: per-mod, length-prefixed join and update sections that a client without the mod
-skips, so a mod can sync state without breaking the wire format. Its config editor shows every
+skips, so a mod can sync state without breaking the wire format. Touching `Mod.Networking` at all
+also adds a join header both ways, so a game with no LaunchPadBooster networking mod cannot join a
+game that has one, or host it (MULTIPLAYER.md). Its config editor shows every
 bound BepInEx entry and reads `AcceptableValueRange` plus tags `DisplayName`, `Order`, `Format`,
 `RequireRestart`, `Visible`, `Disabled` (plain `KeyValuePair`s).

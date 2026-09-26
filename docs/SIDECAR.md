@@ -103,8 +103,8 @@ built, while on a load both do.
 - **New or loaded**: prefix and finalizer on `World.Initialize`, which is where the game itself
   decides it. See *A new world is not a missing sidecar*.
 - **Read**: prefix on `PlanetaryAtmosphereSimulation.CreateGlobalAtmosphere`. Skip entirely when
-  `NetworkManager.IsClient`; a client is handed the host's planet state by `Sync` and needs none of
-  these values.
+  `NetworkManager.IsClient`; a client is handed the host's planet state by `Sync`, and with it the
+  four values it evaluates itself (the three response settings and `DynamicSky`).
 - **Write, new world**: postfix on `SaveHelper.CreateSaveDirectory`, the one place a world folder is born.
 - **Write, a loaded world with no file**: inside the read prefix, into the folder that already exists.
   `CreateSaveDirectory` never fires on a load, so this is the only place that case can be handled.
@@ -346,13 +346,11 @@ launch and exit, so the sidecar and the save move together.
 you get the current snapshot, not the one in force when that autosave was written. The alternative is
 per-save sidecars, which delete saves.
 
-**A host and a client can read different outdoor temperatures.** The client skips the file and runs
-on its own config for anything it works out locally: the three response scales for its temperature
-readout. A host with a world file and a client on its config can therefore disagree. (`DynamicSky`
-would be the other, but a client's sky never follows the air at all: MULTIPLAYER.md, *A player with
-the mod*.) The
-planet state itself is synced and unaffected. Fixing it means a new message kind in `Sync` carrying
-the three values, so an older client ignores rather than misreads it.
+**A client takes the host's values for what it works out itself.** The client skips the file. The
+three response settings and `DynamicSky` arrive from the host with the planet state, under a new
+section byte so an older reader skips rather than misreads them (MULTIPLAYER.md, *What the mod
+adds*); until the first state arrives the client runs on its own config, which is as it joins. The
+other world settings are never read on a client.
 
 **A workshop save does not carry its file.** The upload is the single `.save`, not the folder, so an
 imported world lands in the missing-sidecar path. That is correct, and needs nothing.

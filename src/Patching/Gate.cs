@@ -70,19 +70,28 @@ namespace TerraformingReloaded.Patching
         /// Off on clients: a client never runs the mixing that takes from the tank but does run the
         /// cleanup that gives to it, so its copy would only ever grow. Clients are sent the host's.
         /// </summary>
-        public static bool Enabled()
+        public static bool Enabled() => WorldRunning() && !NetworkManager.IsClient;
+
+        /// <summary>Every condition of <see cref="Enabled"/> but the client check.</summary>
+        private static bool WorldRunning()
         {
             if (!_armed || !_worldAllowed || !Settings.Enabled || _fault != null)
-            {
-                return false;
-            }
-            if (NetworkManager.IsClient)
             {
                 return false;
             }
             GameState state = GameManager.GameState;
             return state == GameState.Running || state == GameState.Paused;
         }
+
+        private static volatile bool _hostPlanet;
+
+        /// <summary>
+        /// On a client, whether the host's planet has been applied since this world started. Only a
+        /// host running the mod sends one, so a client that joined an unmodded host never sets it.
+        /// </summary>
+        public static bool HostPlanet => _hostPlanet;
+
+        internal static void SetHostPlanet(bool arrived) => _hostPlanet = arrived;
 
         /// <summary>Why Enabled() is false right now, for the status readout.</summary>
         public static string Describe()
@@ -115,8 +124,13 @@ namespace TerraformingReloaded.Patching
         /// its air. Per world, so the sky patch is always installed and this decides every frame.
         /// Switched off mid-game, the sky keeps the last look it was given until the world reloads,
         /// because the game only sets it from the world's data when a world starts.
+        ///
+        /// A client never runs the planet itself, but its game rebuilds the sky from the planet copy
+        /// that Sync keeps loaded with the host's, so it follows the host's air once that has arrived,
+        /// under the host's setting, which arrives with it. Until then, and for good when the host
+        /// does not run the mod, it keeps the shipped look.
         /// </summary>
-        public static bool SkyEnabled() => Effective.DynamicSky && Enabled();
+        public static bool SkyEnabled() => Effective.DynamicSky && (NetworkManager.IsClient ? _hostPlanet && WorldRunning() : Enabled());
 
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
         {

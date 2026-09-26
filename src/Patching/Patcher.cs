@@ -377,6 +377,8 @@ namespace TerraformingReloaded.Patching
         /// <summary>CreateGlobalAtmosphere runs at every world start, host and client, new and loaded.</summary>
         public static void WorldStartPostfix()
         {
+            // A client's planet is its own shipped one again until the host's next arrives.
+            Gate.SetHostPlanet(false);
             try
             {
                 WorldSetting world = WorldSetting.Current;

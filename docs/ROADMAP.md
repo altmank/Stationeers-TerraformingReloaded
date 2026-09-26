@@ -38,12 +38,11 @@
    and a custom world are done, headless, 2026-09-21; the storm scheduler, per-world settings and
    several worlds in one session, 2026-09-22 (VERIFICATION.md). Left: the heat decay rate, and
    multiplayer sync with and without the mod on the client, which needs a second machine. A client
-   runs on its own config for what it works out locally (SIDECAR.md, *Known limits*), and its storm
-   readout defers to the host; neither has been seen on a real client. What a client shows is now
-   worked out from the code, site by site (MULTIPLAYER.md, `tools/census/client.csv`), and one
-   player's dedicated-server session matched it. That census found the sky never follows the air on
-   any client, with or without the mod (`Gate.SkyEnabled` requires `Enabled()`): open, a code change. The zero-volume custom world
-   found three wrong lines in the readout on that path, D19.
+   takes the host's response settings and sky setting with the planet, its sky follows the synced
+   planet (both 0.10.1), and its storm readout defers to the host; none of these has been seen on a
+   real client. What a client shows is now worked out from the code, site by site (MULTIPLAYER.md,
+   `tools/census/client.csv`), and one player's dedicated-server session matched it. The zero-volume
+   custom world found three wrong lines in the readout on that path, D19.
 
 ## Before 1.0
 
