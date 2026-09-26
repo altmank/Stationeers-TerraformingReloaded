@@ -112,7 +112,7 @@ need(re.search(r'private static double\?\s+_maxPressureKPa;', read('src/Settings
 # The config editor's bounds and the settings-file check are the same declaration.
 plugin = read('src/Plugin.cs')
 world_scoped = ('MaxPressureKPa', 'ExternalHeatHalfLifeMinutes', 'MaxExternalOffsetKelvin',
-                'GhgResponseScale', 'DensityResponseScale', 'AirlessAlbedo')
+                'GhgResponseScale', 'DensityResponseScale', 'AirlessAlbedo', 'TraceGasGathering', 'TraceGasLine')
 for name in world_scoped:
     need(('Bounds(Limits.%s)' % name) in plugin, 'the %s config entry takes its range from Limits' % name)
     need(re.search(r'public static readonly Range %s = new Range\(' % name, read('src/Settings.cs')) is not None,

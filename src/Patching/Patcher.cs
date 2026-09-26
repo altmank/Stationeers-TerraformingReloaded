@@ -337,6 +337,12 @@ namespace TerraformingReloaded.Patching
                 harmony.Patch(Need(vent), prefix: Body(typeof(Guards), nameof(Guards.WallVentPrefix)));
             });
 
+            // Trace gases gather where they are consumed. The lerp's one take from the planet is
+            // swapped for a take that draws more of a trace gas, paid for by the planet. Checked on
+            // the game's own types before it is installed, so a game update that changes how a mole
+            // is set cannot turn it into a leak.
+            Extra(report, "trace gases gather", () => TraceGases.Apply(harmony));
+
             Extra(report, "planet size", () =>
             {
                 MethodInfo createPlanet = AccessTools.DeclaredMethod(typeof(GlobalGasMix), "Create", new[] { typeof(GlobalAtmosphereData) });
@@ -406,6 +412,7 @@ namespace TerraformingReloaded.Patching
                 Gate.SetWorldAllowed(refusal == null, refusal);
                 Climate.Invalidate();
                 Storms.Invalidate();
+                TraceGases.Reset();
                 SelfTest.Arm();
                 Planet.NoteShippedReservoirs();
             }

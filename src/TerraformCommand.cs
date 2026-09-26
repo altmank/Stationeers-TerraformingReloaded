@@ -289,6 +289,10 @@ namespace TerraformingReloaded
                 () => Effective.MildAtmosphereMaxToxinsKpa, () => Settings.MildAtmosphereMaxToxinsKpa, v => Effective.MildAtmosphereMaxToxinsKpa = v),
             Switch("MildAtmosphereStopsSolarStorms", "Mild air stops solar storms too",
                 () => Effective.MildAtmosphereStopsSolarStorms, () => Settings.MildAtmosphereStopsSolarStorms, v => Effective.MildAtmosphereStopsSolarStorms = v),
+            Number("TraceGasGathering", "Trace gases gather", "x", Limits.TraceGasGathering,
+                () => Effective.TraceGasGathering, () => Settings.TraceGasGathering, v => Effective.TraceGasGathering = v),
+            Number("TraceGasLine", "Trace below", "mol per cell", Limits.TraceGasLine,
+                () => Effective.TraceGasLine, () => Settings.TraceGasLine, v => Effective.TraceGasLine = v),
         };
 
         /// <summary>
@@ -426,7 +430,8 @@ namespace TerraformingReloaded
             {
                 return key.ZeroMeans ?? "none";
             }
-            return number.Value.ToString("0.###", CultureInfo.InvariantCulture) + (key.Unit.Length > 0 ? (key.Unit == "%" ? "%" : " " + key.Unit) : "");
+            // Seven places, because the trace line is a ten-thousandth of a mole.
+            return number.Value.ToString("0.#######", CultureInfo.InvariantCulture) + (key.Unit.Length > 0 ? (key.Unit == "%" ? "%" : " " + key.Unit) : "");
         }
 
         private static string Allowed(WorldKey key, CultureInfo c)
@@ -436,7 +441,7 @@ namespace TerraformingReloaded
                 return "on or off";
             }
             Range limits = key.Limits.Value;
-            return string.Format(c, "from {0:0.###} to {1:0.###}{2}{3}", limits.Min, limits.Max,
+            return string.Format(c, "from {0:0.#######} to {1:0.#######}{2}{3}", limits.Min, limits.Max,
                 key.Unit.Length > 0 ? " " + key.Unit : "",
                 key.ZeroMeans != null ? ", where 0 means " + key.ZeroMeans : "");
         }
@@ -722,6 +727,7 @@ namespace TerraformingReloaded
                     text.AppendLine(string.Format(c, "    {0,-24} {1:0.######}", type, moles / cells));
                 }
             }
+            text.AppendLine("  " + TraceGases.Describe(tank, c));
             Reservoirs(text, c);
             // After the reservoirs, because the line about rain being held back is about the clouds
             // printed just above it.
@@ -756,6 +762,7 @@ namespace TerraformingReloaded
                 Effective.GhgResponseScale, Effective.DensityResponseScale, Effective.AirlessAlbedo));
             text.AppendLine("    sky follows the air " + (Effective.DynamicSky ? "on" : "off")
                 + ", rain or snow on worlds with no weather " + (Effective.WeatherOnWeatherlessWorlds ? "on" : "off")
+                + string.Format(c, ", trace gases gather {0:0.##}x below {1:0.######} mol per cell", Effective.TraceGasGathering, Effective.TraceGasLine)
                 + "; the storm settings are under storms below; all of them with terraform set");
         }
 

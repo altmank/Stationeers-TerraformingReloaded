@@ -143,6 +143,10 @@ planet: its own takes and gives go to its own copy, which nothing sends back.
   (`Sync.SerializeUpdateSuffix`), so only the host's counts. On the joining player's game, `Sync.Read`
   loads the host's planet and settings whatever that player's `Enabled` says (it checks only
   `IsClient`); their `Enabled` decides only whether the temperature rule and the sky run at all.
+- **Trace gases gather on the host only.** The rule lives in the exchange between outdoor cells and
+  the planet, which only the host runs (`GameManager.RunSimulation`), and it asks `Gate.Enabled()`,
+  which is false on a joining player's game. Its two settings are not sent: nothing on a joining
+  player's game reads them, and the cells it fills reach them with the rest of the game state.
 - **`terraform`** reports `planet: off: client, planet comes from the host` with the synced figures;
   `size`, `set` and `reset` answer "Can only be run on the server".
 

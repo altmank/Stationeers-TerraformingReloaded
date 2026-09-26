@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.0
+
+- **A small spill of a gas the planet barely holds now clears around your base instead of lingering
+  for hours.** When the planet's air holds only a trace of a gas, by default less than a
+  ten-thousandth of a mole per outdoor cell, the outdoor air beside your base draws that gas from the
+  planet 50 times faster than any other. Taking a furnace apart outside on Vulcan puts a few dozen
+  moles of nitrous oxide into the planet's air. Before this, the air around the base went on burning
+  for many hours while the planet let the gas go a trickle at a time, and no filter could catch an
+  amount that small. Now it gathers where it is used up: it burns off beside the base several times
+  sooner, and an intake there draws it in amounts a filter can separate. Every mole comes out of the
+  planet's air; nothing is created or destroyed.
+- **Expect the burn beside the base to be brighter while a spill clears**, on a world whose air
+  burns. Afterwards it stops sooner than it would have. The same goes for the first air on a world
+  that has none: the first few moles of each gas you release gather around your base before they
+  spread.
+- **Two new settings, in a new `Trace gases` section:** how many times faster a trace gas is drawn
+  (1 turns it off) and the amount below which a gas counts as a trace (0 turns it off). Each world
+  keeps its own. A world saved with an earlier version uses the config's values until you change
+  them for it with `terraform set`. `terraform` lists the gases that are traces on the planet now.
+
 ## 0.10.1
 
 - **The sky follows the air for everyone who joins a game with the mod, not only for the host.**

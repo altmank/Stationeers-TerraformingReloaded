@@ -114,6 +114,9 @@ namespace TerraformingReloaded.Patching
                 }
             }
 
+            // After the ceiling, so the budgets are shares of the tank the cells will draw from.
+            TraceGases.Refresh(PlanetaryAtmosphereSimulation.GetGlobalGasMix());
+
             // Last, after the phase change has been put back in proportion and after the ceiling has
             // scaled the tank, or it would forecast air this same tick is about to change.
             Storms.Update();

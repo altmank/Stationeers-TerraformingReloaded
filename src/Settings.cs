@@ -69,6 +69,18 @@ namespace TerraformingReloaded
         /// <summary>Air shields radiation, so a mild world stops solar storms as well.</summary>
         public static bool MildAtmosphereStopsSolarStorms = false;
 
+        /// <summary>
+        /// How many times its normal share of a trace gas an outdoor cell draws from the planet.
+        /// 1 is the game's own share, which turns gathering off.
+        /// </summary>
+        public static double TraceGasGathering = 50.0;
+
+        /// <summary>
+        /// Below this many moles per 8000 L outdoor cell of planet air, a gas is a trace. Ten times
+        /// the least the game keeps in a cell (Chemistry.MINIMUM_QUANTITY_MOLES). 0 turns gathering off.
+        /// </summary>
+        public static double TraceGasLine = 1e-4;
+
         /// <summary>Write the terraform status to the log this often. 0 is off.</summary>
         public static double StatusLogSeconds = 0.0;
     }
@@ -147,6 +159,9 @@ namespace TerraformingReloaded
         public static readonly Range MildAtmosphereMinPressureKpa = new Range(0.0, 10000.0);
         public static readonly Range MildAtmosphereMaxPressureKpa = new Range(0.0, 10000.0);
         public static readonly Range MildAtmosphereMaxToxinsKpa = new Range(0.0, 1000.0);
+
+        public static readonly Range TraceGasGathering = new Range(1.0, 100.0);
+        public static readonly Range TraceGasLine = new Range(0.0, 0.01);
     }
 
     /// <summary>
@@ -254,6 +269,9 @@ namespace TerraformingReloaded
         public static double MildAtmosphereMaxPressureKpa = 607.95;
         public static double MildAtmosphereMaxToxinsKpa = 1.0;
         public static bool MildAtmosphereStopsSolarStorms = false;
+
+        public static double TraceGasGathering = 50.0;
+        public static double TraceGasLine = 1e-4;
     }
 
     /// <summary>

@@ -61,6 +61,9 @@ namespace TerraformingReloaded.Patching
         public double? MildAtmosphereMaxPressureKpa;
         public double? MildAtmosphereMaxToxinsKpa;
         public bool? MildAtmosphereStopsSolarStorms;
+
+        public double? TraceGasGathering;
+        public double? TraceGasLine;
     }
 
     /// <summary>
@@ -484,6 +487,12 @@ namespace TerraformingReloaded.Patching
                 Recorded(file.MildAtmosphereMaxToxinsKpa, Limits.MildAtmosphereMaxToxinsKpa, "MildAtmosphereMaxToxinsKpa", bad)
                 ?? Settings.MildAtmosphereMaxToxinsKpa;
             Effective.MildAtmosphereStopsSolarStorms = file.MildAtmosphereStopsSolarStorms ?? Settings.MildAtmosphereStopsSolarStorms;
+            Effective.TraceGasGathering =
+                Recorded(file.TraceGasGathering, Limits.TraceGasGathering, "TraceGasGathering", bad)
+                ?? Settings.TraceGasGathering;
+            Effective.TraceGasLine =
+                Recorded(file.TraceGasLine, Limits.TraceGasLine, "TraceGasLine", bad)
+                ?? Settings.TraceGasLine;
 
             if (bad.Count == 0)
             {
@@ -549,6 +558,8 @@ namespace TerraformingReloaded.Patching
             Effective.MildAtmosphereMaxPressureKpa = Settings.MildAtmosphereMaxPressureKpa;
             Effective.MildAtmosphereMaxToxinsKpa = Settings.MildAtmosphereMaxToxinsKpa;
             Effective.MildAtmosphereStopsSolarStorms = Settings.MildAtmosphereStopsSolarStorms;
+            Effective.TraceGasGathering = Settings.TraceGasGathering;
+            Effective.TraceGasLine = Settings.TraceGasLine;
         }
 
         /// <summary>
@@ -702,6 +713,8 @@ namespace TerraformingReloaded.Patching
                     MildAtmosphereMaxPressureKpa = Effective.MildAtmosphereMaxPressureKpa,
                     MildAtmosphereMaxToxinsKpa = Effective.MildAtmosphereMaxToxinsKpa,
                     MildAtmosphereStopsSolarStorms = Effective.MildAtmosphereStopsSolarStorms,
+                    TraceGasGathering = Effective.TraceGasGathering,
+                    TraceGasLine = Effective.TraceGasLine,
                 };
                 string path = Path.Combine(folder, FileName);
                 Salvage(path);

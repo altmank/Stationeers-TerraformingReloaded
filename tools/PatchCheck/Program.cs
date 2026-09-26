@@ -96,6 +96,31 @@ internal static class Program
             failures++;
         }
 
+        // Patcher applies the extras only once the save guard is on, which cannot compile here, so
+        // the trace gas transpiler is applied on its own to prove its target and its one rewrite.
+        try
+        {
+            TerraformingReloaded.Patching.TraceGases.Apply(new HarmonyLib.Harmony("patchcheck.tracegases"));
+            Console.WriteLine("applied: trace gases gather (the outdoor lerp's one take rewritten)");
+        }
+        catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+        {
+            Console.WriteLine("bound:   trace gases gather (target found, one take rewritten; compiling it needs Unity)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  trace gases gather: " + e.Message);
+            failures++;
+        }
+
+        string gathering = TerraformingReloaded.Patching.TraceGases.CheckArithmetic();
+        Console.WriteLine("trace gas gathering arithmetic: " + (gathering ?? "conserves and holds its bounds"));
+        if (gathering != null)
+        {
+            Console.WriteLine("FAILED:  trace gas gathering arithmetic");
+            failures++;
+        }
+
         Console.WriteLine(failures == 0 ? "OK" : failures + " problem(s)");
         return failures == 0 ? 0 : 1;
     }

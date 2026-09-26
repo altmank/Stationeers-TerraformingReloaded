@@ -2,7 +2,7 @@
 <ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Name>Terraforming Reloaded</Name>
   <Author>XCeled</Author>
-  <Version>0.10.1</Version>
+  <Version>0.11.0</Version>
   <Description>[h1]Terraform the planet[/h1]
 The air outside is no longer bottomless. What you vent stays. What your base draws in is gone. Move enough of the right gases and the pressure, temperature, sky and weather outside change for good, saved with your world.
 
@@ -30,6 +30,7 @@ Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they 
 [*]The Moon and Mimas start with nothing. Their first air swings hard between day and night until it thickens.
 [*]Storms are milder on a world you have cooled.
 [*]Storms answer to what you have done. Take away most of a world's air, or make it temperate, thick and clean, and it stops getting its own storms. Solar storms keep coming unless you choose otherwise: on the Moon one is four times the usual solar power.
+[*]A small spill of a gas the planet barely holds, like a furnace taken apart outside, gathers in the air beside your base and burns off or reaches your filters there, instead of lingering over the whole planet for hours.
 [*]A world you have not touched reads exactly as it does without the mod.
 [*]Custom worlds work. WORLDS.md in the mod folder is for world authors.
 [/list]

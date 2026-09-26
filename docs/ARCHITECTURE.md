@@ -12,6 +12,7 @@
 | `src/Patching/Storms.cs` | The two rules that stop a world scheduling its own storm, the day forecast behind the second, and the readout that says which one fired (STORMS.md) |
 | `src/Patching/Sidecar.cs` | Per-world settings: the file beside each save, what a world may carry, and the fail-closed rule for the pressure ceiling (SIDECAR.md) |
 | `src/Patching/Planet.cs` | Whole-planet operations: planet size at creation, rescaling the planet being played, reset to shipped |
+| `src/Patching/TraceGases.cs` | Trace gases gather where they are consumed: the outdoor lerp draws more of a gas the planet holds only a trace of, paid for by the planet, with its bounds and its own arithmetic check |
 | `src/Patching/SelfTest.cs` | Game-change alarms: is the game's own switch still off, does the temperature formula still use the parts the mod adjusts, and a once-per-world take-and-give round trip on the live planet |
 | `src/Patching/Patcher.cs` | Applies everything, in an order that cannot leave the game half converted |
 | `src/Sync.cs` | Host to client planet state through LaunchPadBooster |
@@ -53,6 +54,7 @@ required set stands down, so a planet already terraformed keeps its temperature:
 | `GlobalGasMix.GetGlobalGasMixTemperature(data, angle, percent)` postfix, `PAS.CacheTemperatureCurveOffsets` postfix | Temperature response and its readout (TEMPERATURE.md). Refused if the formula no longer calls the four part getters, or the one-argument overload no longer calls this one |
 | `GlobalGasMix.Create` postfix, with a prefix and finalizer on PAS `CreateGlobalAtmosphere` and `RegenerateGlobalFromData` | Planet size, applied only while the game builds the planet being played (D16) |
 | `WallVent.OnAtmosphericTick` prefix | A wall vent to outdoors mixes with a real cell, not the read-only copy (D15) |
+| `Atmosphere.LerpToGlobalAtmosphere` transpiler | Trace gases gather (below). Its one call to `TakeGlobalGasMix` becomes `TraceGases.TakeForLerp`. Refused unless the lerp takes from the planet exactly once and `TraceGases.CheckArithmetic` passes on the game's own types |
 | `AtmosphericScattering.UpdateAtmosphericScatteringToGlobalAtmosphere` prefix + postfix, then `ManagerUpdate` transpiler | Sky follows the air, throttled (D9). Throttle first, so the sky is never on without it |
 
 ## Detecting a game update that matters
@@ -78,6 +80,32 @@ Shape is not behaviour, so there are three layers:
    take and give of 9.119 mol balanced" on Mars, and LiveCheck now needs that line.
 
 A world whose `GlobalAtmosphere` has no usable `Volume` (possible in a custom world) is left as shipped.
+
+## Trace gases
+
+A gas the planet holds less than `TraceGasLine` of per 8000 L outdoor cell (default 0.0001 mol, ten
+times the 0.00001 mol a cell deletes) is a trace. For a trace, an exchanging outdoor cell is handed
+`TraceGasGathering` times its normal draw (default 50) before it lerps, so it moves toward that many
+times the planet's density of that gas, and a cell that consumes it (a fire, an intake) takes that many
+times as much. Every other gas is untouched.
+
+- **Where.** `TraceGases.Refresh` runs in the tick upkeep, under the tank lock, after the pressure
+  ceiling: it picks this tick's traces and gives each a budget. `TakeForLerp` runs per exchanging cell
+  on the atmosphere workers: the game's take, then, only if some gas is a trace and the gate is open,
+  the extra under the tank lock (`Gather`).
+- **Conserved.** The extra is subtracted from the tank in the same locked step that adds it to the drawn
+  mix, at the temperature the take gave it; what the cell does not keep goes back through
+  `GiveToGlobal`. `CheckArithmetic` builds a planet and a cell from the game's own types at load and
+  checks the totals, the bounds, the temperature and that a gas above the line is left alone; the rule
+  is not installed if it fails. PatchCheck runs it too.
+- **Bounded.** One cell's extra is never more than the tank holds of that gas at that moment. All cells
+  together may take at most 1 % of what the tank held at the start of the tick (`MaxShareOfPoolPerTick`),
+  so gathering alone needs at least 69 ticks to halve a trace, however many cells border open ground.
+  `TraceGasGathering` is capped at 100.
+- **Cost.** On a planet with no trace gas, one volatile read per exchanging cell per tick. With one,
+  a lock and a loop over the 13 gases: no allocation, no LINQ. The game's own exchange already takes
+  that lock twice per cell.
+- **Host only.** The gate is closed on a joining player's game, which never runs the exchange.
 
 ## `Gate.Enabled()`
 
@@ -128,6 +156,8 @@ client check and asks instead that the host's planet has arrived since the world
 | Settings a world owns are read from `Effective`, not `Settings` | `Settings` is the config and BepInEx writes it whenever a slider moves. Overwriting it would show numbers in the editor that are not in force, and would need restoring when a world is left |
 | Every setting that affects a world is world-scoped, and the config never reaches a world in play | LaunchPad has no save-scoped config, so the config can only mean one thing for every world. It decides what a new world starts with; `terraform set` changes the world being played. `Enabled` is the exception, because off means nothing is patched at all |
 | The sky patch is always installed and asks `Gate.SkyEnabled` every frame | Whether the sky follows the air is per world, so it cannot be decided when patches are applied at startup |
+| Trace gases are gathered by drawing more from the planet, not by making a consuming cell pull harder | The draw is the one place every mole a planet loses already passes through, and it is conservative by construction: the planet pays first, the cell gives back what it does not keep. Nothing is created, and the rule does not need to know what consumes the gas |
+| The gathering budget is a share of the planet per tick, not a cap on the factor alone | A base with thousands of exchanging cells would otherwise draw a whole trace in a few ticks at any factor that is useful to a base with ten |
 | Status logging runs from `Update`, not the tick | It must still report when the simulation is paused or the planet is off, which is when it is needed |
 
 ## Console
@@ -166,5 +196,6 @@ client it says whose answer it is rather than inventing one.
 `ExternalHeatHalfLifeMinutes`, `MaxExternalOffsetKelvin`; `StormsStopWhenStripped`,
 `StrippedAtmosphereShare`, `StormsStopWhenAtmosphereIsMild`, `MildAtmosphereColdestKelvin`,
 `MildAtmosphereHottestKelvin`, `MildAtmosphereMinPressureKpa`, `MildAtmosphereMaxPressureKpa`,
-`MildAtmosphereMaxToxinsKpa`, `MildAtmosphereStopsSolarStorms`; `SyncIntervalSeconds`;
+`MildAtmosphereMaxToxinsKpa`, `MildAtmosphereStopsSolarStorms`; `TraceGasGathering`, `TraceGasLine`;
+`SyncIntervalSeconds`;
 `StatusLogSeconds`. Player-facing descriptions are in the root README.

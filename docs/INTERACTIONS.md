@@ -72,6 +72,15 @@ explosions create matter into real cells (sources, as intended); the game's deve
 regenerate the planet; several devices (battery, turbine, stirling engine, fire extinguisher) keep a
 real outdoor cell alive every tick, which costs the planet nothing but is work per tick.
 
+**What the mod changes in the exchange itself.** One thing, and only for a trace: the take in
+`Atmosphere.LerpToGlobalAtmosphere` is swapped for `TraceGases.TakeForLerp`, which makes the same take
+and then, for any gas the planet holds less than `TraceGasLine` of per outdoor cell, draws
+`TraceGasGathering - 1` times as much again out of the tank, under the tank lock, before the cell
+lerps toward it. The cell keeps its usual share `t` of what it was handed and gives the rest back
+through the game's own `GiveToGlobal`, so the site stays `gated` and the total is exact. Every other
+take (`CloneGlobalGasMix` building a cell, `AtmosphericEventInstance` refilling one, the self-test's
+own round trip) is untouched. The bounds are in ARCHITECTURE.md.
+
 **A hazard.** World mixing does put the read-only copy into a cell's mixing list, and
 gas is safe there because both directions test for it and go through the switched calls. Liquid mixing
 (`Atmosphere.MixLiquids`) has no such test and is safe only because the copy is built from gas alone, so

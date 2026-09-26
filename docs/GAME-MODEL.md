@@ -54,6 +54,21 @@ Game build 0.2.6428.27798. `D/` and `S/` as in README.md. Everything here is **C
   from the same turbine, reaching the cap at 25 kPa, and on a world under 1 kPa it is the
   difference between nothing and something. `Objects/WindTurbineGenerator.cs:133-212`,
   `Objects/LargeWindTurbineGenerator.cs`.
+- **How an outdoor cell exchanges with the planet** (`Atmosphere.LerpToGlobalAtmosphere`, `:1710`).
+  Every tick, an outdoor cell that is not in a room and borders open ground where no cell exists
+  (`MixInWorld`, `:1728`) takes one cell's worth of the planet's gas (`TakeGlobalGasMix(Volume)`, which
+  debits the tank once the switch is on), moves each gas a share `t` of the way toward it
+  (`Mole.Lerp`, `Mole.cs:1191`: the cell gains `t x (drawn - held)` and the drawn mix loses exactly
+  that), then gives the rest back (`GiveToGlobal`). The planet's net change is `t x (held - drawn)`
+  per gas, so the exchange is conservative: that is what the switch buys, and every trace of gas the
+  planet loses goes through a cell. `t` is `AtmosphereHelper.LerpRate()`, 0.2 rising to 1 as the
+  world's atmosphere count approaches 20,000. Takes are gas only (`ToInstancedGasMixture`), so liquid
+  in a cell only ever returns. Above the space line the drawn mix is empty and the cell drains.
+- **A cell deletes any gas it holds less than 0.00001 mol of**, every tick, after combustion
+  (`AtmosphericsController.AtmosphereJob` calls `Atmosphere.Cleanup`, which calls `Mole.Cleanup`
+  against `Chemistry.MINIMUM_QUANTITY_MOLES`). So a gas the planet holds so thinly that `t` times a
+  cell's share is under that amount is deleted from every exchanging cell every tick: a slow sink the
+  unmodded game has too, and the only way such a trace leaves the planet other than burning.
 - **The switch.** Each of those first asks `PAS.IsGlobalInteraction`, which is
   `public static bool IsGlobalInteraction => false;` (IL: `ldc.i4.0; ret`). Eight call sites:
   `CloneGlobalGasMix`, `GetGlobalMoles`, `TakeGlobalGasMix`, `TakeGlobalMoles`, `GiveToGlobal`,
@@ -157,6 +172,21 @@ into the ice clouds. It runs in the unmodded game too.
   burns, only cells. So fuel beside oxygen outdoors is a standing fire around the base waiting for
   one spark, at any temperature: adding oxygen to Vulcan before removing its fuel burns at once, and
   volatiles on Europa (340 mol of oxygen per cell) burn at the first spark.
+  How much burns in a tick (`Atmosphere.GetCombustionMultiplierCurved`, `CombustionResult.RunCombustion`):
+  a cell burns only when fuel and oxidiser each reach 0.00001 mol. While either is under 0.0003 mol
+  (`AtmosphereHelper.MinimumMolesForProcessing`) the whole of the scarcer one burns at once. Above
+  that, a fraction a tick: with nitrous oxide or ozone over a tenth of the oxidiser,
+  `(0.05 + 1 / (0.0025 (T + 273.15))^1.01) / 5`, about 0.06 at 1,240 K and 0.13 at 400 K. Methane
+  burns with nitrous oxide one to one, with oxygen two to one, at 286 kJ per mole of methane, doubled
+  with nitrous oxide or ozone.
+- **A spill of oxidiser on Vulcan** (**MEASURED** 2026-09-26, TR 0.10.1, planet size 0.05): a furnace
+  taken apart outdoors put about 26 mol of nitrous oxide and 1.6 mol of oxygen into a planet of
+  250,000 cells, a ten-thousandth of a mole of nitrous oxide per cell. Nitrous oxide lowers methane's
+  auto-ignition by 250 K, so every exchanging cell burned what the exchange brought it each tick
+  (about 0.00002 mol, all of it, being under 0.0003) and stayed `Inflamed`, setting outdoor vents,
+  cable and an APC alight. The planet lost it at 0.00084 mol/s, which would have kept those cells
+  burning for five to eight hours, until each cell's share fell under the 0.00001 mol line. This is
+  what the mod's trace gas rule is for (ARCHITECTURE.md).
 
 ## Threads and ticks
 

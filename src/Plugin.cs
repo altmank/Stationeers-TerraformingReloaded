@@ -14,7 +14,7 @@ namespace TerraformingReloaded
     {
         public const string PluginGuid = "xceled.stationeers.terraformingreloaded";
         public const string PluginName = "Terraforming Reloaded";
-        public const string PluginVersion = "0.10.1";
+        public const string PluginVersion = "0.11.0";
 
         /// <summary>The game build the patches were last checked against. Advisory only.</summary>
         private const string TestedGameVersion = "0.2.6428.27798";
@@ -250,6 +250,15 @@ namespace TerraformingReloaded
             Bind("Storms", "MildAtmosphereStopsSolarStorms", Settings.MildAtmosphereStopsSolarStorms,
                 "Air shields radiation, so a mild world stops solar storms as well. Off by default: on the Moon they give four times normal solar power.",
                 v => Settings.MildAtmosphereStopsSolarStorms = v, null, "Mild air stops solar storms too", 58, world: true);
+
+            // Trace gases. Their own section: they decide how outdoor air near a base draws from the
+            // planet, which is neither climate nor storms.
+            Bind("Trace gases", "TraceGasGathering", Settings.TraceGasGathering,
+                "A gas the planet's air holds only a trace of is drawn into the outdoor air beside your base this many times faster than any other gas. A small spill, such as a furnace taken apart outside, then burns off or reaches your filters near the base in a fraction of the time, instead of lingering thinly over the whole planet for hours. Every mole comes out of the planet's air; nothing is created. 1 turns it off.",
+                v => Settings.TraceGasGathering = v, Bounds(Limits.TraceGasGathering), "Trace gases gather (x)", 60, "%.0f", world: true);
+            Bind("Trace gases", "TraceGasLine", Settings.TraceGasLine,
+                "Below how much a gas counts as a trace, in moles per outdoor cell (8,000 litres) of the planet's air. The default is ten times the least the game keeps in a cell. 0 turns gathering off.",
+                v => Settings.TraceGasLine = v, Bounds(Limits.TraceGasLine), "Trace below (mol per cell)", 61, "%.5f", world: true);
 
             Bind("Multiplayer", "SyncIntervalSeconds", Settings.SyncIntervalSeconds,
                 "How often the host sends the planet state to clients.",

@@ -278,6 +278,8 @@ what a missing or unreadable file falls back to.
 | `WeatherOnWeatherlessWorlds` | reversible | Decides whether a full cloud may rain or snow. The cloud has already emptied into the air either way |
 | The nine `Storms` settings | reversible | Decide whether a storm is scheduled. Suppressing one writes nothing the save carries: `WeatherManager.CreateSaveData` then holds "no event, and a cooldown long past", the state the unmodded game sits in between storms. Turning a rule back on schedules exactly one storm, then the world's own cadence resumes |
 
+| `TraceGasGathering`, `TraceGasLine` | reversible | Decide how much of a trace gas the outdoor cells beside a base draw from the planet each tick. Nothing is deleted: the planet pays for every mole a cell takes, and a cell gives back what it does not use up. Switched off, what the cells hold drains back to the planet |
+
 Not world-scoped:
 
 - `Enabled`, the master switch. Off means nothing is patched at all, which is also the way out if a
