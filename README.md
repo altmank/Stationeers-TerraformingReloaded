@@ -61,14 +61,15 @@ the planet section of the save; the game reads that section with or without the 
   deep, and everything outdoors below it counts as under water. The amount of liquid that takes
   is fixed by the game and does not shrink with planet size.
 - **Heat.** Heat your base sheds outdoors warms the planet slightly and fades over time.
-- **Small spills can gather at your base (experimental, off by default).** Switched on
-  (`terraform set TraceGasGatheringEnabled on`), a gas the planet's air holds only a trace of is drawn
-  by the outdoor air beside your base 200 times faster than any other gas (the speed at the trace line,
-  settable), and faster still the thinner it is, up to 10 times that, so a small spill (a furnace taken apart outside) burns off or reaches your intakes there
-  instead of lingering over the whole planet for hours. Every mole comes out of the planet's air. On a
-  world whose air burns, expect a brighter burn beside the base while it clears, and a spill too thin
-  to burn at all without this can burn briefly with it. The first moles of a gas released on an
-  airless world gather around the base the same way before they spread.
+- **Small spills can gather at your base: an experimental option, off unless you turn it on.** It is
+  off in every world until you run `terraform set TraceGasGatheringEnabled on` in that world (or turn
+  it on in the config for new worlds). Switched on, a gas the planet's air holds only a trace of is
+  drawn into the outdoor air beside your base, so a small spill (a furnace taken apart outside) burns
+  off or reaches your intakes there instead of lingering over the whole planet for hours. Every mole
+  comes out of the planet's air. Speed at the trace line: 200 times faster than other gases by
+  default, settable from 1 to 2000. Below the line the speed doubles for every factor of ten, up to 10
+  times the line speed. On a world whose air burns, expect a brighter burn beside the base while a
+  spill clears, and a spill too thin to burn at all without this can burn briefly with it.
 - **Wind turbines** reward thick air: the game clamps the pressure they see to between 5 and
   25 kPa, so a thickened planet runs them up to five times harder, and under 1 kPa they give nothing.
 - **Tutorials** are left as shipped.

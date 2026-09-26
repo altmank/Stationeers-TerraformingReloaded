@@ -30,7 +30,6 @@ Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they 
 [*]The Moon and Mimas start with nothing. Their first air swings hard between day and night until it thickens.
 [*]Storms are milder on a world you have cooled.
 [*]Storms answer to what you have done. Take away most of a world's air, or make it temperate, thick and clean, and it stops getting its own storms. Solar storms keep coming unless you choose otherwise: on the Moon one is four times the usual solar power.
-[*]Experimental, off by default: a small spill of a gas the planet barely holds, like a furnace taken apart outside, can gather in the air beside your base and burn off or reach your filters there, instead of lingering over the whole planet for hours. Turn it on with [b]terraform set TraceGasGatheringEnabled on[/b].
 [*]A world you have not touched reads exactly as it does without the mod.
 [*]Custom worlds work. WORLDS.md in the mod folder is for world authors.
 [/list]
@@ -75,6 +74,7 @@ Your changed planet lives in the save, so deleting the mod does not undo it. Run
 [*]The StationeersLaunchPad config editor sets what a new world starts with. Each world then keeps its own settings beside its save, so tuning one save never changes another. Change the world you are playing with [b]terraform set[/b].
 [*]The pressure ceiling deletes air permanently. Leave it at 0 unless you mean it.
 [*]Multiplayer: the host and everyone who joins need the mod, on the same version; a player without it is turned away unless both games also run another mod that syncs through StationeersLaunchPad. The host's settings decide the planet for everyone, including whether the sky follows the air and how the temperature responds, and only the host can run [b]terraform size[/b], [b]set[/b] and [b]reset[/b]. Checked by reading the game's code and by one player's session on a dedicated server, not by long play.
+[*][b]Experimental option, off unless you turn it on for a world:[/b] [b]terraform set TraceGasGatheringEnabled on[/b]. It makes a small spill of a gas the planet barely holds, like a furnace taken apart outside, gather in the air beside your base, where it burns off or reaches your filters, instead of lingering thinly over the whole planet for hours. Speed at the trace line: 200 times faster than other gases by default, settable from 1 to 2000. Below the line the speed doubles for every factor of ten, up to 10 times the line speed.
 [*]Tutorials are left alone.
 [*]If a game update changes what this depends on, the mod switches itself off and says why in the log rather than risk your save.
 [*]The devs appear to be working on this framework themselves, so an update could break this mod or make it obsolete.
