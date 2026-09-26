@@ -40,12 +40,13 @@ namespace TerraformingReloaded.Patching
         public const double MaxShareOfPoolPerTick = 0.01;
 
         /// <summary>
-        /// The most a trace is ever drawn, however far below the line it sits: ten times the largest
-        /// base the setting allows, reached about 3.3 factors of ten below the line. Past it, more
-        /// factor only concentrates the last of a trace into fewer cells, and on a base of a few
-        /// dozen exchanging cells the tick budget above already binds before it.
+        /// The most a trace is ever drawn, however far below the line it sits: ten times the default
+        /// base, reached about 3.3 factors of ten below the line. Past it, more factor only
+        /// concentrates the last of a trace into fewer cells, and on a base of a few dozen exchanging
+        /// cells the tick budget above already binds before it. Measured in play (Vulcan, 0.11.1): a
+        /// trace of oxygen reached 985 against the old cap of 1000.
         /// </summary>
-        public const double MaxFactor = 1000.0;
+        public const double MaxFactor = 2000.0;
 
         /// <summary>log10(2): the factor doubles for every factor of ten below the line.</summary>
         private static readonly double DoublingPerDecade = Math.Log10(2.0);

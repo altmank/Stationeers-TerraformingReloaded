@@ -79,7 +79,7 @@ namespace TerraformingReloaded
         /// under the trace line; it doubles for every factor of ten further below.
         /// 1 is the game's own share, which turns gathering off.
         /// </summary>
-        public static double TraceGasGathering = 100.0;
+        public static double TraceGasGathering = 200.0;
 
         /// <summary>
         /// Below this many moles per 8000 L outdoor cell of planet air, a gas is a trace. A hundred
@@ -167,7 +167,7 @@ namespace TerraformingReloaded
         public static readonly Range MildAtmosphereMaxPressureKpa = new Range(0.0, 10000.0);
         public static readonly Range MildAtmosphereMaxToxinsKpa = new Range(0.0, 1000.0);
 
-        public static readonly Range TraceGasGathering = new Range(1.0, 100.0);
+        public static readonly Range TraceGasGathering = new Range(1.0, 250.0);
         public static readonly Range TraceGasLine = new Range(0.0, 0.01);
     }
 
@@ -278,7 +278,7 @@ namespace TerraformingReloaded
         public static bool MildAtmosphereStopsSolarStorms = false;
 
         public static bool TraceGasGatheringEnabled = false;
-        public static double TraceGasGathering = 100.0;
+        public static double TraceGasGathering = 200.0;
         public static double TraceGasLine = 1e-3;
     }
 
