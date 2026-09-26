@@ -289,6 +289,8 @@ namespace TerraformingReloaded
                 () => Effective.MildAtmosphereMaxToxinsKpa, () => Settings.MildAtmosphereMaxToxinsKpa, v => Effective.MildAtmosphereMaxToxinsKpa = v),
             Switch("MildAtmosphereStopsSolarStorms", "Mild air stops solar storms too",
                 () => Effective.MildAtmosphereStopsSolarStorms, () => Settings.MildAtmosphereStopsSolarStorms, v => Effective.MildAtmosphereStopsSolarStorms = v),
+            Switch("TraceGasGatheringEnabled", "Trace gases gather (experimental)",
+                () => Effective.TraceGasGatheringEnabled, () => Settings.TraceGasGatheringEnabled, v => Effective.TraceGasGatheringEnabled = v),
             Number("TraceGasGathering", "Trace gases gather", "x", Limits.TraceGasGathering,
                 () => Effective.TraceGasGathering, () => Settings.TraceGasGathering, v => Effective.TraceGasGathering = v),
             Number("TraceGasLine", "Trace below", "mol per cell", Limits.TraceGasLine,
@@ -430,7 +432,7 @@ namespace TerraformingReloaded
             {
                 return key.ZeroMeans ?? "none";
             }
-            // Seven places, because the trace line is a ten-thousandth of a mole.
+            // Seven places, because the trace line can be set to a ten-thousandth of a mole or less.
             return number.Value.ToString("0.#######", CultureInfo.InvariantCulture) + (key.Unit.Length > 0 ? (key.Unit == "%" ? "%" : " " + key.Unit) : "");
         }
 
@@ -762,7 +764,9 @@ namespace TerraformingReloaded
                 Effective.GhgResponseScale, Effective.DensityResponseScale, Effective.AirlessAlbedo));
             text.AppendLine("    sky follows the air " + (Effective.DynamicSky ? "on" : "off")
                 + ", rain or snow on worlds with no weather " + (Effective.WeatherOnWeatherlessWorlds ? "on" : "off")
-                + string.Format(c, ", trace gases gather {0:0.##}x below {1:0.######} mol per cell", Effective.TraceGasGathering, Effective.TraceGasLine)
+                + (Effective.TraceGasGatheringEnabled
+                    ? string.Format(c, ", trace gases gather {0:0.##}x below {1:0.######} mol per cell", Effective.TraceGasGathering, Effective.TraceGasLine)
+                    : ", trace gases do not gather")
                 + "; the storm settings are under storms below; all of them with terraform set");
         }
 

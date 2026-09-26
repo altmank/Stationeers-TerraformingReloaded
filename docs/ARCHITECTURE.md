@@ -83,11 +83,14 @@ A world whose `GlobalAtmosphere` has no usable `Volume` (possible in a custom wo
 
 ## Trace gases
 
-A gas the planet holds less than `TraceGasLine` of per 8000 L outdoor cell (default 0.0001 mol, ten
-times the 0.00001 mol a cell deletes) is a trace. For a trace, an exchanging outdoor cell is handed
-`TraceGasGathering` times its normal draw (default 50) before it lerps, so it moves toward that many
-times the planet's density of that gas, and a cell that consumes it (a fire, an intake) takes that many
-times as much. Every other gas is untouched.
+Experimental and off by default (`TraceGasGatheringEnabled`, per world). A gas the planet holds less than `TraceGasLine` of per 8000 L outdoor cell (default 0.001 mol, a
+hundred times the 0.00001 mol a cell deletes, a tenth of the thinnest gas a shipped world starts with)
+is a trace. For a trace, an exchanging outdoor cell is handed `TraceGasGathering` times its normal draw
+(default 100, the most the setting allows) just under the line, times 2 for every factor of ten the
+gas sits further below it, smoothly (`base x (line / share)^log10 2`), capped at 1,000 (`MaxFactor`).
+A cell so handed moves toward that many times the planet's density of the gas, and a cell that
+consumes it (a fire, an intake) takes that many times as much. Every other gas is untouched. The factor
+per gas is worked out once a tick in `Refresh`, not per cell.
 
 - **Where.** `TraceGases.Refresh` runs in the tick upkeep, under the tank lock, after the pressure
   ceiling: it picks this tick's traces and gives each a budget. `TakeForLerp` runs per exchanging cell
@@ -98,10 +101,14 @@ times as much. Every other gas is untouched.
   `GiveToGlobal`. `CheckArithmetic` builds a planet and a cell from the game's own types at load and
   checks the totals, the bounds, the temperature and that a gas above the line is left alone; the rule
   is not installed if it fails. PatchCheck runs it too.
-- **Bounded.** One cell's extra is never more than the tank holds of that gas at that moment. All cells
-  together may take at most 1 % of what the tank held at the start of the tick (`MaxShareOfPoolPerTick`),
-  so gathering alone needs at least 69 ticks to halve a trace, however many cells border open ground.
-  `TraceGasGathering` is capped at 100.
+- **Bounded.** One cell's extra is never more than the tank holds of that gas at that moment. What all cells
+  together keep of the extra, the lerp's share `t` of it (`AtmosphereHelper.LerpRate()`, the same call
+  the lerp has just made), is at most 1 % of what the tank held at the start of the tick
+  (`MaxShareOfPoolPerTick`); the rest of the extra goes straight back in the same exchange. So gathering
+  alone needs at least 69 ticks to halve a trace, however many cells border open ground. The base factor
+  is capped at 100 and the effective factor at 1,000; the most a cell is handed of a trace in a tick is
+  base x line x `t`, 0.1 mol at the defaults, because the scaled factor grows slower than the share
+  falls.
 - **Cost.** On a planet with no trace gas, one volatile read per exchanging cell per tick. With one,
   a lock and a loop over the 13 gases: no allocation, no LINQ. The game's own exchange already takes
   that lock twice per cell.

@@ -134,7 +134,7 @@ namespace TerraformingReloaded.Patching
                     || partial.GhgResponseScale.HasValue || partial.DensityResponseScale.HasValue
                     || partial.AirlessAlbedo.HasValue || partial.DynamicSky.HasValue
                     || partial.StormsStopWhenStripped.HasValue || partial.MildAtmosphereColdestKelvin.HasValue
-                    || partial.TraceGasGathering.HasValue || partial.TraceGasLine.HasValue)
+                    || partial.TraceGasGatheringEnabled.HasValue || partial.TraceGasGathering.HasValue || partial.TraceGasLine.HasValue)
                 {
                     return "a file holding one setting invented values for the rest";
                 }

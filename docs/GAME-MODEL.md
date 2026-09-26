@@ -186,7 +186,7 @@ into the ice clouds. It runs in the unmodded game too.
   (about 0.00002 mol, all of it, being under 0.0003) and stayed `Inflamed`, setting outdoor vents,
   cable and an APC alight. The planet lost it at 0.00084 mol/s, which would have kept those cells
   burning for five to eight hours, until each cell's share fell under the 0.00001 mol line. This is
-  what the mod's trace gas rule is for (ARCHITECTURE.md).
+  what the mod's trace gas rule is for (ARCHITECTURE.md; its expected effect on this spill is ASSUMPTIONS.md T4).
 
 ## Threads and ticks
 

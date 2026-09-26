@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.11.1
+
+- **Trace gas gathering is now experimental and off by default.** Turn it on for a world with
+  `terraform set TraceGasGatheringEnabled on`, or in the config (`Trace gases gather (experimental)`)
+  for new worlds and for worlds that have never recorded the switch. A world played on 0.11.0 has
+  never recorded it, so it takes the config's off until you turn it on.
+- **When on, it now helps larger spills, and harder the thinner the gas.** A gas counts as a trace
+  below a thousandth of a mole per outdoor cell, ten times the old line: a spill of up to about 250
+  moles on a Vulcan of the default size, where before anything over about 25 got no help. That is
+  still a tenth of the thinnest gas any shipped world starts with, so no world's own air is touched.
+  Just under the line a trace is drawn 100 times faster than other gases, and twice as fast again for
+  every factor of ten it sits further below, up to 1,000 times, so the last of a spill does not
+  linger.
+- **The per-tick limit counts what the air beside the base keeps**, not what it hands straight back,
+  so it no longer holds the rule back on an ordinary base. It still stops the whole of a trace
+  arriving in a few ticks.
+- **To bring a world that recorded 0.11.0's values up to 0.11.1's:** `terraform set TraceGasGathering
+  100` and `terraform set TraceGasLine 0.001`.
+
 ## 0.11.0
 
 - **A small spill of a gas the planet barely holds now clears around your base instead of lingering

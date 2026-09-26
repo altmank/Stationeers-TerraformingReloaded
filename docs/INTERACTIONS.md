@@ -74,8 +74,8 @@ real outdoor cell alive every tick, which costs the planet nothing but is work p
 
 **What the mod changes in the exchange itself.** One thing, and only for a trace: the take in
 `Atmosphere.LerpToGlobalAtmosphere` is swapped for `TraceGases.TakeForLerp`, which makes the same take
-and then, for any gas the planet holds less than `TraceGasLine` of per outdoor cell, draws
-`TraceGasGathering - 1` times as much again out of the tank, under the tank lock, before the cell
+and then, when the world has the rule on, for any gas the planet holds less than `TraceGasLine` of per
+outdoor cell, draws that gas's factor minus one times as much again (ARCHITECTURE.md) out of the tank, under the tank lock, before the cell
 lerps toward it. The cell keeps its usual share `t` of what it was handed and gives the rest back
 through the game's own `GiveToGlobal`, so the site stays `gated` and the total is exact. Every other
 take (`CloneGlobalGasMix` building a cell, `AtmosphericEventInstance` refilling one, the self-test's

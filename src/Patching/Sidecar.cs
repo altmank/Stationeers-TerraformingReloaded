@@ -62,6 +62,7 @@ namespace TerraformingReloaded.Patching
         public double? MildAtmosphereMaxToxinsKpa;
         public bool? MildAtmosphereStopsSolarStorms;
 
+        public bool? TraceGasGatheringEnabled;
         public double? TraceGasGathering;
         public double? TraceGasLine;
     }
@@ -487,6 +488,7 @@ namespace TerraformingReloaded.Patching
                 Recorded(file.MildAtmosphereMaxToxinsKpa, Limits.MildAtmosphereMaxToxinsKpa, "MildAtmosphereMaxToxinsKpa", bad)
                 ?? Settings.MildAtmosphereMaxToxinsKpa;
             Effective.MildAtmosphereStopsSolarStorms = file.MildAtmosphereStopsSolarStorms ?? Settings.MildAtmosphereStopsSolarStorms;
+            Effective.TraceGasGatheringEnabled = file.TraceGasGatheringEnabled ?? Settings.TraceGasGatheringEnabled;
             Effective.TraceGasGathering =
                 Recorded(file.TraceGasGathering, Limits.TraceGasGathering, "TraceGasGathering", bad)
                 ?? Settings.TraceGasGathering;
@@ -558,6 +560,7 @@ namespace TerraformingReloaded.Patching
             Effective.MildAtmosphereMaxPressureKpa = Settings.MildAtmosphereMaxPressureKpa;
             Effective.MildAtmosphereMaxToxinsKpa = Settings.MildAtmosphereMaxToxinsKpa;
             Effective.MildAtmosphereStopsSolarStorms = Settings.MildAtmosphereStopsSolarStorms;
+            Effective.TraceGasGatheringEnabled = Settings.TraceGasGatheringEnabled;
             Effective.TraceGasGathering = Settings.TraceGasGathering;
             Effective.TraceGasLine = Settings.TraceGasLine;
         }
@@ -713,6 +716,7 @@ namespace TerraformingReloaded.Patching
                     MildAtmosphereMaxPressureKpa = Effective.MildAtmosphereMaxPressureKpa,
                     MildAtmosphereMaxToxinsKpa = Effective.MildAtmosphereMaxToxinsKpa,
                     MildAtmosphereStopsSolarStorms = Effective.MildAtmosphereStopsSolarStorms,
+                    TraceGasGatheringEnabled = Effective.TraceGasGatheringEnabled,
                     TraceGasGathering = Effective.TraceGasGathering,
                     TraceGasLine = Effective.TraceGasLine,
                 };

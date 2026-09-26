@@ -14,7 +14,7 @@ namespace TerraformingReloaded
     {
         public const string PluginGuid = "xceled.stationeers.terraformingreloaded";
         public const string PluginName = "Terraforming Reloaded";
-        public const string PluginVersion = "0.11.0";
+        public const string PluginVersion = "0.11.1";
 
         /// <summary>The game build the patches were last checked against. Advisory only.</summary>
         private const string TestedGameVersion = "0.2.6428.27798";
@@ -253,12 +253,15 @@ namespace TerraformingReloaded
 
             // Trace gases. Their own section: they decide how outdoor air near a base draws from the
             // planet, which is neither climate nor storms.
+            Bind("Trace gases", "TraceGasGatheringEnabled", Settings.TraceGasGatheringEnabled,
+                "EXPERIMENTAL, off by default. A gas the planet's air holds only a trace of gathers in the outdoor air beside your base, where it burns off or reaches your intakes, instead of lingering thinly over the whole planet for hours. Every mole comes out of the planet's air; nothing is created. The two settings below tune it.",
+                v => Settings.TraceGasGatheringEnabled = v, null, "Trace gases gather (experimental)", 60, world: true);
             Bind("Trace gases", "TraceGasGathering", Settings.TraceGasGathering,
-                "A gas the planet's air holds only a trace of is drawn into the outdoor air beside your base this many times faster than any other gas. A small spill, such as a furnace taken apart outside, then burns off or reaches your filters near the base in a fraction of the time, instead of lingering thinly over the whole planet for hours. Every mole comes out of the planet's air; nothing is created. 1 turns it off.",
-                v => Settings.TraceGasGathering = v, Bounds(Limits.TraceGasGathering), "Trace gases gather (x)", 60, "%.0f", world: true);
+                "When trace gases gather, a gas just under the trace line is drawn into the outdoor air beside your base this many times faster than any other gas, and twice as fast again for every factor of ten it sits further below, up to 1000 times. 1 turns it off.",
+                v => Settings.TraceGasGathering = v, Bounds(Limits.TraceGasGathering), "Trace gases gather (x)", 61, "%.0f", world: true);
             Bind("Trace gases", "TraceGasLine", Settings.TraceGasLine,
-                "Below how much a gas counts as a trace, in moles per outdoor cell (8,000 litres) of the planet's air. The default is ten times the least the game keeps in a cell. 0 turns gathering off.",
-                v => Settings.TraceGasLine = v, Bounds(Limits.TraceGasLine), "Trace below (mol per cell)", 61, "%.5f", world: true);
+                "Below how much a gas counts as a trace, in moles per outdoor cell (8,000 litres) of the planet's air. The default is a hundred times the least the game keeps in a cell, and well under the thinnest gas any world starts with. 0 turns gathering off.",
+                v => Settings.TraceGasLine = v, Bounds(Limits.TraceGasLine), "Trace below (mol per cell)", 62, "%.5f", world: true);
 
             Bind("Multiplayer", "SyncIntervalSeconds", Settings.SyncIntervalSeconds,
                 "How often the host sends the planet state to clients.",

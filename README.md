@@ -61,13 +61,14 @@ the planet section of the save; the game reads that section with or without the 
   deep, and everything outdoors below it counts as under water. The amount of liquid that takes
   is fixed by the game and does not shrink with planet size.
 - **Heat.** Heat your base sheds outdoors warms the planet slightly and fades over time.
-- **Small spills gather at your base.** When the planet's air holds only a trace of a gas, the
-  outdoor air beside your base draws it 50 times faster than any other gas, so a small spill (a
-  furnace taken apart outside) burns off or reaches your intakes there instead of lingering over the
-  whole planet for hours. Every mole comes out of the planet's air. On a world whose air burns, expect
-  a brighter burn beside the base while it clears, and a spill too thin to burn at all without this
-  can burn briefly with it. The first few moles of a gas released on an airless world gather around
-  the base the same way before they spread.
+- **Small spills can gather at your base (experimental, off by default).** Switched on
+  (`terraform set TraceGasGatheringEnabled on`), a gas the planet's air holds only a trace of is drawn
+  by the outdoor air beside your base 100 times faster than any other gas, and faster still the thinner
+  it is, so a small spill (a furnace taken apart outside) burns off or reaches your intakes there
+  instead of lingering over the whole planet for hours. Every mole comes out of the planet's air. On a
+  world whose air burns, expect a brighter burn beside the base while it clears, and a spill too thin
+  to burn at all without this can burn briefly with it. The first moles of a gas released on an
+  airless world gather around the base the same way before they spread.
 - **Wind turbines** reward thick air: the game clamps the pressure they see to between 5 and
   25 kPa, so a thickened planet runs them up to five times harder, and under 1 kPa they give nothing.
 - **Tutorials** are left as shipped.
@@ -232,8 +233,9 @@ The few worth knowing before you start:
 - **`GhgResponseScale`** and **`DensityResponseScale`** tune the temperature response on worlds that
   ship without their own curves. To reshape it rather than scale it, see [CURVES.md](CURVES.md),
   which also ships in the mod's folder.
-- **The `Trace gases` section** decides how many times faster the air beside your base draws a gas
-  the planet holds only a trace of (1 turns it off), and how little counts as a trace (0 turns it off).
+- **The `Trace gases` section** is experimental and off by default. It switches trace gas gathering on
+  and decides how many times faster the air beside your base draws a gas the planet holds only a trace
+  of, and how little counts as a trace.
 - **The `Storms` section** decides when a world stops getting its own storms: once its air is mostly
   gone, or once that air is mild. Both are on by default and neither does anything to a world you
   have not changed. Every number either rule uses is a setting, so nothing is hidden: the share of

@@ -70,16 +70,23 @@ namespace TerraformingReloaded
         public static bool MildAtmosphereStopsSolarStorms = false;
 
         /// <summary>
-        /// How many times its normal share of a trace gas an outdoor cell draws from the planet.
-        /// 1 is the game's own share, which turns gathering off.
+        /// Experimental, off by default: trace gases gather where they are consumed.
         /// </summary>
-        public static double TraceGasGathering = 50.0;
+        public static bool TraceGasGatheringEnabled = false;
 
         /// <summary>
-        /// Below this many moles per 8000 L outdoor cell of planet air, a gas is a trace. Ten times
-        /// the least the game keeps in a cell (Chemistry.MINIMUM_QUANTITY_MOLES). 0 turns gathering off.
+        /// How many times its normal share of a trace gas an outdoor cell draws from the planet, just
+        /// under the trace line; it doubles for every factor of ten further below.
+        /// 1 is the game's own share, which turns gathering off.
         /// </summary>
-        public static double TraceGasLine = 1e-4;
+        public static double TraceGasGathering = 100.0;
+
+        /// <summary>
+        /// Below this many moles per 8000 L outdoor cell of planet air, a gas is a trace. A hundred
+        /// times the least the game keeps in a cell (Chemistry.MINIMUM_QUANTITY_MOLES), and a tenth of
+        /// the thinnest gas any shipped world starts with. 0 turns gathering off.
+        /// </summary>
+        public static double TraceGasLine = 1e-3;
 
         /// <summary>Write the terraform status to the log this often. 0 is off.</summary>
         public static double StatusLogSeconds = 0.0;
@@ -270,8 +277,9 @@ namespace TerraformingReloaded
         public static double MildAtmosphereMaxToxinsKpa = 1.0;
         public static bool MildAtmosphereStopsSolarStorms = false;
 
-        public static double TraceGasGathering = 50.0;
-        public static double TraceGasLine = 1e-4;
+        public static bool TraceGasGatheringEnabled = false;
+        public static double TraceGasGathering = 100.0;
+        public static double TraceGasLine = 1e-3;
     }
 
     /// <summary>

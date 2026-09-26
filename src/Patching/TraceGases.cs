@@ -18,23 +18,37 @@ namespace TerraformingReloaded.Patching
     /// only a trace of, that share is so small that the cells which consume it (a fire, a filter, an
     /// intake) take hours to clear it, and while it lasts a fire around the base never goes out.
     ///
-    /// For such a gas this draws <see cref="Effective.TraceGasGathering"/> times the normal share.
-    /// Every extra mole is taken out of the planet under the tank lock before the cell sees it, and
+    /// For such a gas this draws a multiple of the normal share: <see cref="Effective.TraceGasGathering"/>
+    /// just under the line, doubling for every factor of ten the gas sits further below it, smoothly
+    /// (<see cref="FactorFor"/>), up to <see cref="MaxFactor"/>. Every extra mole is taken out of the planet under the tank lock before the cell sees it, and
     /// what the cell does not keep goes back through the game's own give, so nothing is created or
     /// destroyed. A gas above the trace line is untouched.
     ///
     /// Bounds: the extra drawn by one cell never exceeds what the planet holds of that gas at that
-    /// moment, and all cells together may draw at most <see cref="MaxShareOfPoolPerTick"/> of it in
-    /// one tick, however many cells border open ground.
+    /// moment, and what all cells together keep of the extra in one tick is at most
+    /// <see cref="MaxShareOfPoolPerTick"/> of it, however many cells border open ground.
     /// </summary>
     public static class TraceGases
     {
         /// <summary>
-        /// Most of one gas the rule may move in a tick, as a share of what the planet held of it when
-        /// the tick began. The planet can then lose at most 1 % a tick to gathering, so a trace takes
-        /// at least 69 ticks to halve that way, whatever the settings and however large the base.
+        /// Most of one gas the rule may deliver in a tick, as a share of what the planet held of it
+        /// when the tick began. Delivered is what the cells keep of the extra (the lerp's share t of
+        /// it); the rest goes straight back. The planet can then lose at most 1 % a tick to gathering,
+        /// so a trace takes at least 69 ticks to halve that way, whatever the settings and however
+        /// large the base.
         /// </summary>
         public const double MaxShareOfPoolPerTick = 0.01;
+
+        /// <summary>
+        /// The most a trace is ever drawn, however far below the line it sits: ten times the largest
+        /// base the setting allows, reached about 3.3 factors of ten below the line. Past it, more
+        /// factor only concentrates the last of a trace into fewer cells, and on a base of a few
+        /// dozen exchanging cells the tick budget above already binds before it.
+        /// </summary>
+        public const double MaxFactor = 1000.0;
+
+        /// <summary>log10(2): the factor doubles for every factor of ten below the line.</summary>
+        private static readonly double DoublingPerDecade = Math.Log10(2.0);
 
         /// <summary>The gases a cell draws from the planet, as GasMixture.LerpGasses lists them.</summary>
         private static readonly Chemistry.GasType[] Gases =
@@ -49,7 +63,7 @@ namespace TerraformingReloaded.Patching
         // Written by the planet tick and read by every cell, both under the tank lock. The flag is
         // read outside it so a planet with no trace gas costs a cell one field read.
         private static readonly double[] Budget = new double[Gases.Length];
-        private static double _extraFactor;
+        private static readonly double[] ExtraFactor = new double[Gases.Length];
         private static volatile bool _active;
 
         private static int _faults;
@@ -99,10 +113,11 @@ namespace TerraformingReloaded.Patching
         {
             _active = false;
             Array.Clear(Budget, 0, Budget.Length);
+            Array.Clear(ExtraFactor, 0, ExtraFactor.Length);
             double factor = Effective.TraceGasGathering;
             double line = Effective.TraceGasLine;
             double volume = tank?.Volume.ToDouble() ?? 0.0;
-            if (!(factor > 1.0) || !(line > 0.0) || !(volume > 0.0) || double.IsInfinity(volume))
+            if (!Effective.TraceGasGatheringEnabled || !(factor > 1.0) || !(line > 0.0) || !(volume > 0.0) || double.IsInfinity(volume))
             {
                 return;
             }
@@ -111,14 +126,34 @@ namespace TerraformingReloaded.Patching
             for (int i = 0; i < Gases.Length; i++)
             {
                 double held = tank.Get(Gases[i]).ToDouble();
-                if (held > 0.0 && held * perCell < line)
+                double gathering = FactorFor(factor, line, held * perCell);
+                if (gathering > 1.0)
                 {
+                    ExtraFactor[i] = gathering - 1.0;
                     Budget[i] = held * MaxShareOfPoolPerTick;
                     any = true;
                 }
             }
-            _extraFactor = factor - 1.0;
             _active = any;
+        }
+
+        /// <summary>
+        /// How many times its normal share of a gas a cell draws, for a gas holding
+        /// <paramref name="share"/> mol per 8000 L cell: 1 at or above the line, otherwise
+        /// base x (line / share)^log10(2), which is base just under the line and doubles for every
+        /// factor of ten below it with no step between, capped at <see cref="MaxFactor"/>. A base of 1
+        /// or less, a line of 0, and an empty or unreadable share all give 1: no gathering.
+        /// </summary>
+        public static double FactorFor(double baseFactor, double line, double share)
+        {
+            if (!(baseFactor > 1.0) || !(line > 0.0) || !(share > 0.0) || !(share < line))
+            {
+                return 1.0;
+            }
+            double factor = baseFactor * Math.Pow(line / share, DoublingPerDecade);
+            // A share so small the ratio overflows gives infinity, which the cap takes; NaN cannot
+            // arise from the checks above but is refused rather than trusted.
+            return double.IsNaN(factor) ? 1.0 : Math.Min(MaxFactor, factor);
         }
 
         /// <summary>
@@ -134,10 +169,14 @@ namespace TerraformingReloaded.Patching
             }
             double factor = Effective.TraceGasGathering;
             double line = Effective.TraceGasLine;
-            string head = string.Format(c, "trace gases (below {0:0.#######} mol per cell) gather {1:0.##}x", line, factor);
+            string head = string.Format(c, "trace gases (below {0:0.#######} mol per cell) gather {1:0.##}x at the line, doubling per factor of ten below it, at most {2:0}x", line, factor, MaxFactor);
+            if (!Effective.TraceGasGatheringEnabled)
+            {
+                return "trace gases: gathering is off for this world (experimental; terraform set TraceGasGatheringEnabled on)";
+            }
             if (!(factor > 1.0) || !(line > 0.0))
             {
-                return "trace gases: gathering is off for this world";
+                return "trace gases: gathering is on for this world, but its factor or line leaves nothing to gather";
             }
             double volume = tank.Volume.ToDouble();
             if (!(volume > 0.0) || double.IsInfinity(volume))
@@ -149,9 +188,10 @@ namespace TerraformingReloaded.Patching
             foreach (Chemistry.GasType type in Gases)
             {
                 double held = tank.Get(type).ToDouble();
-                if (held > 0.0 && held * perCell < line)
+                double gathering = FactorFor(factor, line, held * perCell);
+                if (gathering > 1.0)
                 {
-                    found.Append(found.Length == 0 ? ": " : ", ").AppendFormat(c, "{0} {1:0.###} mol", type, held);
+                    found.Append(found.Length == 0 ? ": " : ", ").AppendFormat(c, "{0} {1:0.###} mol at {2:0}x", type, held, gathering);
                 }
             }
             return head + (found.Length == 0 ? ": none on this planet" : found.ToString());
@@ -177,6 +217,8 @@ namespace TerraformingReloaded.Patching
             }
             object tankLock = Guards.TankLock;
             GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            // The share the lerp is about to keep, from the call it has just made itself.
+            double lerpRate = AtmosphereHelper.LerpRate();
             if (tankLock == null || tank == null)
             {
                 return drawn;
@@ -185,7 +227,7 @@ namespace TerraformingReloaded.Patching
             {
                 lock (tankLock)
                 {
-                    Gather(ref drawn, tank, _extraFactor, Budget);
+                    Gather(ref drawn, tank, ExtraFactor, Budget, lerpRate);
                 }
             }
             catch (Exception e)
@@ -201,12 +243,15 @@ namespace TerraformingReloaded.Patching
 
         /// <summary>
         /// Moves the extra share of each budgeted gas from <paramref name="tank"/> into
-        /// <paramref name="drawn"/>: <paramref name="extraFactor"/> times what was drawn, no more
-        /// than the budget left and no more than the tank holds. The moles arrive at the temperature
-        /// the take gave them. The caller holds the tank lock.
+        /// <paramref name="drawn"/>: that gas's <paramref name="extraFactor"/> times what was drawn,
+        /// no more than the tank holds, and no more than fits the budget left once the cell keeps its
+        /// <paramref name="lerpRate"/> of it, which is what the budget is charged. The moles arrive at
+        /// the temperature the take gave them. The caller holds the tank lock.
         /// </summary>
-        public static void Gather(ref GasMixture drawn, GlobalGasMix tank, double extraFactor, double[] budget)
+        public static void Gather(ref GasMixture drawn, GlobalGasMix tank, double[] extraFactor, double[] budget, double lerpRate)
         {
+            // An unreadable rate is charged as the whole extra, the conservative side.
+            double kept = lerpRate > 0.0 && lerpRate <= 1.0 ? lerpRate : 1.0;
             for (int i = 0; i < Gases.Length; i++)
             {
                 double allowed = budget[i];
@@ -218,13 +263,13 @@ namespace TerraformingReloaded.Patching
                 Mole mole = drawn.GetMoleValue(type);
                 double share = mole.Quantity.ToDouble();
                 double left = tank.Get(type).ToDouble();
-                double extra = Math.Min(share * extraFactor, Math.Min(allowed, left));
+                double extra = Math.Min(share * extraFactor[i], Math.Min(allowed / kept, left));
                 if (!(extra > 0.0))
                 {
                     continue;
                 }
                 tank.Set(new MoleQuantity(left - extra), type);
-                budget[i] = allowed - extra;
+                budget[i] = Math.Max(0.0, allowed - extra * kept);
                 drawn.SetMoleValue(type, new MoleQuantity(share + extra), mole.Energy * ((share + extra) / share));
             }
         }
@@ -286,12 +331,35 @@ namespace TerraformingReloaded.Patching
                 tank.Set(new MoleQuantity(pool), Chemistry.GasType.NitrousOxide);
                 tank.Set(new MoleQuantity(co2), Chemistry.GasType.CarbonDioxide);
 
+                // The factor: base at the line, doubling per factor of ten below it, smooth, capped,
+                // and 1 wherever gathering must not happen.
+                if (Math.Abs(FactorFor(100.0, 1e-3, 1e-4) - 200.0) > 1e-9 || Math.Abs(FactorFor(100.0, 1e-3, 1e-5) - 400.0) > 1e-9)
+                {
+                    return "the factor does not double for each factor of ten below the line";
+                }
+                if (Math.Abs(FactorFor(100.0, 1e-3, 1e-3 * (1.0 - 1e-9)) - 100.0) > 1e-6
+                    || Math.Abs(FactorFor(100.0, 1e-3, 1e-3 / Math.Sqrt(10.0)) - 100.0 * Math.Sqrt(2.0)) > 1e-9)
+                {
+                    return "the factor jumps just under the line";
+                }
+                if (FactorFor(100.0, 1e-3, 1e-12) != MaxFactor || FactorFor(100.0, 1e-3, double.Epsilon) != MaxFactor)
+                {
+                    return "the factor is not capped far below the line";
+                }
+                if (FactorFor(100.0, 1e-3, 1e-3) != 1.0 || FactorFor(100.0, 1e-3, 0.0) != 1.0 || FactorFor(1.0, 1e-3, 1e-5) != 1.0
+                    || FactorFor(100.0, 0.0, 1e-5) != 1.0 || FactorFor(100.0, 1e-3, double.NaN) != 1.0)
+                {
+                    return "gathering happens at the line, on nothing, or with gathering off";
+                }
+
                 double[] budget = new double[Gases.Length];
+                double[] factors = new double[Gases.Length];
                 int nitrous = Array.IndexOf(Gases, Chemistry.GasType.NitrousOxide);
                 budget[nitrous] = pool * MaxShareOfPoolPerTick;
+                factors[nitrous] = 49.0;
 
                 GasMixture drawn = Cell(share, energyPerMole);
-                Gather(ref drawn, tank, 49.0, budget);
+                Gather(ref drawn, tank, factors, budget, 1.0);
                 double got = drawn.GetMoleValue(Chemistry.GasType.NitrousOxide).Quantity.ToDouble();
                 double kept = tank.Get(Chemistry.GasType.NitrousOxide).ToDouble();
                 if (Math.Abs(got - 50.0 * share) > 1e-12)
@@ -317,22 +385,32 @@ namespace TerraformingReloaded.Patching
                     return "a gas above the trace line was moved";
                 }
 
-                // The budget runs out.
+                // The budget runs out. A cell that keeps half of what it is handed may be handed twice
+                // the budget, and the budget is charged with the half it keeps.
                 budget[nitrous] = 1.0e-3;
                 drawn = Cell(share, energyPerMole);
                 double before = tank.Get(Chemistry.GasType.NitrousOxide).ToDouble();
-                Gather(ref drawn, tank, 49.0, budget);
+                Gather(ref drawn, tank, factors, budget, 0.5);
                 double moved = before - tank.Get(Chemistry.GasType.NitrousOxide).ToDouble();
-                if (Math.Abs(moved - 1.0e-3) > 1e-12 || budget[nitrous] != 0.0)
+                if (Math.Abs(moved - 2.0e-3) > 1e-12 || budget[nitrous] > 1e-15)
                 {
-                    return $"with 0.001 mol left in the tick's budget the rule moved {moved:R}";
+                    return $"with 0.001 mol left in the tick's budget and half kept, the rule moved {moved:R}";
+                }
+
+                // With budget to spare, the budget is charged only what the cell keeps.
+                budget[nitrous] = 1.0e-2;
+                drawn = Cell(share, energyPerMole);
+                Gather(ref drawn, tank, factors, budget, 0.5);
+                if (Math.Abs(budget[nitrous] - (1.0e-2 - 0.5 * 49.0 * share)) > 1e-15)
+                {
+                    return "the tick's budget was charged more than the cells keep";
                 }
 
                 // The planet runs out.
                 tank.Set(new MoleQuantity(2.0e-4), Chemistry.GasType.NitrousOxide);
                 budget[nitrous] = 1.0;
                 drawn = Cell(share, energyPerMole);
-                Gather(ref drawn, tank, 49.0, budget);
+                Gather(ref drawn, tank, factors, budget, 1.0);
                 if (tank.Get(Chemistry.GasType.NitrousOxide).ToDouble() != 0.0
                     || Math.Abs(drawn.GetMoleValue(Chemistry.GasType.NitrousOxide).Quantity.ToDouble() - 3.0e-4) > 1e-15)
                 {
