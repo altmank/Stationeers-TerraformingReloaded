@@ -12,8 +12,7 @@
 - **Trace gas gathering, still experimental and off by default, is twice as fast.** Speed at the
   trace line: 200 times faster than other gases (it was 100). Below the line the speed doubles for
   every factor of ten, up to a hard cap of 2000 times (it was 1000). In play on Vulcan a nitrous
-  oxide spill cleared about 1.8 times faster for each doubling of the speed, and only by day:
-  nothing burns at night, so a spill clears over several days rather than in one sitting.
+  oxide spill cleared about 1.8 times faster for each doubling of the speed.
 - **The trace line stays at a thousandth of a mole per outdoor cell.** Raising it drew steam, a real
   part of Vulcan's air, into the base as if it were a spill, so the extra speed comes from the
   speed setting instead.
