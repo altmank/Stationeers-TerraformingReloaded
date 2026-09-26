@@ -110,6 +110,11 @@ planet: its own takes and gives go to its own copy, which nothing sends back.
   earlier versions of the player docs, say players with the mod get it.
 - **Weather stations** behave as in the unmodded game: the mod's two weather hooks let everything
   through when `Gate.Enabled()` is false (`Guards.ScheduleWeatherPrefix`, `CanScheduleWeatherPrefix`).
+- **Whose settings.** Everything the host's world file and config set runs on the host and reaches
+  the player only as the synced planet. `SyncIntervalSeconds` is read where the section is written
+  (`Sync.SerializeUpdateSuffix`), so only the host's counts. On the joining player's game, `Sync.Read`
+  loads the host's planet whatever that player's `Enabled` says (it checks only `IsClient`); their
+  `Enabled` and response scales matter only to the temperature rule above.
 - **`terraform`** reports `planet: off: client, planet comes from the host` with the synced figures;
   `size`, `set` and `reset` answer "Can only be run on the server".
 

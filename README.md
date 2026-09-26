@@ -185,6 +185,17 @@ lives in the host's game, and the mod sends it to every player's game every few 
   and the players together.
 - **A mod switched on in StationeersLaunchPad loads the next time the game starts.** If a player's
   readings jump like this with the mod switched on, have them restart the game.
+- **The host's settings decide the planet.** Planet size, the pressure ceiling, storms and every other
+  setting a world keeps are read from the host's world file and config, and so is how often the planet
+  is sent. `terraform size`, `set` and `reset` work only on the host; on a joining player's game,
+  `terraform` shows the planet the host sent.
+- **A joining player gets the host's planet as they join**, before their first look outside, and it is
+  refreshed every few seconds after that.
+- **Two things still follow the joining player's own game.** Their outdoor temperature uses their own
+  config for the temperature response scales, so if the host has changed those for the world, the two
+  can read a different temperature. And for anyone who joins, with the mod or without, the sky keeps the
+  world's shipped look; only the host's sky follows the air.
+- **A host without the mod** runs the game as shipped, and a player who has the mod sees exactly that.
 
 [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md) lists everything a joining player's game works out for
 itself.
