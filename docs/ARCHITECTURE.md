@@ -86,8 +86,8 @@ A world whose `GlobalAtmosphere` has no usable `Volume` (possible in a custom wo
 Experimental and off by default (`TraceGasGatheringEnabled`, per world). A gas the planet holds less than `TraceGasLine` of per 8000 L outdoor cell (default 0.001 mol, a
 hundred times the 0.00001 mol a cell deletes, a tenth of the thinnest gas a shipped world starts with)
 is a trace. For a trace, an exchanging outdoor cell is handed `TraceGasGathering` times its normal draw
-(default 200, at most 250) just under the line, times 2 for every factor of ten the
-gas sits further below it, smoothly (`base x (line / share)^log10 2`), capped at 2,000 (`MaxFactor`).
+(the speed at the trace line: default 200, settable 1 to 2000) just under the line, times 2 for every factor of ten the
+gas sits further below it, smoothly (`base x (line / share)^log10 2`), capped at 10 times the line speed (`CapTimesLineSpeed`).
 A cell so handed moves toward that many times the planet's density of the gas, and a cell that
 consumes it (a fire, an intake) takes that many times as much. Every other gas is untouched. The factor
 per gas is worked out once a tick in `Refresh`, not per cell.
@@ -106,8 +106,10 @@ per gas is worked out once a tick in `Refresh`, not per cell.
   the lerp has just made), is at most 1 % of what the tank held at the start of the tick
   (`MaxShareOfPoolPerTick`); the rest of the extra goes straight back in the same exchange. So gathering
   alone needs at least 69 ticks to halve a trace, however many cells border open ground. The base factor
-  is capped at 250 and the effective factor at 2,000; the most a cell is handed of a trace in a tick is
-  base x line x `t`, 0.2 mol at the defaults and `t` 1, because the scaled factor grows slower than the share
+  is settable up to 2000 and the effective factor is capped at 10 times it, relative so that a high base
+  keeps its doubling. No absolute ceiling is needed: the most a cell is handed of a trace in a tick is
+  base x line x `t`, at the line, whatever the cap (0.2 mol at the defaults and `t` 1, 2 mol at base
+  2000), because the scaled factor grows slower than the share
   falls.
 - **Cost.** On a planet with no trace gas, one volatile read per exchanging cell per tick. With one,
   a lock and a loop over the 13 gases: no allocation, no LINQ. The game's own exchange already takes

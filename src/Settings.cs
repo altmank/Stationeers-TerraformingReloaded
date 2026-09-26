@@ -167,7 +167,7 @@ namespace TerraformingReloaded
         public static readonly Range MildAtmosphereMaxPressureKpa = new Range(0.0, 10000.0);
         public static readonly Range MildAtmosphereMaxToxinsKpa = new Range(0.0, 1000.0);
 
-        public static readonly Range TraceGasGathering = new Range(1.0, 250.0);
+        public static readonly Range TraceGasGathering = new Range(1.0, 2000.0);
         public static readonly Range TraceGasLine = new Range(0.0, 0.01);
     }
 

@@ -20,7 +20,7 @@ namespace TerraformingReloaded.Patching
     ///
     /// For such a gas this draws a multiple of the normal share: <see cref="Effective.TraceGasGathering"/>
     /// just under the line, doubling for every factor of ten the gas sits further below it, smoothly
-    /// (<see cref="FactorFor"/>), up to <see cref="MaxFactor"/>. Every extra mole is taken out of the planet under the tank lock before the cell sees it, and
+    /// (<see cref="FactorFor"/>), up to <see cref="CapTimesLineSpeed"/> times that. Every extra mole is taken out of the planet under the tank lock before the cell sees it, and
     /// what the cell does not keep goes back through the game's own give, so nothing is created or
     /// destroyed. A gas above the trace line is untouched.
     ///
@@ -40,13 +40,13 @@ namespace TerraformingReloaded.Patching
         public const double MaxShareOfPoolPerTick = 0.01;
 
         /// <summary>
-        /// The most a trace is ever drawn, however far below the line it sits: ten times the default
-        /// base, reached about 3.3 factors of ten below the line. Past it, more factor only
-        /// concentrates the last of a trace into fewer cells, and on a base of a few dozen exchanging
-        /// cells the tick budget above already binds before it. Measured in play (Vulcan, 0.11.1): a
-        /// trace of oxygen reached 985 against the old cap of 1000.
+        /// The most a trace is ever drawn, as a multiple of the speed at the line: reached about 3.3
+        /// factors of ten below the line, at any base. Relative, so a high base keeps its doubling.
+        /// No absolute ceiling is needed: a cell's draw is factor x share, and the factor grows slower
+        /// than the share falls, so the most a cell is ever handed is at the line (base x line), which
+        /// the cap cannot raise; and what all cells together keep is bounded by the tick budget above.
         /// </summary>
-        public const double MaxFactor = 2000.0;
+        public const double CapTimesLineSpeed = 10.0;
 
         /// <summary>log10(2): the factor doubles for every factor of ten below the line.</summary>
         private static readonly double DoublingPerDecade = Math.Log10(2.0);
@@ -142,7 +142,7 @@ namespace TerraformingReloaded.Patching
         /// How many times its normal share of a gas a cell draws, for a gas holding
         /// <paramref name="share"/> mol per 8000 L cell: 1 at or above the line, otherwise
         /// base x (line / share)^log10(2), which is base just under the line and doubles for every
-        /// factor of ten below it with no step between, capped at <see cref="MaxFactor"/>. A base of 1
+        /// factor of ten below it with no step between, capped at <see cref="CapTimesLineSpeed"/> times base. A base of 1
         /// or less, a line of 0, and an empty or unreadable share all give 1: no gathering.
         /// </summary>
         public static double FactorFor(double baseFactor, double line, double share)
@@ -154,7 +154,7 @@ namespace TerraformingReloaded.Patching
             double factor = baseFactor * Math.Pow(line / share, DoublingPerDecade);
             // A share so small the ratio overflows gives infinity, which the cap takes; NaN cannot
             // arise from the checks above but is refused rather than trusted.
-            return double.IsNaN(factor) ? 1.0 : Math.Min(MaxFactor, factor);
+            return double.IsNaN(factor) ? 1.0 : Math.Min(CapTimesLineSpeed * baseFactor, factor);
         }
 
         /// <summary>
@@ -170,7 +170,7 @@ namespace TerraformingReloaded.Patching
             }
             double factor = Effective.TraceGasGathering;
             double line = Effective.TraceGasLine;
-            string head = string.Format(c, "trace gases (below {0:0.#######} mol per cell) gather {1:0.##}x at the line, doubling per factor of ten below it, at most {2:0}x", line, factor, MaxFactor);
+            string head = string.Format(c, "trace gases (below {0:0.#######} mol per cell): speed at the line {1:0.##}x, doubling for every factor of ten below it, up to {2:0}x", line, factor, CapTimesLineSpeed * factor);
             if (!Effective.TraceGasGatheringEnabled)
             {
                 return "trace gases: gathering is off for this world (experimental; terraform set TraceGasGatheringEnabled on)";
@@ -343,9 +343,18 @@ namespace TerraformingReloaded.Patching
                 {
                     return "the factor jumps just under the line";
                 }
-                if (FactorFor(100.0, 1e-3, 1e-12) != MaxFactor || FactorFor(100.0, 1e-3, double.Epsilon) != MaxFactor)
+                if (FactorFor(100.0, 1e-3, 1e-12) != 1000.0 || FactorFor(100.0, 1e-3, double.Epsilon) != 1000.0
+                    || FactorFor(2000.0, 1e-3, 1e-12) != 20000.0)
                 {
-                    return "the factor is not capped far below the line";
+                    return "the factor is not capped at ten times the line speed far below the line";
+                }
+                // The most a cell is handed is at the line; the cap cannot raise it.
+                foreach (double below in new[] { 1e-4, 1e-6, 1e-9, 1e-15 })
+                {
+                    if (FactorFor(2000.0, 1e-3, below) * below > 2000.0 * 1e-3)
+                    {
+                        return "a trace far below the line is handed more per cell than one at the line";
+                    }
                 }
                 if (FactorFor(100.0, 1e-3, 1e-3) != 1.0 || FactorFor(100.0, 1e-3, 0.0) != 1.0 || FactorFor(1.0, 1e-3, 1e-5) != 1.0
                     || FactorFor(100.0, 0.0, 1e-5) != 1.0 || FactorFor(100.0, 1e-3, double.NaN) != 1.0)

@@ -1,14 +1,22 @@
 # Changelog
 
+## 0.11.3
+
+- **Speed at the trace line can now be set from 1 to 2000** (default still 200). Below the line the
+  speed doubles for every factor of ten, up to 10x the line speed, whatever the line speed is set to
+  (so 2000 at the default). Trace gas gathering is still experimental and off by default.
+- **Plainer wording** for this setting in the config, `terraform set` and these notes.
+
 ## 0.11.2
 
-- **Trace gas gathering, still experimental and off by default, is twice as fast.** Just under the
-  trace line a gas is now drawn 200 times faster than other gases (it was 100), the setting goes up
-  to 250, and the most a trace is ever drawn, far below the line, is 2,000 times (it was 1,000). In
-  play on Vulcan a nitrous oxide spill cleared about 1.8 times faster for each doubling, and it only
-  burns by day: nothing burns at night, so it clears over several days rather than in one sitting.
+- **Trace gas gathering, still experimental and off by default, is twice as fast.** Speed at the
+  trace line: 200 times faster than other gases (it was 100). Below the line the speed doubles for
+  every factor of ten, up to a hard cap of 2000 times (it was 1000). In play on Vulcan a nitrous
+  oxide spill cleared about 1.8 times faster for each doubling of the speed, and only by day:
+  nothing burns at night, so a spill clears over several days rather than in one sitting.
 - **The trace line stays at a thousandth of a mole per outdoor cell.** Raising it drew steam, a real
-  part of Vulcan's air, into the base as if it were a spill, so the extra speed comes from the factor.
+  part of Vulcan's air, into the base as if it were a spill, so the extra speed comes from the
+  speed setting instead.
 - **To bring a world to 0.11.2's values:** `terraform set TraceGasGathering 200` and
   `terraform set TraceGasLine 0.001`.
 

@@ -63,8 +63,8 @@ the planet section of the save; the game reads that section with or without the 
 - **Heat.** Heat your base sheds outdoors warms the planet slightly and fades over time.
 - **Small spills can gather at your base (experimental, off by default).** Switched on
   (`terraform set TraceGasGatheringEnabled on`), a gas the planet's air holds only a trace of is drawn
-  by the outdoor air beside your base 200 times faster than any other gas, and faster still the thinner
-  it is, so a small spill (a furnace taken apart outside) burns off or reaches your intakes there
+  by the outdoor air beside your base 200 times faster than any other gas (the speed at the trace line,
+  settable), and faster still the thinner it is, up to 10 times that, so a small spill (a furnace taken apart outside) burns off or reaches your intakes there
   instead of lingering over the whole planet for hours. Every mole comes out of the planet's air. On a
   world whose air burns, expect a brighter burn beside the base while it clears, and a spill too thin
   to burn at all without this can burn briefly with it. The first moles of a gas released on an

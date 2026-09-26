@@ -291,7 +291,7 @@ namespace TerraformingReloaded
                 () => Effective.MildAtmosphereStopsSolarStorms, () => Settings.MildAtmosphereStopsSolarStorms, v => Effective.MildAtmosphereStopsSolarStorms = v),
             Switch("TraceGasGatheringEnabled", "Trace gases gather (experimental)",
                 () => Effective.TraceGasGatheringEnabled, () => Settings.TraceGasGatheringEnabled, v => Effective.TraceGasGatheringEnabled = v),
-            Number("TraceGasGathering", "Trace gases gather", "x", Limits.TraceGasGathering,
+            Number("TraceGasGathering", "Speed at the trace line (below it: doubles per factor of ten, up to 10x)", "x", Limits.TraceGasGathering,
                 () => Effective.TraceGasGathering, () => Settings.TraceGasGathering, v => Effective.TraceGasGathering = v),
             Number("TraceGasLine", "Trace below", "mol per cell", Limits.TraceGasLine,
                 () => Effective.TraceGasLine, () => Settings.TraceGasLine, v => Effective.TraceGasLine = v),
@@ -765,7 +765,7 @@ namespace TerraformingReloaded
             text.AppendLine("    sky follows the air " + (Effective.DynamicSky ? "on" : "off")
                 + ", rain or snow on worlds with no weather " + (Effective.WeatherOnWeatherlessWorlds ? "on" : "off")
                 + (Effective.TraceGasGatheringEnabled
-                    ? string.Format(c, ", trace gases gather {0:0.##}x below {1:0.######} mol per cell", Effective.TraceGasGathering, Effective.TraceGasLine)
+                    ? string.Format(c, ", trace gases gather below {1:0.######} mol per cell at {0:0.##}x at the line", Effective.TraceGasGathering, Effective.TraceGasLine)
                     : ", trace gases do not gather")
                 + "; the storm settings are under storms below; all of them with terraform set");
         }
