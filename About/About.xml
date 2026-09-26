@@ -50,7 +50,7 @@ One setting, [b]Planet size[/b], decides the pace. Hours to reach air you can st
 
 [b]The hours are time spent moving gas, and the strategy is the rest of the story.[/b] What sets the pace on every world is ice arriving: there is no oxygen tap, and the carbon dioxide a cold world needs has to be burnt out of volatiles on top of that. Taking gas away is much faster, because a vent draws in a share of the whole planet's air at once. So Venus is quick in hours and still a big project: what it really costs is somewhere to put what you take out, about 48 large tanks at Standard size.
 
-[b]Treat these as rough scale, not a promise.[/b] They assume a large base: four ice mining rockets, each actually mining about 60% of the time, near 330,000 moles of ice an hour, and twenty large powered vents drawing air in. That is worked out from what each of those can do, not measured from a finished playthrough. Run half the rockets and every number above doubles.
+[b]Rough scale, not a promise.[/b] They assume four ice mining rockets (about 330,000 moles of ice an hour) and twenty large powered vents, worked out rather than measured. Half the rockets doubles every number.
 
 Size changes nothing else about the world: the air, pressure and temperature you start with are the same at every size. A save made before you installed the mod carries the full-size planet until you rescale it.
 
@@ -71,13 +71,12 @@ Your changed planet lives in the save, so deleting the mod does not undo it. Run
 [hr][/hr]
 [h2]Good to know[/h2]
 [list]
-[*]The StationeersLaunchPad config editor sets what a new world starts with. Each world then keeps its own settings beside its save, so tuning one save never changes another. Change the world you are playing with [b]terraform set[/b].
+[*]The StationeersLaunchPad config editor sets what a new world starts with; each world then keeps its own settings. Change the one you are playing with [b]terraform set[/b].
 [*]The pressure ceiling deletes air permanently. Leave it at 0 unless you mean it.
-[*]Multiplayer: the host and everyone who joins need the mod, on the same version; a player without it is turned away unless both games also run another mod that syncs through StationeersLaunchPad. The host's settings decide the planet for everyone, including whether the sky follows the air and how the temperature responds, and only the host can run [b]terraform size[/b], [b]set[/b] and [b]reset[/b]. Checked by reading the game's code and by one player's session on a dedicated server, not by long play.
-[*][b]Experimental option, off unless you turn it on for a world:[/b] [b]terraform set TraceGasGatheringEnabled on[/b]. It makes a small spill of a gas the planet barely holds, like a furnace taken apart outside, gather in the air beside your base, where it burns off or reaches your filters, instead of lingering thinly over the whole planet for hours. Speed at the trace line: 200 times faster than other gases by default, settable from 1 to 2000. Below the line the speed doubles for every factor of ten, up to 10 times the line speed.
+[*]Multiplayer: the host and everyone who joins need the mod, same version. The host's settings decide the planet for everyone, and only the host can run [b]terraform size[/b], [b]set[/b] and [b]reset[/b].
+[*][b]Experimental, off by default:[/b] [b]terraform set TraceGasGatheringEnabled on[/b] makes a small spill of a gas the planet barely holds (a furnace taken apart outside) gather beside your base, where it burns off or reaches your filters, instead of lingering over the whole planet for hours.
 [*]Tutorials are left alone.
 [*]If a game update changes what this depends on, the mod switches itself off and says why in the log rather than risk your save.
-[*]The devs appear to be working on this framework themselves, so an update could break this mod or make it obsolete.
 [/list]
 
 [hr][/hr]

@@ -50,6 +50,8 @@ try:
     about = ET.fromstring(read('About/About.xml'))
     need(all(about.find(tag) is not None and (about.find(tag).text or '').strip() for tag in ('Name', 'Author', 'Version', 'Description')),
          'About.xml has a name, author, version and description')
+    description = (about.find('Description').text or '') if about.find('Description') is not None else ''
+    need(len(description) < 8000, 'About.xml description is under the Workshop limit of 8000 characters (%d)' % len(description))
 except ET.ParseError as e:
     need(False, 'About.xml parses: %s' % e)
 
