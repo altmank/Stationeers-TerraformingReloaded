@@ -18,6 +18,7 @@
 param(
     [string]$GameDir = $env:STATIONEERS_DIR,
     [switch]$Deploy,
+    [switch]$Force,
     [switch]$SkipPatchCheck,
     [string]$Configuration = 'Release'
 )
@@ -84,6 +85,11 @@ if ($thumb.Length -gt 1MB) {
 Write-Host "Staged $package"
 
 if ($Deploy) {
+    # A running game holds the old DLL and keeps running it; LU may be playing.
+    # A brand-new mod the game has never loaded is the one safe exception: pass -Force.
+    if (-not $Force -and (Get-Process -Name 'rocketstation' -ErrorAction SilentlyContinue)) {
+        throw 'Stationeers is running: close the game before deploying (or -Force for a mod it has never loaded).'
+    }
     $mods = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'My Games\Stationeers\mods\TerraformingReloaded'
     if (Test-Path $mods) { Remove-Item $mods -Recurse -Force }
     New-Item -ItemType Directory -Path $mods -Force | Out-Null
