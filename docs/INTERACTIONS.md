@@ -66,13 +66,23 @@ through; accept the rest with the size written down.
 | Powered fridge and refrigerated vending machine shedding heat outdoors | Accepted: heat only, at most 2 kW each, never reaches the planet's heat counter |
 | Plants on open ground: breathing in, breathing out, and the cooling of the endothermic ones | Accepted: about 0.0012 mol a tick per plant each way. Every tray but the automated one hands the plant its `WorldAtmosphere`, which on open ground is the copy, so an outdoor farm does not change the planet; plants in a room or an automated tray breathe real air |
 
-Also recorded, not bypasses: rocket exhaust above the 1,000 m space line is discarded (propellant,
-not planet air); `DivideWorldAtmosphere` with no open neighbour resets a cell; geysers, composters and
+Also recorded, not bypasses: rocket exhaust above the 1,000 m space line is discarded, and a gas
+engine takes every gas its input holds, so whatever it is fed is deleted up there, not only fuel
+(`GasRocketEngine.MovePropellant`, `RocketEngineBase.Exhaust`); `DivideWorldAtmosphere` with no open neighbour resets a cell; geysers, composters and
 explosions create matter into real cells (sources, as intended); the game's developer window can
 regenerate the planet; several devices (battery, turbine, stirling engine, fire extinguisher) keep a
 real outdoor cell alive every tick, which costs the planet nothing but is work per tick.
 
-**What the mod changes in the exchange itself.** One thing, and only for a trace: the take in
+**What the mod changes in the exchange itself.** Two things, each only when a world turns it on.
+
+Gas released in space (`SpaceDeletesGas`): the three sites that hand a space cell's gas to the planet,
+`LerpToGlobalAtmosphere`, `GiveAtmospheresMixInWorld` and `AtmosphericsManager.Deregister`, stay
+`gated` in the ledger, but on such a world what they hand over from a cell at or above 1,000 m is
+deleted and counted instead of added (`Space.cs`). Every other give is untouched, and the total the
+planet and the cells hold falls by exactly the counter. `Space.CheckShape` refuses to install unless
+those are still the only places in `Atmosphere` that give to the planet.
+
+Trace gases, and only for a trace: the take in
 `Atmosphere.LerpToGlobalAtmosphere` is swapped for `TraceGases.TakeForLerp`, which makes the same take
 and then, when the world has the rule on, for any gas the planet holds less than `TraceGasLine` of per
 outdoor cell, draws that gas's factor minus one times as much again (ARCHITECTURE.md) out of the tank, under the tank lock, before the cell

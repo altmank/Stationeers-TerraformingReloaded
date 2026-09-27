@@ -70,6 +70,12 @@ the planet section of the save; the game reads that section with or without the 
   default, settable from 1 to 2000. Below the line the speed doubles for every factor of ten, up to 10
   times the line speed. On a world whose air burns, expect a brighter burn beside the base while a
   spill clears, and a spill too thin to burn at all without this can burn briefly with it.
+- **Gas released in space can be deleted: off unless you turn it on.** Normally gas released at or
+  above 1,000 m, where rockets in space are, drifts back down to the planet, so there is nowhere to
+  throw gas away. Run `terraform set SpaceDeletesGas on confirm` in a world and gas released up there
+  is deleted instead, for good, so a rocket can carry unwanted gas off the world. `terraform` shows how
+  much has been lost to space. In multiplayer the host's world setting applies to everyone: gas any
+  player vents in space is deleted.
 - **Wind turbines** reward thick air: the game clamps the pressure they see to between 5 and
   25 kPa, so a thickened planet runs them up to five times harder, and under 1 kPa they give nothing.
 - **Tutorials** are left as shipped.
@@ -152,7 +158,7 @@ F3 opens the console.
 | `terraform` | Whether the mod is live and why not if it is not, the self-test result, planet pressure and temperature, how many kelvin the mod is adding, gases per outdoor cell, and what the clouds and the ice caps are holding |
 | `terraform size <share> confirm` | Rescales the planet you are playing to that share of the size the world ships at, which changes how long terraforming takes and nothing else. Prints the size, cells, moles and pressure before and after. Host only. `terraform size <share>` alone explains and asks |
 | `terraform set` | Lists the settings the world you are playing keeps for itself, with the value in force and, where it differs, what a new world would start with. Host only |
-| `terraform set <key> <value>` | Changes one of them for this world only, and records it beside the save. Uses the same key names as the config. A change that deletes something for good asks first and needs `confirm` on the end: setting or lowering the pressure ceiling (the prompt names the planet's pressure now and how much air the first tick would delete), lowering the added heat limit, and making added heat fade sooner. Host only. `terraform set <key>` alone reports the one in force |
+| `terraform set <key> <value>` | Changes one of them for this world only, and records it beside the save. Uses the same key names as the config. A change that deletes something for good asks first and needs `confirm` on the end: setting or lowering the pressure ceiling (the prompt names the planet's pressure now and how much air the first tick would delete), lowering the added heat limit, making added heat fade sooner, and turning on deleting gas released in space. Host only. `terraform set <key>` alone reports the one in force |
 | `terraform reset confirm` | Puts the whole planet back exactly as the world ships: starting air, empty clouds and ice caps, no stored heat. Host only. `terraform reset` alone explains and asks |
 | `terraform curves export` | Writes the built-in temperature curves to `BepInEx\config\TerraformingReloaded.curves.xml`. Never overwrites |
 | `terraform curves reload` | Applies that file at once, no restart |
@@ -175,7 +181,8 @@ and the air inside it are untouched.
 
 Each world also keeps a small `terraforming-reloaded.xml` beside its save, holding the settings that
 belong to that world rather than to your config. The game ignores it, so it is harmless to leave. You
-can delete it by hand; the world then starts again from your config, with its pressure ceiling off.
+can delete it by hand; the world then starts again from your config, with its pressure ceiling off and
+gas released in space returning to the planet.
 
 ## Multiplayer
 
@@ -195,6 +202,8 @@ lives in the host's game, and the mod sends it to every player's game every few 
   and the players together.
 - **A mod switched on in StationeersLaunchPad loads the next time the game starts.** If a player's
   readings jump like this with the mod switched on, have them restart the game.
+- **Gas released in space.** If the host's world deletes it, gas any player vents in space is deleted,
+  once, by the host. Everyone's `terraform` shows the host's setting and how much has been lost to space.
 - **The host's settings decide the planet.** Planet size, the pressure ceiling, storms and every other
   setting a world keeps are read from the host's world file and config, and so is how often the planet
   is sent. `terraform size`, `set` and `reset` work only on the host; on a joining player's game,
@@ -234,6 +243,9 @@ The few worth knowing before you start:
 - **`GhgResponseScale`** and **`DensityResponseScale`** tune the temperature response on worlds that
   ship without their own curves. To reshape it rather than scale it, see [CURVES.md](CURVES.md),
   which also ships in the mod's folder.
+- **`SpaceDeletesGas`** (the `Space` section) is **destructive** and off by default. On, gas released
+  at or above 1,000 m is deleted instead of returning to the planet. A world made before this version
+  has it off whatever the config says, like the pressure ceiling.
 - **The `Trace gases` section** is experimental and off by default. It switches trace gas gathering on
   and decides how many times faster the air beside your base draws a gas the planet holds only a trace
   of, and how little counts as a trace.

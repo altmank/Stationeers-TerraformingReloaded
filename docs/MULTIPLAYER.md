@@ -64,8 +64,12 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
   against the same `Limits` a world's settings file is checked against, keeps its own for one that
   fails, and puts the rest in `Effective` (`Sync.Apply`). None of the other world settings is read on
   a joining player's game.
+- **Gas released in space, for the readout.** Last come whether the host's world deletes gas released
+  in space, whether that rule is installed on the host, and the host's lost-to-space total, 10 bytes.
+  The joining player's `terraform` shows those, marked as the host's. Nothing on their game acts on
+  them: the deleting happens in the mixing, which only the host runs.
 - **The section's first byte says what follows.** 0 nothing, 1 the planet alone (0.10.0 and earlier),
-  2 the planet and the settings (0.10.1 on). A reader takes the planet from 1 or 2 and skips any other
+  2 the planet and the settings (0.10.1 to 0.11.3), 3 the planet, the settings and space (0.11.4 on). A reader takes the planet from 1 or 2 and skips any other
   value; a layout, once shipped, keeps its byte and a new one takes the next. Mixed versions never
   meet in practice, because the exact version match above refuses the join, so this guards a
   hand-built or mis-versioned peer, not a supported mix: a 0.10.0 game reading a 2 would skip the
@@ -147,6 +151,11 @@ planet: its own takes and gives go to its own copy, which nothing sends back.
   the planet, which only the host runs (`GameManager.RunSimulation`), and it asks `Gate.Enabled()`,
   which is false on a joining player's game. Its two settings are not sent: nothing on a joining
   player's game reads them, and the cells it fills reach them with the rest of the game state.
+- **Gas released in space is deleted on the host only, once.** With the host's world set to delete it,
+  gas any player vents at or above 1,000 m is deleted by the host's mixing, which is the only mixing
+  there is; the joining players' games never run it (`Gate.Enabled()` is false there, and
+  `GameManager.RunSimulation` keeps the mixing off). They receive the smaller planet with the rest of it,
+  and the host's setting and total for their readout. A dedicated server is the host.
 - **`terraform`** reports `planet: off: client, planet comes from the host` with the synced figures;
   `size`, `set` and `reset` answer "Can only be run on the server".
 

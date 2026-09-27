@@ -29,11 +29,37 @@ Game build 0.2.6428.27798. `D/` and `S/` as in README.md. Everything here is **C
   1.5e6 L times a multiplier evaluated once at start-up) the game renders a sea between 2 and 10 m and treats
   everything outdoors below it as submerged. Tank liquid reaches cells only through that; cells give liquid to
   the tank through the ordinary lerp.
-- **No sink above the space line.** Outdoor cells at or above 1,000 m (`PAS.SpaceHeight`) relax toward
-  vacuum instead of the planet's air, but what they shed is still handed to `GiveToGlobal`
-  (`Atmosphere.LerpToGlobalAtmosphere`), so with the switch on, gas released up there returns to the
-  planet. Cells either side of the line are not neighbours. Vented gas cannot be dumped to space; rocket
-  exhaust above the line is discarded (`RocketEngineBase.Exhaust`), which is propellant, not planet air.
+- **No sink above the space line, unless a world turns one on.** Outdoor cells at or above 1,000 m
+  (`PAS.IsInSpaceAtmosphere`: grid y at or above `SpaceHeight` x 10, `PAS.cs:80-83`; a rocket parked in
+  space sits at about 1,001 m) relax toward vacuum instead of the planet's air, but what they shed is
+  still handed to `GiveToGlobal`, so with the switch on, gas released up there returns to the planet.
+  Cells either side of the line are not neighbours (`Atmosphere.cs:1624`) and a space cell never takes
+  from the planet: `CloneGlobalGasMix` leaves it empty (`PAS.cs:96-99`), an atmospheric event does not
+  fill it (`AtmosphericEventInstance.cs:421`), and a take from a bordering grid with no cell is skipped
+  because against vacuum its pressure ratio is infinite or NaN (`TakeAtmospheresMixInWorld`). What it
+  gives reaches the planet three ways, all **CODE**:
+  1. `LerpToGlobalAtmosphere` (`:1710-1717`), the relax toward vacuum: the target is an empty mix, and
+     what the cell sheds into it is given to the planet.
+  2. `GiveAtmospheresMixInWorld` (`:1775-1786`): once a space cell is close to vacuum its open
+     neighbours with no cell are sampled as the space copy (`PAS._readOnlySpace`, mode `Global`), and
+     the share of its mixing given to them goes to `GiveToGlobal`. They get the highest give weight
+     there is (10, from an infinite or NaN pressure ratio), so this is most of what a thin space cell
+     sheds. The first two both run inside `Atmosphere.MixInWorld` and nowhere else.
+  3. `AtmosphericsManager.Deregister` (`:382-391`): a cell being removed, for instance culled once it is
+     close enough to vacuum (`Atmosphere.IsLive`), hands what it holds to the planet.
+  `GiveToGlobal(GasMixture)` has no position (`PAS.cs:154`), so the planet cannot tell space gas from any
+  other. The world setting `SpaceDeletesGas` (off by default) deletes it instead: a prefix on
+  `MixInWorld` marks the thread while a space cell mixes and the give filter drops what that thread
+  gives; the removal guard empties a space cell before the game hands it over. ARCHITECTURE.md, *Gas
+  released in space*.
+- **Rocket engines delete their whole feed above the line.** A gas rocket engine takes the mixture its
+  input pipe holds, every gas in it, `MatterState.All` (**CODE** `GasRocketEngine.MovePropellant`; the
+  governed engine up to 18 mol a tick, `GovernedGasEngine.cs:49-55`), burns what it can, and exhausts the
+  rest. When the flame is at or above 1,000 m the exhaust is removed from the engine and put nowhere
+  (`RocketEngineBase.Exhaust`, `:461-467`; below the line it goes into cells, `:482-500`), and in the
+  unmodded game too. So an engine fed carbon dioxide would delete it, whatever `SpaceDeletesGas` says.
+  **UNVERIFIED**: whether the flame of a rocket parked in space is at or above the line, and whether an
+  engine fed a non-fuel mix fires at all.
 - **Wind turbines read the planet, not the cell they stand in.**
   `WindTurbineGenerator.CalculateGenerationRate` gives 0 unless the turbine is operable, completed,
   has an open grid and `GetRoom()` is null. It then reads

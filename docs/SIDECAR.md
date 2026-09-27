@@ -40,6 +40,11 @@ per-world value comes back for free. Nothing else has a carrier like that.
   <MildAtmosphereMaxPressureKpa>607.95</MildAtmosphereMaxPressureKpa>
   <MildAtmosphereMaxToxinsKpa>1</MildAtmosphereMaxToxinsKpa>
   <MildAtmosphereStopsSolarStorms>false</MildAtmosphereStopsSolarStorms>
+  <TraceGasGatheringEnabled>false</TraceGasGatheringEnabled>
+  <TraceGasGathering>200</TraceGasGathering>
+  <TraceGasLine>0.001</TraceGasLine>
+  <SpaceDeletesGas>false</SpaceDeletesGas>
+  <GasLostToSpaceMoles>0</GasLostToSpaceMoles>
 </TerraformingReloaded>
 ```
 
@@ -108,7 +113,11 @@ built, while on a load both do.
 - **Write, new world**: postfix on `SaveHelper.CreateSaveDirectory`, the one place a world folder is born.
 - **Write, a loaded world with no file**: inside the read prefix, into the folder that already exists.
   `CreateSaveDirectory` never fires on a load, so this is the only place that case can be handled.
-- **Write, a setting changed**: `terraform set`, and nothing else.
+- **Write, a setting changed**: `terraform set`, and no other setting write.
+- **Write, a game save**: prefix on `XmlSaveLoad.GetWorldData`, only when gas has been lost to space
+  since the file was last written, so the file's `GasLostToSpaceMoles` is the total at that save. It
+  writes the whole file from the values in force, as `terraform set` does. A world that never deletes
+  anything writes nothing at a save.
 - **Leaving a world**: postfix on `PlanetaryAtmosphereSimulation.Clear`, which the game's own
   teardown calls. Back to the config, ceiling off. Without it the values in force at the main menu
   are the last world played, and `Climate.TemperaturePostfix` gates on `Settings.Enabled` rather than
@@ -151,6 +160,17 @@ Version first, before anything else.
 
 Every log line here names the full path first. A player has to be able to find the file the mod just
 replaced, and four of the reasons a file is unreadable say nothing about which file they mean.
+
+## Fail closed on the settings that delete
+
+Two settings delete something for good: the pressure ceiling below, and `SpaceDeletesGas`, which
+deletes gas released at or above 1,000 m instead of returning it to the planet. The second follows
+the ceiling's rule exactly: a loaded world has it on only when its own file records it on or when
+`terraform set SpaceDeletesGas on confirm` turns it on; a new world takes the config's; every other
+path leaves it off. Structurally the same too: `Effective.SpaceDeletesGas` is a private field behind a
+get-only property, `WorldStartPrefix` switches it off before its `try`, `TakeFromConfig` cannot touch
+it, and `check_repo.py` pins the callers of `SpaceDeletionFromWorldFile`, `SpaceDeletionForNewWorld`
+and `SpaceDeletionByConsoleCommand` to one each.
 
 ## Fail closed on the ceiling
 
@@ -278,6 +298,7 @@ what a missing or unreadable file falls back to.
 | `WeatherOnWeatherlessWorlds` | reversible | Decides whether a full cloud may rain or snow. The cloud has already emptied into the air either way |
 | The nine `Storms` settings | reversible | Decide whether a storm is scheduled. Suppressing one writes nothing the save carries: `WeatherManager.CreateSaveData` then holds "no event, and a cooldown long past", the state the unmodded game sits in between storms. Turning a rule back on schedules exactly one storm, then the world's own cadence resumes |
 
+| `SpaceDeletesGas` | destroys | Gas released at or above 1,000 m is deleted instead of returning to the planet, and the smaller planet is saved. `terraform set` asks before turning it on. Not recorded is off, never the config's |
 | `TraceGasGatheringEnabled`, `TraceGasGathering`, `TraceGasLine` | reversible | Decide how much of a trace gas the outdoor cells beside a base draw from the planet each tick. Nothing is deleted: the planet pays for every mole a cell takes, and a cell gives back what it does not use up. Switched off, what the cells hold drains back to the planet |
 
 Not world-scoped:
@@ -353,6 +374,10 @@ three response settings and `DynamicSky` arrive from the host with the planet st
 section byte so an older reader skips rather than misreads them (MULTIPLAYER.md, *What the mod
 adds*); until the first state arrives the client runs on its own config, which is as it joins. The
 other world settings are never read on a client.
+
+**The lost-to-space total follows the file, not the save.** `GasLostToSpaceMoles` is written at a save
+that changed it, so loading an older save in the same folder shows the latest total, not the total at
+that save. It is a readout only; nothing acts on it. A client is sent the host's.
 
 **A workshop save does not carry its file.** The upload is the single `.save`, not the folder, so an
 imported world lands in the missing-sidecar path. That is correct, and needs nothing.

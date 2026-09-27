@@ -85,9 +85,9 @@ sum would not end.
 
 ### Somewhere to put it: a build cost, not a rate
 
-What comes out has to go somewhere, and there is no bulk sink. Gas released above the 1,000 m space
-line is given back to the planet, not destroyed (**CODE** `Atmosphere.LerpToGlobalAtmosphere`). Three
-candidates for the limit, and only one of them is real:
+What comes out has to go somewhere, and by default there is no bulk sink. Gas released above the
+1,000 m space line is given back to the planet, not destroyed (**CODE**, GAME-MODEL.md). Three
+candidates for the limit, and only one of them is real, plus a fourth a world can switch on:
 
 - **Filters do not limit it.** A filter wears by ticks in use, not by moles (**CODE** `GasFilter`
   counts `_usedTicks`), and a Filtration unit pulls 1000 kPa of its input pipe per tick, which outruns
@@ -105,6 +105,25 @@ candidates for the limit, and only one of them is real:
   `Chemistry.Limits.MAXPressureGasPipe`, 60,795 kPa), or more as liquid where the game gives the gas a
   molar volume: 1.25 million moles of carbon dioxide, 1.8 million of acid. Venus at Standard size is
   about 48 big tanks, Europa 67.
+- **Rockets, if the world deletes gas released in space.** With `SpaceDeletesGas` on (off by default,
+  per world), gas a rocket carries up and vents at or above 1,000 m is gone. That makes the tanks
+  reusable: fill, launch, vent in space, come back. The limit is then launches, and none of the
+  numbers below has been measured. They are **GUESSES**, pending one real launch to measure payload,
+  fuel and trip time:
+
+  | | Figure |
+  | --- | --- |
+  | Payload per trip (tanks per fuselage and what a rocket lifts against gravity both unmeasured) | roughly 50,000 to 200,000 mol |
+  | Launches to clear Vulcan's volatiles at Standard size | about 100 to 135 |
+  | Launches to strip Venus at Standard size | about 1,100 |
+  | Launches for Mimas's removals at Standard size | about 67 |
+  | Launches for Europa's volatiles at Standard size | about 30 |
+
+  Trip time and fuel per trip are not estimated at all. Heavier worlds cost more fuel per mole lifted,
+  which is the rate limit. A gas engine also deletes whatever mixture it is fed once its flame is at or
+  above 1,000 m, even with the setting off (**CODE** `RocketEngineBase.Exhaust`), at up to 18 mol a tick
+  for the governed engine; whether a parked rocket's flame is above the line is **UNVERIFIED**.
+  The presets below are worked out without rockets as a sink.
 
 ### Staged, or side by side
 

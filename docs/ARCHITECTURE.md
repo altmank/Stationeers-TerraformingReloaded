@@ -34,9 +34,9 @@ patched and the game runs as shipped:
 | --- | --- | --- |
 | PAS `CloneGlobalGasMix`, `GetGlobalMoles`, `TakeGlobalGasMix`, `TakeGlobalMoles`, `GiveToGlobal`, `AddEnergy`, `RemoveEnergy` | transpiler | The switch. Each must contain exactly one getter call, counted before and after |
 | PAS `TickPlanetarySimulation` | prefix + finalizer | Hold the tank lock (D8); the once-per-world self-test; upkeep: fade and bound outside heat and latent heat (D3, D4, D14), keep clouds, ice caps and phase rates in proportion to the planet (D16), pressure ceiling |
-| PAS `GiveToGlobal` | prefix | Refuse bad mixtures (D7) |
+| PAS `GiveToGlobal` | prefix | Refuse bad mixtures (D7); delete and count a give from a space cell's mixing, on a world with `SpaceDeletesGas` on |
 | `AtmosphericEventInstance.DivideWorldAtmosphere` | prefix + finalizer | Flag for D2 |
-| `AtmosphericsManager.Deregister(Atmosphere)` | prefix | Empty an already-distributed cell (D2) |
+| `AtmosphericsManager.Deregister(Atmosphere)` | prefix | Empty an already-distributed cell (D2); otherwise, on a world with `SpaceDeletesGas` on, empty and count a cell at or above the space line |
 | PAS `CreateGlobalAtmosphere` | prefix | World start, before the planet exists: read this world's own settings, or fall back with the ceiling off. First in the patch set, and required, because a failure here would leave every world running on raw config |
 | PAS `CreateGlobalAtmosphere` | postfix | World start: allow or disallow (tutorials, a planet with no volume), invalidate the climate cache, arm the self-test |
 | `XmlSaveLoad.GetWorldData` | prefix | Refresh caches before the save reads them (D12). Applied last and on its own, because it reaches Unity native code and PatchCheck must tell that apart from a real failure |
@@ -55,6 +55,7 @@ required set stands down, so a planet already terraformed keeps its temperature:
 | `GlobalGasMix.Create` postfix, with a prefix and finalizer on PAS `CreateGlobalAtmosphere` and `RegenerateGlobalFromData` | Planet size, applied only while the game builds the planet being played (D16) |
 | `WallVent.OnAtmosphericTick` prefix | A wall vent to outdoors mixes with a real cell, not the read-only copy (D15) |
 | `Atmosphere.LerpToGlobalAtmosphere` transpiler | Trace gases gather (below). Its one call to `TakeGlobalGasMix` becomes `TraceGases.TakeForLerp`. Refused unless the lerp takes from the planet exactly once and `TraceGases.CheckArithmetic` passes on the game's own types |
+| `Atmosphere.MixInWorld` prefix + finalizer | Gas released in space (below). Marks the thread while a cell at or above the space line mixes. Refused unless the shape check passes; without it the give filter and the removal guard delete nothing |
 | `AtmosphericScattering.UpdateAtmosphericScatteringToGlobalAtmosphere` prefix + postfix, then `ManagerUpdate` transpiler | Sky follows the air, throttled (D9). Throttle first, so the sky is never on without it |
 
 ## Detecting a game update that matters
@@ -115,6 +116,37 @@ per gas is worked out once a tick in `Refresh`, not per cell.
   a lock and a loop over the 13 gases: no allocation, no LINQ. The game's own exchange already takes
   that lock twice per cell.
 - **Host only.** The gate is closed on a joining player's game, which never runs the exchange.
+
+## Gas released in space
+
+Off by default (`SpaceDeletesGas`, per world, in the tier that deletes; SIDECAR.md). On, gas a space
+cell hands to the planet is deleted instead, and added to a running total (`Space.LostMoles`), which
+the world's settings file records at each save that changed it and `terraform` prints as lost to space.
+
+- **Where.** Three game sites hand a space cell's gas to the planet (GAME-MODEL.md). The lerp and the
+  mixing share both run only inside `Atmosphere.MixInWorld`, so its prefix sets a `[ThreadStatic]` flag
+  when the cell is at or above the line and the world has the setting on, and a finalizer clears it;
+  `Guards.GivePrefix`, after its own checks, drops the mixture while the flag is set. The prefix always
+  assigns the flag, so it cannot outlive the call even without the finalizer. Removal is
+  `Guards.DeregisterPrefix`: after the D2 branch, which empties a cell whose gas the divide has already
+  passed on, a space cell is counted and emptied before the game hands it over.
+- **Shape check.** `Space.CheckShape` reads the game's own IL and refuses to install unless the lerp
+  gives to the planet once and asks `IsInSpaceAtmosphere` once, the mixing share gives once, `MixInWorld`
+  calls each of those two once, `Deregister` gives once, and nothing else in `Atmosphere` or its nested
+  types gives at all (two gives in total). A game update that adds a path is refused and logged, and
+  `terraform` says the setting is on but nothing is deleted. The counter reads call operands straight off
+  the IL, resolving one at a time. PatchCheck runs the same check against the installed game with a
+  Mono.Cecil counter (outside Unity the runtime cannot open `MixInWorld`, whose locals are a
+  `System.Span`), checks the two counters agree on six pairs, and checks that one extra give is refused.
+- **Inlining.** A patch on a method the JIT has inlined into its caller does not run. `MixInWorld` is far
+  too large to be an inlining candidate and `GiveToGlobal` takes a lock, so neither is one; the trace gas
+  transpiler on `LerpToGlobalAtmosphere` carries the same caveat.
+- **Beside trace gases.** Separate methods: the transpiler rewrites only the lerp's take, which the space
+  side never makes (its target is an empty mix), and this rule patches `MixInWorld`, not the lerp.
+- **Cost.** Per outdoor cell per tick: one field read with the setting off; with it on, a float compare.
+- **Host only.** The mixing runs where `GameManager.RunSimulation` holds, and `GivePrefix` and
+  `DeregisterPrefix` return at once when `Gate.Enabled()` is false, which it is on a joining player's
+  game. The host sends the setting and the total with the planet (MULTIPLAYER.md).
 
 ## `Gate.Enabled()`
 
@@ -206,5 +238,6 @@ client it says whose answer it is rather than inventing one.
 `StrippedAtmosphereShare`, `StormsStopWhenAtmosphereIsMild`, `MildAtmosphereColdestKelvin`,
 `MildAtmosphereHottestKelvin`, `MildAtmosphereMinPressureKpa`, `MildAtmosphereMaxPressureKpa`,
 `MildAtmosphereMaxToxinsKpa`, `MildAtmosphereStopsSolarStorms`; `TraceGasGathering`, `TraceGasLine`;
+`SpaceDeletesGas`;
 `SyncIntervalSeconds`;
 `StatusLogSeconds`. Player-facing descriptions are in the root README.
