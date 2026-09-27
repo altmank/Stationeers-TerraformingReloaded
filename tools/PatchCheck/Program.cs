@@ -121,8 +121,132 @@ internal static class Program
             failures++;
         }
 
+        // Gas released in space. The shape check proves the places space gas reaches the planet are
+        // still exactly where the rule expects. This runtime's mscorlib has no System.Span, so it
+        // cannot open the body of the mixing method at all; the check is handed a counter that reads
+        // the same assembly file with Mono.Cecil instead. Patching the method needs Unity's runtime,
+        // so that part is only bound here.
+        try
+        {
+            TerraformingReloaded.Patching.Space.CheckShape(CecilCalls);
+            Console.WriteLine("checked: gas lost in space (lerp, mixing share and removal each give once; Atmosphere gives twice)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  gas lost in space, shape: " + e.Message);
+            failures++;
+        }
+        try
+        {
+            TerraformingReloaded.Patching.Space.Apply(new HarmonyLib.Harmony("patchcheck.space"));
+            Console.WriteLine("applied: gas lost in space");
+        }
+        catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged") || e.ToString().Contains("System.Span"))
+        {
+            Console.WriteLine("bound:   gas lost in space (patching the mixing needs Unity's runtime)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  gas lost in space: " + e.Message);
+            failures++;
+        }
+
+        // The counter the game uses opens method bodies through the runtime, which works here only
+        // for methods with no Span in them. For those it must agree with Mono.Cecil exactly, and the
+        // shape check must refuse a game that gives to the planet one more time than expected.
+        try
+        {
+            Type atmosphere = typeof(Assets.Scripts.Atmospherics.Atmosphere);
+            Type simulation = typeof(Assets.Scripts.PlanetaryAtmosphereSimulation);
+            MethodInfo give = HarmonyLib.AccessTools.DeclaredMethod(simulation, "GiveToGlobal", new[] { typeof(Assets.Scripts.Atmospherics.GasMixture) });
+            MethodInfo inSpace = HarmonyLib.AccessTools.DeclaredMethod(simulation, "IsInSpaceAtmosphere", new[] { typeof(Assets.Scripts.GridSystem.WorldGrid) });
+            MethodInfo take = HarmonyLib.AccessTools.DeclaredMethod(simulation, "TakeGlobalGasMix", new[] { typeof(Assets.Scripts.Atmospherics.VolumeLitres) });
+            MethodInfo lerp = HarmonyLib.AccessTools.DeclaredMethod(atmosphere, "LerpToGlobalAtmosphere", Type.EmptyTypes);
+            MethodInfo share = HarmonyLib.AccessTools.DeclaredMethod(atmosphere, "GiveAtmospheresMixInWorld", Type.EmptyTypes);
+            MethodInfo deregister = HarmonyLib.AccessTools.DeclaredMethod(typeof(Assets.Scripts.Atmospherics.AtmosphericsManager), "Deregister", new[] { atmosphere });
+            var pairs = new (MethodInfo Method, MethodInfo Target)[] { (lerp, give), (lerp, inSpace), (lerp, take), (share, give), (deregister, give), (deregister, inSpace) };
+            string disagree = null;
+            foreach (var pair in pairs)
+            {
+                int runtime = TerraformingReloaded.Patching.Space.CountCalls(pair.Method, pair.Target);
+                int cecil = CecilCalls(pair.Method, pair.Target);
+                if (runtime != cecil)
+                {
+                    disagree = $"{pair.Method.Name} calls {pair.Target.Name}: runtime counter {runtime}, Mono.Cecil {cecil}";
+                }
+            }
+            bool refused = false;
+            try
+            {
+                TerraformingReloaded.Patching.Space.CheckShape((m, t) => CecilCalls(m, t) + (m.Name == "GiveAtmospheresMixInWorld" && t.Name == "GiveToGlobal" ? 1 : 0));
+            }
+            catch (InvalidOperationException)
+            {
+                refused = true;
+            }
+            if (disagree != null || !refused)
+            {
+                Console.WriteLine("FAILED:  gas lost in space, call counter: " + (disagree ?? "a game that gives to the planet once more was not refused"));
+                failures++;
+            }
+            else
+            {
+                Console.WriteLine("checked: gas lost in space counter agrees with Mono.Cecil on " + pairs.Length + " pairs, and an extra give is refused");
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  gas lost in space, call counter: " + e.Message);
+            failures++;
+        }
+
+        string ledger = TerraformingReloaded.Patching.Space.CheckLedger();
+        Console.WriteLine("gas lost in space running total: " + (ledger ?? "counts only while marked, per thread, and keeps every add"));
+        if (ledger != null)
+        {
+            Console.WriteLine("FAILED:  gas lost in space running total");
+            failures++;
+        }
+
         Console.WriteLine(failures == 0 ? "OK" : failures + " problem(s)");
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// The game's own call count, read from the assembly file rather than through the runtime. The
+    /// method is found by its metadata token, which is the same number in both views of one file;
+    /// a call matches when its declaring type, name and parameter types are the target's.
+    /// </summary>
+    private static readonly System.Collections.Generic.Dictionary<string, object> Modules = new System.Collections.Generic.Dictionary<string, object>();
+
+    private static int CecilCalls(MethodBase method, MethodInfo target)
+    {
+        // Read once per file. Held in an object so that Program's own static initialiser, which
+        // runs before the assembly resolver is installed, never has to load Mono.Cecil.
+        string path = method.Module.FullyQualifiedName;
+        if (!Modules.TryGetValue(path, out object read))
+        {
+            read = Mono.Cecil.ModuleDefinition.ReadModule(path);
+            Modules[path] = read;
+        }
+        Mono.Cecil.ModuleDefinition module = (Mono.Cecil.ModuleDefinition)read;
+        Mono.Cecil.MethodDefinition definition = module.LookupToken(method.MetadataToken) as Mono.Cecil.MethodDefinition;
+        if (definition == null)
+        {
+            throw new InvalidOperationException("Mono.Cecil did not find " + method.DeclaringType + "." + method.Name + " by its token");
+        }
+        if (!definition.HasBody)
+        {
+            return 0;
+        }
+        string declaring = target.DeclaringType.FullName.Replace('+', '/');
+        string[] parameters = target.GetParameters().Select(p => p.ParameterType.FullName.Replace('+', '/')).ToArray();
+        return definition.Body.Instructions.Count(i =>
+            (i.OpCode == Mono.Cecil.Cil.OpCodes.Call || i.OpCode == Mono.Cecil.Cil.OpCodes.Callvirt)
+            && i.Operand is Mono.Cecil.MethodReference called
+            && called.Name == target.Name
+            && called.DeclaringType.FullName == declaring
+            && called.Parameters.Select(p => p.ParameterType.FullName).SequenceEqual(parameters));
     }
 
     private static Assembly Resolve(object sender, ResolveEventArgs e)

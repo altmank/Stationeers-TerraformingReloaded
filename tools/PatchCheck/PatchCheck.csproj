@@ -16,6 +16,7 @@
   <ItemGroup>
     <Reference Include="$(GameDir)\rocketstation_Data\Managed\Assembly-CSharp.dll"><Private>false</Private></Reference>
     <Reference Include="$(GameDir)\BepInEx\core\0Harmony.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameDir)\BepInEx\core\Mono.Cecil.dll"><Private>false</Private></Reference>
     <Reference Include="..\..\src\bin\Release\TerraformingReloaded.dll"><Private>false</Private></Reference>
   </ItemGroup>
 

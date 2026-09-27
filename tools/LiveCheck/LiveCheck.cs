@@ -153,6 +153,23 @@ namespace TerraformingReloaded.LiveCheck
         private static readonly bool MenuMix = Environment.GetEnvironmentVariable("TR_LIVECHECK_MENUMIX") == "1";
         private bool _menuMixDone;
 
+        // Gas released in space. Four cases in one run, from the planet tick: with the world's setting
+        // on, a space cell removed outright and a space cell left to drain; then the same two with it
+        // off. The planet side is the tank, its three reservoirs and every outdoor cell below the
+        // space line; the space side is every cell at or above it; the mod's running total is what
+        // it deleted. With the setting on the planet side must not move and the space side plus the
+        // total must; with it off the total must not move and the planet side takes what space lost.
+        private static readonly uint SpaceTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_SPACE_TICK"), out uint spt) ? spt : 0u;
+        private static readonly uint SpaceWaitTicks = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_SPACE_WAIT"), out uint spw) ? spw : 160u;
+        private const double SpaceInjectMoles = 1000.0;
+        private const double SpaceRemoveMoles = 500.0;
+        private const float SpaceHeightMetres = 1001f;
+        private int _spaceStage;
+        private uint _spaceAt;
+        private double _spacePlanet0;
+        private double _spaceSpace0;
+        private double _spaceLost0;
+
         // terraform size <share> confirm on the planet being played. RESCALE_BY is how many times its
         // present size to ask for, measured off the planet itself so the share asked for can never be
         // the share it already is, which would make the scenario a no-op. RESCALE is an absolute share
@@ -284,6 +301,10 @@ namespace TerraformingReloaded.LiveCheck
             if (_instance != null && BuildOverTick > 0 && _instance._buildOverStage < 3 && GameManager.GameTickCount >= BuildOverTick)
             {
                 _instance.CheckBuildOver();
+            }
+            if (_instance != null && SpaceTick > 0 && _instance._spaceStage < 4 && GameManager.GameTickCount >= SpaceTick)
+            {
+                _instance.CheckSpace();
             }
             if (_instance != null && !_instance._menuMixDone && MenuMix && GameManager.GameTickCount >= 20)
             {
@@ -2535,6 +2556,174 @@ namespace TerraformingReloaded.LiveCheck
             }
             new Harmony("xceled.stationeers.terraformingreloaded.livecheck").Unpatch(deregister, body);
             Logger.LogInfo("LiveCheck: buildover the mod's Deregister guard is off for this event");
+            return true;
+        }
+
+        /// <summary>
+        /// Gas released in space, with the world's setting on and then off (Space.cs in the mod).
+        /// Stages: 0 on, removal case then a cell left to drain; 1 waiting; 2 off, the same two;
+        /// 3 waiting; 4 done. Every figure is read here, on the simulation thread at rest.
+        /// </summary>
+        private void CheckSpace()
+        {
+            try
+            {
+                if (_spaceStage == 0 || _spaceStage == 2)
+                {
+                    bool on = _spaceStage == 0;
+                    if (!SetSpaceDeletion(on))
+                    {
+                        _spaceStage = 4;
+                        return;
+                    }
+                    // Removal: far from anything else up there, removed the moment it is filled, so
+                    // what it holds is exactly what was put in and nothing has mixed yet.
+                    float side = on ? 400f : -400f;
+                    WorldGrid removed = new WorldGrid(new Vector3(side, SpaceHeightMetres, side));
+                    Atmosphere cell = AtmosphericsManager.CloneGlobalAtmosphereThreadSafe(removed);
+                    if (cell == null || !PlanetaryAtmosphereSimulation.IsInSpaceAtmosphere(removed))
+                    {
+                        Logger.LogInfo("LiveCheck: space FAIL no cell above the space line could be made at " + Where(removed));
+                        _spaceStage = 4;
+                        return;
+                    }
+                    AddCarbonDioxide(cell, SpaceRemoveMoles);
+                    double planet = SpaceSplit(out double space, out _);
+                    double lost = LostToSpace();
+                    double held = cell.GasMixture.GetTotalMolesGassesAndLiquids.ToDouble();
+                    AtmosphericsManager.AllAtmospheres.Remove(cell);
+                    double planetAfter = SpaceSplit(out double spaceAfter, out _);
+                    double lostAfter = LostToSpace();
+                    bool gone = AtmosphericsManager.Find(removed) == null;
+                    double toPlanet = planetAfter - planet;
+                    double toLost = lostAfter - lost;
+                    bool pass = gone && Math.Abs(spaceAfter - (space - held)) <= 1.0
+                        && (on ? Math.Abs(toPlanet) <= 1.0 && Math.Abs(toLost - held) <= 1.0
+                               : Math.Abs(toPlanet - held) <= 1.0 && toLost == 0.0);
+                    Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                        "LiveCheck: space removal {0} {1} cell at {2} held {3:0.000} mol, gone {4}: planet side {5:+0.000;-0.000}, space side {6:+0.000;-0.000}, lost to space {7:+0.000;-0.000} mol",
+                        on ? "on" : "off", pass ? "PASS" : "FAIL", Where(removed), held, gone, toPlanet, spaceAfter - space, toLost));
+
+                    // Drain: a cell with a known amount in it, left to spread and mix with space.
+                    WorldGrid vented = new WorldGrid(new Vector3(on ? 0f : -400f, SpaceHeightMetres, on ? 0f : 400f));
+                    Atmosphere source = AtmosphericsManager.CloneGlobalAtmosphereThreadSafe(vented);
+                    if (source == null)
+                    {
+                        Logger.LogInfo("LiveCheck: space FAIL no cell above the space line could be made at " + Where(vented));
+                        _spaceStage = 4;
+                        return;
+                    }
+                    AddCarbonDioxide(source, SpaceInjectMoles);
+                    _spacePlanet0 = SpaceSplit(out _spaceSpace0, out int cells);
+                    _spaceLost0 = LostToSpace();
+                    _spaceAt = GameManager.GameTickCount;
+                    _spaceStage++;
+                    Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                        "LiveCheck: space drain {0} started at {1}: {2:0.000} mol in {3} cell(s) above the line, planet side {4:0.000} mol, lost to space {5:0.000} mol",
+                        on ? "on" : "off", Where(vented), _spaceSpace0, cells, _spacePlanet0, _spaceLost0));
+                    return;
+                }
+
+                uint waited = GameManager.GameTickCount - _spaceAt;
+                double planetNow = SpaceSplit(out double spaceNow, out int cellsNow);
+                bool drained = spaceNow <= 0.01 * _spaceSpace0;
+                if (!drained && waited < SpaceWaitTicks)
+                {
+                    return;
+                }
+                bool wasOn = _spaceStage == 1;
+                double lostNow = LostToSpace();
+                double planetMoved = planetNow - _spacePlanet0;
+                double spaceMoved = spaceNow - _spaceSpace0;
+                double lostMoved = lostNow - _spaceLost0;
+                bool left = spaceNow <= 0.5 * _spaceSpace0;
+                bool ok = wasOn
+                    // Nothing reaches the planet; every mole that left space is in the total.
+                    ? Math.Abs(planetMoved) <= 1.0 && Math.Abs(spaceMoved + lostMoved) <= 1.0 && lostMoved > 0.0
+                    // Nothing is deleted; every mole that left space is on the planet.
+                    : lostMoved == 0.0 && Math.Abs(planetMoved + spaceMoved) <= 1.0 && planetMoved > 0.0;
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                    "LiveCheck: space drain {0} {1} after {2} ticks: space side {3:0.000} -> {4:0.000} mol in {5} cell(s), drained to under half {6}, planet side {7:+0.000;-0.000}, lost to space {8:+0.000;-0.000} mol",
+                    wasOn ? "on" : "off", ok && left ? "PASS" : "FAIL", waited, _spaceSpace0, spaceNow, cellsNow, left, planetMoved, lostMoved));
+                _spaceStage++;
+                if (_spaceStage == 4)
+                {
+                    SetSpaceDeletion(false);
+                    Logger.LogInfo("LiveCheck: space done");
+                }
+            }
+            catch (Exception e)
+            {
+                _spaceStage = 4;
+                Logger.LogInfo("LiveCheck: space FAIL " + e);
+            }
+        }
+
+        /// <summary>
+        /// The planet side of a space run: the tank, its three reservoirs and every outdoor cell below
+        /// the space line. The space side, and how many cells hold it, come out.
+        /// </summary>
+        private static double SpaceSplit(out double space, out int spaceCells)
+        {
+            Type sim = typeof(PlanetaryAtmosphereSimulation);
+            double planet = PlanetaryAtmosphereSimulation.GetGlobalGasMix()?.TotalQuantity().ToDouble() ?? 0.0;
+            foreach (string reservoir in new[] { "_iceCaps", "_liquidClouds", "_iceClouds" })
+            {
+                planet += ((GlobalGasMix)AccessTools.Field(sim, reservoir).GetValue(null))?.TotalQuantity().ToDouble() ?? 0.0;
+            }
+            double below = 0.0;
+            double above = 0.0;
+            int count = 0;
+            AtmosphericsManager.AllAtmospheres.ForEach((Action<Atmosphere>)(a =>
+            {
+                if (a == null || a.Mode != AtmosphereHelper.AtmosphereMode.World)
+                {
+                    return;
+                }
+                double moles = a.GasMixture.GetTotalMolesGassesAndLiquids.ToDouble();
+                if (PlanetaryAtmosphereSimulation.IsInSpaceAtmosphere(a.WorldGrid))
+                {
+                    above += moles;
+                    count++;
+                }
+                else
+                {
+                    below += moles;
+                }
+            }));
+            space = above;
+            spaceCells = count;
+            return planet + below;
+        }
+
+        /// <summary>The mod's running total of gas deleted in space.</summary>
+        private static double LostToSpace()
+        {
+            Type space = AccessTools.TypeByName("TerraformingReloaded.Patching.Space");
+            return (double)AccessTools.Property(space, "LostMoles").GetValue(null);
+        }
+
+        /// <summary>
+        /// The world's setting, turned the way the console turns it, without the file write: a
+        /// headless new world has no folder to record it in, and the rule reads only the value in force.
+        /// </summary>
+        private bool SetSpaceDeletion(bool on)
+        {
+            Type effective = AccessTools.TypeByName("TerraformingReloaded.Effective");
+            System.Reflection.MethodInfo set = effective == null ? null : AccessTools.DeclaredMethod(effective, "SpaceDeletionByConsoleCommand");
+            Type space = AccessTools.TypeByName("TerraformingReloaded.Patching.Space");
+            if (set == null || space == null)
+            {
+                Logger.LogInfo("LiveCheck: space FAIL the mod's space setting could not be found");
+                return false;
+            }
+            if (!(bool)AccessTools.Property(space, "Installed").GetValue(null))
+            {
+                Logger.LogInfo("LiveCheck: space FAIL the mod did not install the rule: " + AccessTools.Property(space, "Refusal").GetValue(null));
+                return false;
+            }
+            set.Invoke(null, new object[] { on });
+            Logger.LogInfo("LiveCheck: space setting " + (on ? "on" : "off"));
             return true;
         }
 

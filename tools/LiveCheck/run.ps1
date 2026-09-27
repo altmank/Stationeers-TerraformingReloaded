@@ -80,6 +80,12 @@
     -WalkCost  Times a walk over every atmosphere from the planet tick, where a per-tick measure of
                the planet's air would sit, and prints microseconds against the cell count. Add it to
                the default scenario (which sweeps from 1 cell to about 4,300 and back) or to -Strip.
+    -Space     Gas released in space (SpaceDeletesGas). With the world's setting on, then off, the
+               driver fills a cell at 1,001 m and removes it outright, then fills another and leaves
+               it to spread and drain. The planet side is the tank, its reservoirs and every cell
+               below the line. On: the planet side must not move, and every mole that leaves space
+               must be in the mod's lost-to-space total. Off: the total must not move, and every mole
+               that leaves space must reach the planet. Both drains must fall under half.
     -MenuPressure  The mix the new-game menu builds to describe a world must be the shipped planet,
                not the resized one it is playing.
     -Schedule  The two storm rules (docs/STORMS.md). Nothing else can reach them: -Storm and -Weather
@@ -155,6 +161,7 @@ param(
     [switch]$Model,
     [switch]$WallVent,
     [switch]$MenuPressure,
+    [switch]$Space,
     [switch]$Rescale,
     [switch]$BuildOver,
     [switch]$Unguarded,
@@ -195,7 +202,8 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
-if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Upgrade, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Upgrade, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld and -Strip.' }
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Upgrade, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip, $Space | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Upgrade, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld, -Strip and -Space.' }
+if ($Space -and $Vanilla) { throw 'Without the mod gas released in space is never handed to the planet, so there is nothing to judge.' }
 if ($Upgrade -and -not (Test-Path (Join-Path $OldRoot 'src\TerraformingReloaded.csproj'))) { throw '-Upgrade needs -OldRoot, a checkout of the earlier release (git worktree add <dir> v0.9.1).' }
 if (($Orbit -ne 0) -and ($OrbitTick -le 0)) { throw '-Orbit needs -OrbitTick, the tick to move the season at.' }
 if (($OrbitTick -gt 0) -and ($Orbit -eq 0)) { throw '-OrbitTick needs -Orbit, how many degrees of the world orbit to move; 360 is a year.' }
@@ -797,6 +805,21 @@ try {
         }
         if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join '; ')." }
         Write-Host 'LiveCheck OK: a world written by hand runs, the mod supplies the curves it leaves out, and adds nothing while its air is untouched.'
+        return
+    }
+
+    if ($Space) {
+        # Gas released in space: deleted with the world's setting on, back to the planet with it off.
+        $log = Invoke-Game @('-new', $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_SPACE_TICK = '30' } `
+            { param($l) @($l -match 'LiveCheck: space (done|FAIL)').Count -gt 0 } 'the gas released in space check'
+        Assert-ModLive $log
+        $lines = @($log -match 'LiveCheck: space ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' }
+        $lines | Write-Host
+        $failed = @($lines -match '(^space FAIL| FAIL )')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+        $passed = @($lines -match '^space (removal|drain) (on|off) PASS')
+        if ($passed.Count -ne 4) { throw "LiveCheck FAILED: expected four judged cases, got $($passed.Count)." }
+        Write-Host 'LiveCheck OK: with the setting on, gas released in space is deleted and counted and the planet does not move; with it off, it returns to the planet and nothing is counted.'
         return
     }
 

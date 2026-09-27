@@ -189,6 +189,9 @@ namespace TerraformingReloaded.Patching
         /// The tank adds whatever it is handed with no checks, and it is saved, so one cell that has
         /// gone NaN would poison the planet for the life of the save. Turn bad mixtures away.
         /// Taken by ref only to avoid copying a 28 species struct per call; it is never written.
+        ///
+        /// Also where gas released in space is deleted, on a world that has that on: the give carries
+        /// no position, so Space marks the thread while a cell above the line mixes (Space.cs).
         /// </summary>
         public static bool GivePrefix(ref GasMixture gasMixture)
         {
@@ -210,7 +213,7 @@ namespace TerraformingReloaded.Patching
                 }
                 return false;
             }
-            return true;
+            return !Space.DeletesGive(moles);
         }
 
         public static int RejectedGives => _rejectedGives;
@@ -227,16 +230,23 @@ namespace TerraformingReloaded.Patching
 
         public static void DivideFinalizer() => _inDivide = false;
 
+        /// <summary>
+        /// Also, second: a cell at or above the space line, on a world where gas released in space is
+        /// deleted, is emptied and counted rather than handed to the planet. Second, because a cell
+        /// whose gas the divide has already passed on is emptied above and holds nothing to lose.
+        /// </summary>
         public static void DeregisterPrefix(Atmosphere atmosphere)
         {
-            if (!_inDivide || atmosphere == null || !Gate.Enabled())
+            if (atmosphere == null || !Gate.Enabled())
             {
                 return;
             }
-            if (atmosphere.OpenNeighbors.Count > 0)
+            if (_inDivide && atmosphere.OpenNeighbors.Count > 0)
             {
                 atmosphere.GasMixture.Reset();
+                return;
             }
+            Space.DeletesRemovedCell(atmosphere);
         }
 
         // ---- XmlSaveLoad.GetWorldData --------------------------------------------------------------
@@ -264,6 +274,9 @@ namespace TerraformingReloaded.Patching
             {
                 Log.Error("Could not bring outdoor cells up to date before saving; this save may be off by one tick of gas flow. " + e.Message);
             }
+            // The gas lost to space so far goes into the world's settings file with the save, so the
+            // file's total is the one at the save. Best effort, like every write of that file.
+            Sidecar.RecordLossAtSave();
         }
 
         // ---- WeatherManager.ScheduleWeatherEvent --------------------------------------------------

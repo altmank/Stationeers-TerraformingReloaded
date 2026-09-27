@@ -343,6 +343,13 @@ namespace TerraformingReloaded.Patching
             // is set cannot turn it into a leak.
             Extra(report, "trace gases gather", () => TraceGases.Apply(harmony));
 
+            // Gas released in space is deleted, on a world that has that on. The give filter and the
+            // build-over guard already carry the decision; this marks the thread while a cell above
+            // the space line mixes, which is how the give filter tells space gas from planet gas.
+            // Refused unless the game still hands space gas to the planet only where Space expects,
+            // and without it nothing is deleted anywhere: the removal guard asks Space.Installed too.
+            Extra(report, "gas lost in space", () => Space.Apply(harmony));
+
             Extra(report, "planet size", () =>
             {
                 MethodInfo createPlanet = AccessTools.DeclaredMethod(typeof(GlobalGasMix), "Create", new[] { typeof(GlobalAtmosphereData) });
@@ -385,6 +392,7 @@ namespace TerraformingReloaded.Patching
         {
             // A client's planet is its own shipped one again until the host's next arrives.
             Gate.SetHostPlanet(false);
+            Space.ForgetHost();
             try
             {
                 WorldSetting world = WorldSetting.Current;

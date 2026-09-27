@@ -28,6 +28,10 @@ namespace TerraformingReloaded
     /// temperature formula and rebuilds the sky locally, so without them it would use its own config
     /// for a world whose settings are the host's.
     ///
+    /// Last come whether the host's world deletes gas released in space, and how much it has
+    /// deleted, for the joining player's readout. Nothing on their game acts on them: the deleting
+    /// happens where the mixing runs, which is the host.
+    ///
     /// The leading byte says what follows. LaunchPadBooster refuses a join between different
     /// versions of the mod, so both ends normally write and read the same layout; the byte still lets
     /// a reader take the planet alone from <see cref="PlanetOnly"/> and skip a layout it does not
@@ -39,6 +43,7 @@ namespace TerraformingReloaded
         private const byte Nothing = 0;
         private const byte PlanetOnly = 1;
         private const byte PlanetAndSettings = 2;
+        private const byte PlanetSettingsAndSpace = 3;
 
         private static readonly FieldInfo[] MixFields = typeof(GlobalGasMixSaveData)
             .GetFields(BindingFlags.Public | BindingFlags.Instance)
@@ -97,7 +102,7 @@ namespace TerraformingReloaded
                 writer.WriteByte(Nothing);
                 return;
             }
-            writer.WriteByte(PlanetAndSettings);
+            writer.WriteByte(PlanetSettingsAndSpace);
             writer.WriteInt32(MixFields.Length);
             WriteMix(writer, data.GlobalGasMix);
             WriteMix(writer, data.LiquidClouds);
@@ -109,6 +114,9 @@ namespace TerraformingReloaded
             writer.WriteDouble(Effective.DensityResponseScale);
             writer.WriteDouble(Effective.AirlessAlbedo);
             writer.WriteBoolean(Effective.DynamicSky);
+            writer.WriteBoolean(Effective.SpaceDeletesGas);
+            writer.WriteBoolean(Space.Installed);
+            writer.WriteDouble(Space.LostMoles);
         }
 
         /// <summary>
@@ -131,12 +139,27 @@ namespace TerraformingReloaded
             }
         }
 
+        /// <summary>What the host's world does with gas released in space, for the readout only.</summary>
+        private readonly struct HostSpace
+        {
+            public readonly bool Deletes;
+            public readonly bool Installed;
+            public readonly double LostMoles;
+
+            public HostSpace(RocketBinaryReader reader)
+            {
+                Deletes = reader.ReadBoolean();
+                Installed = reader.ReadBoolean();
+                LostMoles = reader.ReadDouble();
+            }
+        }
+
         private void Read(RocketBinaryReader reader)
         {
             try
             {
                 byte kind = reader.ReadByte();
-                if (kind != PlanetOnly && kind != PlanetAndSettings)
+                if (kind != PlanetOnly && kind != PlanetAndSettings && kind != PlanetSettingsAndSpace)
                 {
                     return;
                 }
@@ -156,7 +179,8 @@ namespace TerraformingReloaded
                     LatentOffset = new DoubleReference(reader.ReadDouble()),
                     ExternalOffset = new DoubleReference(reader.ReadDouble()),
                 };
-                HostSettings? settings = kind == PlanetAndSettings ? new HostSettings(reader) : (HostSettings?)null;
+                HostSettings? settings = kind >= PlanetAndSettings ? new HostSettings(reader) : (HostSettings?)null;
+                HostSpace? space = kind == PlanetSettingsAndSpace ? new HostSpace(reader) : (HostSpace?)null;
                 if (!NetworkManager.IsClient || PlanetaryAtmosphereSimulation.GetGlobalGasMix() == null)
                 {
                     return;
@@ -173,6 +197,10 @@ namespace TerraformingReloaded
                 if (settings.HasValue)
                 {
                     Apply(settings.Value);
+                }
+                if (space.HasValue)
+                {
+                    Space.FromHost(space.Value.Deletes, space.Value.Installed, space.Value.LostMoles);
                 }
                 Gate.SetHostPlanet(true);
             }

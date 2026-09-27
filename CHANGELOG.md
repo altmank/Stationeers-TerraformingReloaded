@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.4
+
+- **New, off by default: gas released in space can be deleted.** Normally gas released at or above
+  1,000 m, where rockets in space are, drifts back down to the planet, so there is nowhere to throw gas
+  away for good. Turn it on for a world with `terraform set SpaceDeletesGas on confirm` (it asks first,
+  because what it deletes is gone for good and the loss is saved), or in the config's new `Space`
+  section for new worlds. Then a rocket can carry unwanted gas up and vent it off the world.
+  `terraform` shows how much has been lost to space.
+- **Multiplayer:** the host's world setting applies to everyone, so gas any player vents in space is
+  deleted, once, by the host. Everyone's `terraform` shows the host's setting and the total. Host and
+  players need 0.11.4, as always.
+- **Existing worlds are unchanged:** a world saved before 0.11.4 has it off whatever the config says,
+  like the pressure ceiling, until you turn it on for that world.
+- **Rocket engines already delete their exhaust above 1,000 m**, in the unmodded game too, and a gas
+  engine takes in whatever mixture it is fed; that is not new, and not affected by this setting.
+
 ## 0.11.3
 
 - **Speed at the trace line can now be set from 1 to 2000** (default still 200). Below the line the

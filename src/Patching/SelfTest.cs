@@ -85,6 +85,8 @@ namespace TerraformingReloaded.Patching
                     AirlessAlbedo = 0.3,
                     DynamicSky = false,
                     WeatherOnWeatherlessWorlds = null,
+                    SpaceDeletesGas = true,
+                    GasLostToSpaceMoles = 1234.5,
                 };
                 string xml = Sidecar.ToXml(written);
                 if (!xml.Contains("xsi:nil=\"true\""))
@@ -124,6 +126,10 @@ namespace TerraformingReloaded.Patching
                 {
                     return "a recorded off, or a switch that is not set, did not survive the round trip";
                 }
+                if (read.SpaceDeletesGas != true || read.GasLostToSpaceMoles != 1234.5)
+                {
+                    return "whether gas released in space is deleted, or the total lost, did not survive the round trip";
+                }
 
                 SidecarFile partial = Sidecar.FromXml(OneElement);
                 if (partial == null || partial.MaxExternalOffsetKelvin != 7.0)
@@ -134,7 +140,8 @@ namespace TerraformingReloaded.Patching
                     || partial.GhgResponseScale.HasValue || partial.DensityResponseScale.HasValue
                     || partial.AirlessAlbedo.HasValue || partial.DynamicSky.HasValue
                     || partial.StormsStopWhenStripped.HasValue || partial.MildAtmosphereColdestKelvin.HasValue
-                    || partial.TraceGasGatheringEnabled.HasValue || partial.TraceGasGathering.HasValue || partial.TraceGasLine.HasValue)
+                    || partial.TraceGasGatheringEnabled.HasValue || partial.TraceGasGathering.HasValue || partial.TraceGasLine.HasValue
+                    || partial.SpaceDeletesGas.HasValue || partial.GasLostToSpaceMoles.HasValue)
                 {
                     return "a file holding one setting invented values for the rest";
                 }

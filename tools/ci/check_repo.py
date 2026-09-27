@@ -111,6 +111,24 @@ need(not assigners, 'nothing assigns Effective.MaxPressureKPa directly %s' % (as
 need(re.search(r'private static double\?\s+_maxPressureKPa;', read('src/Settings.cs')) is not None
      and re.search(r'public static double\?\s+MaxPressureKPa\s*=>\s*_maxPressureKPa;', read('src/Settings.cs')) is not None,
      'the pressure ceiling is a private field with a read-only property')
+# The same rule for the second setting that deletes gas: whether gas released in space is deleted.
+ALLOWED_SPACE_CALLS = {
+    'Effective.SpaceDeletionFromWorldFile': {'src/Patching/Sidecar.cs': 1},
+    'Effective.SpaceDeletionForNewWorld': {'src/Patching/Sidecar.cs': 1},
+    'Effective.SpaceDeletionByConsoleCommand': {'src/TerraformCommand.cs': 1},
+}
+for call, expected in ALLOWED_SPACE_CALLS.items():
+    seen = {}
+    for path in SOURCES:
+        count = read(path).count(call + '(')
+        if count:
+            seen[os.path.normpath(path).replace('\\', '/')] = count
+    need(seen == expected, '%s is called only where it may be: %s (expected %s)' % (call, seen or '{}', expected))
+assigners = [p for p in SOURCES if re.search(r'Effective\.SpaceDeletesGas\s*=[^=]', read(p))]
+need(not assigners, 'nothing assigns Effective.SpaceDeletesGas directly %s' % (assigners or ''))
+need(re.search(r'private static volatile bool\s+_spaceDeletesGas;', read('src/Settings.cs')) is not None
+     and re.search(r'public static bool\s+SpaceDeletesGas\s*=>\s*_spaceDeletesGas;', read('src/Settings.cs')) is not None,
+     'deleting gas released in space is a private field with a read-only property')
 # The config editor's bounds and the settings-file check are the same declaration.
 plugin = read('src/Plugin.cs')
 world_scoped = ('MaxPressureKPa', 'ExternalHeatHalfLifeMinutes', 'MaxExternalOffsetKelvin',

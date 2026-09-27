@@ -88,6 +88,12 @@ namespace TerraformingReloaded
         /// </summary>
         public static double TraceGasLine = 1e-3;
 
+        /// <summary>
+        /// Off by default, and destructive: gas released at or above the space line is deleted
+        /// instead of returning to the planet.
+        /// </summary>
+        public static bool SpaceDeletesGas = false;
+
         /// <summary>Write the terraform status to the log this often. 0 is off.</summary>
         public static double StatusLogSeconds = 0.0;
     }
@@ -169,6 +175,12 @@ namespace TerraformingReloaded
 
         public static readonly Range TraceGasGathering = new Range(1.0, 2000.0);
         public static readonly Range TraceGasLine = new Range(0.0, 0.01);
+
+        /// <summary>
+        /// Not a setting, the running total a world's file records. Far above any planet: shipped
+        /// Venus holds about 1.6e9 mol, and the largest planet size is ten times shipped.
+        /// </summary>
+        public static readonly Range GasLostToSpaceMoles = new Range(0.0, 1e15);
     }
 
     /// <summary>
@@ -247,6 +259,42 @@ namespace TerraformingReloaded
         private static double? InRange(double? kpa)
         {
             return kpa.HasValue && Limits.MaxPressureKPa.AboveMin.Holds(kpa.Value) ? kpa : null;
+        }
+
+        // ---- gas released in space is deleted ------------------------------------------------------
+        //
+        // The second setting that deletes gas for good, so it follows the ceiling's rule and not the
+        // plain fallback below: a LOADED world has it only when its own settings file records it on,
+        // or when a console command on that world turns it on; a world being CREATED takes the
+        // config's. Every other path leaves it off, and off is the game's own behaviour, so a defect
+        // anywhere in the read path costs a world nothing. tools/ci/check_repo.py pins the callers.
+        private static volatile bool _spaceDeletesGas;
+
+        /// <summary>Whether gas released at or above the space line is deleted. Read-only by design.</summary>
+        public static bool SpaceDeletesGas => _spaceDeletesGas;
+
+        /// <summary>Off. The state every path that is not one of the three below leaves it in.</summary>
+        public static void NoSpaceDeletion()
+        {
+            _spaceDeletesGas = false;
+        }
+
+        /// <summary>Recorded in the settings file of the world now loading. Not recorded is off.</summary>
+        public static void SpaceDeletionFromWorldFile(bool? on)
+        {
+            _spaceDeletesGas = on == true;
+        }
+
+        /// <summary>A world being created, which takes the settings the player chose for it.</summary>
+        public static void SpaceDeletionForNewWorld(bool on)
+        {
+            _spaceDeletesGas = on;
+        }
+
+        /// <summary>terraform set SpaceDeletesGas &lt;on/off&gt;, on the world being played.</summary>
+        public static void SpaceDeletionByConsoleCommand(bool on)
+        {
+            _spaceDeletesGas = on;
         }
 
         // ---- everything else ----------------------------------------------------------------------

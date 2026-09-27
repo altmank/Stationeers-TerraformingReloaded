@@ -14,7 +14,7 @@ namespace TerraformingReloaded
     {
         public const string PluginGuid = "xceled.stationeers.terraformingreloaded";
         public const string PluginName = "Terraforming Reloaded";
-        public const string PluginVersion = "0.11.3";
+        public const string PluginVersion = "0.11.4";
 
         /// <summary>The game build the patches were last checked against. Advisory only.</summary>
         private const string TestedGameVersion = "0.2.6428.27798";
@@ -262,6 +262,12 @@ namespace TerraformingReloaded
             Bind("Trace gases", "TraceGasLine", Settings.TraceGasLine,
                 "Below how much a gas counts as a trace, in moles per outdoor cell (8,000 litres) of the planet's air. The default is a hundred times the least the game keeps in a cell, and well under the thinnest gas any world starts with. 0 turns gathering off.",
                 v => Settings.TraceGasLine = v, Bounds(Limits.TraceGasLine), "Trace below (mol per cell)", 62, "%.5f", world: true);
+
+            // Space. Its own section: it decides where gas released above the space line goes, which
+            // is none of climate, storms or trace gases, and it is the second setting that deletes.
+            Bind("Space", "SpaceDeletesGas", Settings.SpaceDeletesGas,
+                "DESTRUCTIVE, off by default. Gas released at or above 1,000 m, where rockets in space are, is deleted instead of drifting back down to the planet, so venting from a rocket in space takes gas off the planet for good. What is deleted is saved as gone. In multiplayer the host's world setting applies to everyone, so gas any player vents in space is deleted. A world saved without this setting has it off until you turn it on for that world.",
+                v => Settings.SpaceDeletesGas = v, null, "Gas released in space is deleted", 70, world: true);
 
             Bind("Multiplayer", "SyncIntervalSeconds", Settings.SyncIntervalSeconds,
                 "How often the host sends the planet state to clients.",

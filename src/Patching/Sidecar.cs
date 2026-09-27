@@ -65,6 +65,15 @@ namespace TerraformingReloaded.Patching
         public bool? TraceGasGatheringEnabled;
         public double? TraceGasGathering;
         public double? TraceGasLine;
+
+        /// <summary>Not recorded means off, whatever the config says: it deletes gas.</summary>
+        public bool? SpaceDeletesGas;
+
+        /// <summary>
+        /// Not a setting: the running total of gas deleted at or above the space line in this world,
+        /// written with every save that changed it, so the readout survives a reload.
+        /// </summary>
+        public double? GasLostToSpaceMoles;
     }
 
     /// <summary>
@@ -142,6 +151,9 @@ namespace TerraformingReloaded.Patching
         private static string _salvage;
         private static bool _newWorld;
 
+        /// <summary>The gas lost to space the file holds, so a save that changed nothing writes nothing.</summary>
+        private static double _recordedLoss;
+
         /// <summary>The file this world's settings are in, or null while there is none.</summary>
         public static string FilePath => _filePath;
 
@@ -202,6 +214,8 @@ namespace TerraformingReloaded.Patching
             try
             {
                 SeedFromConfig();
+                Space.SetLost(0.0);
+                _recordedLoss = 0.0;
                 _folder = null;
                 _filePath = null;
                 _fileVersion = 0;
@@ -233,6 +247,9 @@ namespace TerraformingReloaded.Patching
         public static void WorldStartPrefix()
         {
             Effective.NoCeiling();
+            Effective.NoSpaceDeletion();
+            Space.SetLost(0.0);
+            _recordedLoss = 0.0;
             try
             {
                 Begin();
@@ -245,7 +262,7 @@ namespace TerraformingReloaded.Patching
                 _salvage = null;
                 TakeFromConfig();
                 _source = "this world's settings file could not be looked at (" + e.Message
-                    + "), so the pressure ceiling is off for it and the rest is from the config";
+                    + "), so the pressure ceiling is off for it, gas released in space is not deleted, and the rest is from the config";
                 _noFolder = "This world's settings file could not be looked at (" + e.Message
                     + "), so there is nowhere to record settings for it; nothing was changed.";
                 Log.Warn("Per-world settings: " + _source);
@@ -285,6 +302,7 @@ namespace TerraformingReloaded.Patching
                 // and it has no history to damage, and the CreateSaveDirectory postfix records them
                 // the moment it is first saved.
                 Effective.CeilingForNewWorld(ConfigCeiling());
+                Effective.SpaceDeletionForNewWorld(Settings.SpaceDeletesGas);
                 _source = "this world is being created, so the config is in force for it; it is recorded when the world is first saved";
                 _noFolder = "This world has not been saved yet, so there is nowhere to record settings for it. Save the world first.";
                 Log.Info("Per-world settings: " + _source + ".");
@@ -348,7 +366,7 @@ namespace TerraformingReloaded.Patching
                 Disable(path + " is version " + version + ", which this build of the mod does not understand, so per-world settings are off for the session and nothing is written over it");
                 _source = _standDown;
                 _noFolder = "Per-world settings are off for this session (" + _standDown + "), so nothing can be recorded for this world; nothing was changed.";
-                Log.Warn("Per-world settings: " + _source + ". This world's pressure ceiling is off and the rest is from the config.");
+                Log.Warn("Per-world settings: " + _source + ". This world's pressure ceiling is off, gas released in space is not deleted, and the rest is from the config.");
                 return;
             }
 
@@ -391,7 +409,7 @@ namespace TerraformingReloaded.Patching
         /// </summary>
         private static void Missing(string why)
         {
-            _source = why + ", so this world's pressure ceiling is off and the rest is from the config";
+            _source = why + ", so this world's pressure ceiling is off, gas released in space is not deleted, and the rest is from the config";
             Log.Info("Per-world settings: " + _source + ".");
             Save();
         }
@@ -405,7 +423,7 @@ namespace TerraformingReloaded.Patching
         {
             _salvage = path;
             Log.Warn("Per-world settings: " + path + " " + why
-                + ", so it is treated as missing: this world's pressure ceiling is off and the rest is from the config. The file as it stands is copied to "
+                + ", so it is treated as missing: this world's pressure ceiling is off, gas released in space is not deleted, and the rest is from the config. The file as it stands is copied to "
                 + SalvagedFileName + " beside it before it is replaced.");
             Missing(path + " could not be read");
         }
@@ -495,6 +513,13 @@ namespace TerraformingReloaded.Patching
             Effective.TraceGasLine =
                 Recorded(file.TraceGasLine, Limits.TraceGasLine, "TraceGasLine", bad)
                 ?? Settings.TraceGasLine;
+
+            // Deletes gas, so not recorded is off and never the config's (the ceiling's rule).
+            Effective.SpaceDeletionFromWorldFile(file.SpaceDeletesGas);
+            // A total, not a setting: one the file cannot vouch for starts again from nothing.
+            double lost = Recorded(file.GasLostToSpaceMoles, Limits.GasLostToSpaceMoles, "GasLostToSpaceMoles", bad) ?? 0.0;
+            Space.SetLost(lost);
+            _recordedLoss = lost;
 
             if (bad.Count == 0)
             {
@@ -596,6 +621,7 @@ namespace TerraformingReloaded.Patching
         public static void SeedFromConfig()
         {
             Effective.NoCeiling();
+            Effective.NoSpaceDeletion();
             TakeFromConfig();
             _source = "no world is being played, so the config is in force";
             _noFolder = "No world is being played, so there is nowhere to record settings.";
@@ -681,6 +707,28 @@ namespace TerraformingReloaded.Patching
                 : "This world's settings could not be written to " + _folder + ", so the change holds for this session only. The log says why.";
         }
 
+        /// <summary>
+        /// The game is saving (XmlSaveLoad.GetWorldData, main thread, planet tick paused). Writes the
+        /// file only when gas has been lost to space since it was last written, so on a world that
+        /// never deletes anything a save writes nothing beside it. The file is written whole, as
+        /// terraform set writes it. Never throws: the save must not notice.
+        /// </summary>
+        public static void RecordLossAtSave()
+        {
+            try
+            {
+                if (NetworkManager.IsClient || RecordRefusal() != null || Space.LostMoles == _recordedLoss)
+                {
+                    return;
+                }
+                Save();
+            }
+            catch (Exception e)
+            {
+                WriteFailed(e.Message);
+            }
+        }
+
         // ---- the file ----------------------------------------------------------------------------
 
         private static bool Save()
@@ -696,6 +744,7 @@ namespace TerraformingReloaded.Patching
                 {
                     return false;           // a new world's folder is born by CreateSaveDirectory, not here
                 }
+                double loss = Space.LostMoles;
                 SidecarFile file = new SidecarFile
                 {
                     Version = SchemaVersion,
@@ -719,6 +768,8 @@ namespace TerraformingReloaded.Patching
                     TraceGasGatheringEnabled = Effective.TraceGasGatheringEnabled,
                     TraceGasGathering = Effective.TraceGasGathering,
                     TraceGasLine = Effective.TraceGasLine,
+                    SpaceDeletesGas = Effective.SpaceDeletesGas,
+                    GasLostToSpaceMoles = loss,
                 };
                 string path = Path.Combine(folder, FileName);
                 Salvage(path);
@@ -730,6 +781,7 @@ namespace TerraformingReloaded.Patching
                 }
                 _filePath = path;
                 _fileVersion = SchemaVersion;
+                _recordedLoss = loss;
                 return true;
             }
             catch (Exception e)

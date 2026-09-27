@@ -295,6 +295,8 @@ namespace TerraformingReloaded
                 () => Effective.TraceGasGathering, () => Settings.TraceGasGathering, v => Effective.TraceGasGathering = v),
             Number("TraceGasLine", "Trace below", "mol per cell", Limits.TraceGasLine,
                 () => Effective.TraceGasLine, () => Settings.TraceGasLine, v => Effective.TraceGasLine = v),
+            Switch("SpaceDeletesGas", "Gas released in space is deleted",
+                () => Effective.SpaceDeletesGas, () => Settings.SpaceDeletesGas, v => Effective.SpaceDeletionByConsoleCommand(v)),
         };
 
         /// <summary>
@@ -379,6 +381,10 @@ namespace TerraformingReloaded
             if (key.Name == "MaxPressureKPa")
             {
                 text.Append(GateLine());
+            }
+            if (key.Name == "SpaceDeletesGas" && (bool)asked)
+            {
+                text.Append(SpaceLine());
             }
             if (key.Name == "DynamicSky" && !(bool)asked)
             {
@@ -537,9 +543,52 @@ namespace TerraformingReloaded
                             Show(key, asked), Show(key, now), GateNote(), key.Name, want.Value.ToString("0.###", c));
                     }
                     return null;
+                case "SpaceDeletesGas":
+                    // Turning it on deletes from then on; turning it off deletes nothing.
+                    return (bool)asked ? SpacePrompt(c) : null;
                 default:
                     return null;
             }
+        }
+
+        /// <summary>
+        /// What turning on the deleting of gas released in space costs, before it happens: what is up
+        /// there now, that it goes as it spreads out, that it cannot be undone, and whose world it is.
+        /// The cells are read from the main thread, so the figure can lag a tick, like every readout.
+        /// </summary>
+        private static string SpacePrompt(CultureInfo c)
+        {
+            double held = 0.0;
+            int cells = 0;
+            AtmosphericsManager.AllAtmospheres.ForEach((Action<Atmosphere>)(a =>
+            {
+                if (a != null && a.Mode == AtmosphereHelper.AtmosphereMode.World && PlanetaryAtmosphereSimulation.IsInSpaceAtmosphere(a.WorldGrid))
+                {
+                    held += a.GasMixture.GetTotalMolesGassesAndLiquids.ToDouble();
+                    cells++;
+                }
+            }));
+            string note = Gate.Enabled() ? "" : " Terraforming Reloaded is not running this planet (" + Gate.Describe() + "), so nothing is deleted until it is.";
+            if (!Space.Installed)
+            {
+                note += " This game build no longer mixes outdoor air the way the mod expects (" + Space.Refusal + "), so nothing is deleted with this build either; the setting is recorded for when it can be.";
+            }
+            return string.Format(c, "With this on, gas released at or above 1,000 m, where rockets in space are, is deleted instead of drifting back down to this planet. "
+                + "Right now {0:N0} outdoor cells up there hold {1:N3} mol, which is deleted as it spreads out. What is deleted is gone for good and the loss is saved; turning this off again stops the deleting but brings nothing back. "
+                + "In multiplayer the host's world setting applies to everyone, so gas any player vents in space is deleted.{2} "
+                + "This is recorded for the world you are playing and nothing else. To go ahead: terraform set SpaceDeletesGas on confirm",
+                cells, held, note);
+        }
+
+        private static string SpaceLine()
+        {
+            if (!Space.Installed)
+            {
+                return "  This game build no longer mixes outdoor air the way the mod expects (" + Space.Refusal + "), so nothing is deleted yet; the setting is recorded for when it can be." + Environment.NewLine;
+            }
+            return Gate.Enabled()
+                ? ""
+                : "  Terraforming Reloaded is not running this planet (" + Gate.Describe() + "), so nothing is deleted until it is." + Environment.NewLine;
         }
 
         /// <summary>The heat prompts' version of <see cref="GatePart"/>: nothing is cut while the mod is not running this planet.</summary>
@@ -730,6 +779,7 @@ namespace TerraformingReloaded
                 }
             }
             text.AppendLine("  " + TraceGases.Describe(tank, c));
+            text.AppendLine("  " + Space.Describe(c));
             Reservoirs(text, c);
             // After the reservoirs, because the line about rain being held back is about the clouds
             // printed just above it.
@@ -767,6 +817,8 @@ namespace TerraformingReloaded
                 + (Effective.TraceGasGatheringEnabled
                     ? string.Format(c, ", trace gases gather below {1:0.######} mol per cell at {0:0.##}x at the line", Effective.TraceGasGathering, Effective.TraceGasLine)
                     : ", trace gases do not gather")
+                // A joining player's own value means nothing; the host's is on the space line below.
+                + (NetworkManager.IsClient ? "" : Effective.SpaceDeletesGas ? ", gas released in space is deleted" : ", gas released in space returns to the planet")
                 + "; the storm settings are under storms below; all of them with terraform set");
         }
 
