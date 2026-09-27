@@ -110,15 +110,22 @@ candidates for the limit, and only one of them is real, plus a fourth a world ca
   reusable: fill, launch, vent in space, come back. The limit is then launches, and none of the
   numbers below has been measured. They are **GUESSES**, pending one real launch to measure payload,
   fuel and trip time. Launches are the moles to remove at Standard size (about 250,000 outdoor cells,
-  as in the table under *Which constraint binds*) divided by that payload range:
+  as in the table under *Which constraint binds*) divided by what one trip carries. A Large Liquid
+  Capsule Tank is 3,000 L, and liquid carbon dioxide, volatiles and pollutant pack 25 mol a litre,
+  hydrogen and acid 35.7 (**CODE** `Chemistry`), so one tank is about 75,000 mol (107,000 of hydrogen
+  or acid), 67,500 at a 90 % fill. The basic pressure-fed gas engine gives 40 kN (**WEB**); at a
+  thrust to weight of 1.2 and about 1.2 t of rocket and fuel it lifts about 2.6 t of payload on Venus
+  (8.87 m/s², **MEASURED**) and about 4.9 t on Vulcan (5.5 m/s²), about one tank and about three. On
+  Europa (1.3 m/s²) and Mimas (0.97 m/s²) thrust is not the limit; tank count is. A small rocket is
+  one to three large liquid tanks. A stacked rocket is as many tank sections as the rocket takes, about
+  ten (tanks per fuselage and the tallest rocket both **GUESSES**):
 
-  | | Figure |
-  | --- | --- |
-  | Payload per trip (tanks per fuselage and what a rocket lifts against gravity both unmeasured) | roughly 50,000 to 200,000 mol |
-  | Launches to clear Vulcan's volatiles at Standard size (27 per cell, 6.8 M mol) | about 34 to 135 |
-  | Launches to strip Venus at Standard size (266 per cell, 66 M mol) | about 330 to 1,330 |
-  | Launches for Mimas's removals at Standard size (181 per cell, 45 M mol) | about 225 to 900 |
-  | Launches for Europa's volatiles at Standard size (80 per cell, 20 M mol) | about 100 to 400 |
+  | Removal at Standard size | Small rocket (1 to 3 tanks) | Stacked rocket (about 10 sections) | What binds |
+  | --- | --- | --- | --- |
+  | Vulcan's volatiles (27 per cell, 6.8 M mol) | 50,000 to 200,000 mol a trip: about 34 to 135 launches | about 200,000 mol a trip: about 34 launches | Thrust: the basic engine lifts about three tanks, so stacking adds nothing. The heavy engine (62.6 to 94 kN, Cosmic Curiosities trader, 1,000 credits, **WEB**) lifts about half again: about 300,000 mol, about 23 launches |
+  | Venus, stripped (266 per cell, 66 M mol) | about 60,000 mol a trip (one tank, not full: 2.6 t of carbon dioxide is 59,000 mol): about 1,100 launches | the same: about 1,100 launches | Thrust: one tank is all the basic engine lifts. The heavy engine makes it about 90,000 mol, about 730 launches |
+  | Mimas's removals (181 per cell, 45 M mol) | 50,000 to 200,000 mol a trip: about 225 to 900 launches | about 675,000 mol a trip: about 67 launches | Tank count: thrust lifts far more than ten sections |
+  | Europa's volatiles (80 per cell, 20 M mol) | 50,000 to 200,000 mol a trip: about 100 to 400 launches | about 675,000 mol a trip: about 30 launches | Tank count: thrust lifts far more than ten sections |
 
   Trip time and fuel per trip are not estimated at all. Heavier worlds cost more fuel per mole lifted,
   which is the rate limit. A gas engine also deletes whatever mixture it is fed once its flame is at or
