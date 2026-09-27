@@ -129,6 +129,19 @@ need(not assigners, 'nothing assigns Effective.SpaceDeletesGas directly %s' % (a
 need(re.search(r'private static volatile bool\s+_spaceDeletesGas;', read('src/Settings.cs')) is not None
      and re.search(r'public static bool\s+SpaceDeletesGas\s*=>\s*_spaceDeletesGas;', read('src/Settings.cs')) is not None,
      'deleting gas released in space is a private field with a read-only property')
+# The reset to stock zeroes the lost-to-space total, inside the tank lock with the rest of the reset,
+# and nothing else does; the world's setting is left alone, as reset leaves every world setting.
+forget = {}
+for path in SOURCES:
+    count = read(path).count('Space.ForgetLosses(')
+    if count:
+        forget[os.path.normpath(path).replace('\\', '/')] = count
+need(forget == {'src/Patching/Planet.cs': 1}, 'Space.ForgetLosses is called only by the reset: %s' % (forget or '{}'))
+reset_body = re.search(r'public static string ResetToShipped\(\).*?UnderTankLock\(\(\) =>\s*\{(.*?)\}\);', read('src/Patching/Planet.cs'), re.S)
+need(reset_body is not None and 'Space.ForgetLosses();' in reset_body.group(1),
+     'the reset zeroes the lost-to-space total under the tank lock')
+need(re.search(r'Effective\.\w+\(', reset_body.group(1) if reset_body else '') is None,
+     'the reset leaves every world setting alone, SpaceDeletesGas included')
 # The config editor's bounds and the settings-file check are the same declaration.
 plugin = read('src/Plugin.cs')
 world_scoped = ('MaxPressureKPa', 'ExternalHeatHalfLifeMinutes', 'MaxExternalOffsetKelvin',

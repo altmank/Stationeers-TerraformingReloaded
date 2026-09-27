@@ -2648,6 +2648,7 @@ namespace TerraformingReloaded.LiveCheck
                 _spaceStage++;
                 if (_spaceStage == 4)
                 {
+                    CheckSpaceReset();
                     SetSpaceDeletion(false);
                     Logger.LogInfo("LiveCheck: space done");
                 }
@@ -2694,6 +2695,26 @@ namespace TerraformingReloaded.LiveCheck
             space = above;
             spaceCells = count;
             return planet + below;
+        }
+
+        /// <summary>
+        /// The reset to stock, after the drains: with the setting on and a total above zero, the
+        /// reset must leave the total at exactly 0 and the setting still on.
+        /// </summary>
+        private void CheckSpaceReset()
+        {
+            if (!SetSpaceDeletion(true))
+            {
+                return;
+            }
+            double before = LostToSpace();
+            RunCommand("reset", "confirm");
+            double after = LostToSpace();
+            bool stillOn = (bool)AccessTools.Property(EffectiveType, "SpaceDeletesGas").GetValue(null);
+            bool pass = before > 0.0 && after == 0.0 && stillOn;
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                "LiveCheck: space reset {0} lost to space {1:0.000} -> {2:R} mol, setting still on {3}",
+                pass ? "PASS" : "FAIL", before, after, stillOn));
         }
 
         /// <summary>The mod's running total of gas deleted in space.</summary>

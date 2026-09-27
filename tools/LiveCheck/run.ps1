@@ -85,7 +85,9 @@
                it to spread and drain. The planet side is the tank, its reservoirs and every cell
                below the line. On: the planet side must not move, and every mole that leaves space
                must be in the mod's lost-to-space total. Off: the total must not move, and every mole
-               that leaves space must reach the planet. Both drains must fall under half.
+               that leaves space must reach the planet. Both drains must fall under half. Last,
+               with the setting on again, terraform reset confirm must leave the total at exactly 0
+               and the setting on.
     -MenuPressure  The mix the new-game menu builds to describe a world must be the shipped planet,
                not the resized one it is playing.
     -Schedule  The two storm rules (docs/STORMS.md). Nothing else can reach them: -Storm and -Weather
@@ -817,9 +819,9 @@ try {
         $lines | Write-Host
         $failed = @($lines -match '(^space FAIL| FAIL )')
         if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
-        $passed = @($lines -match '^space (removal|drain) (on|off) PASS')
-        if ($passed.Count -ne 4) { throw "LiveCheck FAILED: expected four judged cases, got $($passed.Count)." }
-        Write-Host 'LiveCheck OK: with the setting on, gas released in space is deleted and counted and the planet does not move; with it off, it returns to the planet and nothing is counted.'
+        $passed = @($lines -match '^space ((removal|drain) (on|off)|reset) PASS')
+        if ($passed.Count -ne 5) { throw "LiveCheck FAILED: expected five judged cases, got $($passed.Count)." }
+        Write-Host 'LiveCheck OK: with the setting on, gas released in space is deleted and counted and the planet does not move; with it off, it returns to the planet and nothing is counted; terraform reset confirm zeroes the total and keeps the setting.'
         return
     }
 

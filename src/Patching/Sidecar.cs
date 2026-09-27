@@ -709,7 +709,8 @@ namespace TerraformingReloaded.Patching
 
         /// <summary>
         /// The game is saving (XmlSaveLoad.GetWorldData, main thread, planet tick paused). Writes the
-        /// file only when gas has been lost to space since it was last written, so on a world that
+        /// file only when the lost-to-space total has changed since it was last written (gas was
+        /// deleted, or the planet was reset), so on a world that
         /// never deletes anything a save writes nothing beside it. The file is written whole, as
         /// terraform set writes it. Never throws: the save must not notice.
         /// </summary>

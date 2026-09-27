@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.5
+
+- **`terraform reset confirm` now also sets the gas lost to space back to 0.** The planet is back as
+  the world ships, so the total starts again from nothing. Whether gas released in space is deleted
+  is this world's setting, and the reset leaves it as it is, like every other setting in
+  `terraform set`. Save after the reset to keep the 0; quitting without saving keeps the old planet
+  and the old total.
+- **Multiplayer:** joining players' `terraform` shows the 0 a few seconds after the host resets.
+
 ## 0.11.4
 
 - **New, off by default: gas released in space can be deleted.** Normally gas released at or above

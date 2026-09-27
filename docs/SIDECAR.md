@@ -114,10 +114,15 @@ built, while on a load both do.
 - **Write, a loaded world with no file**: inside the read prefix, into the folder that already exists.
   `CreateSaveDirectory` never fires on a load, so this is the only place that case can be handled.
 - **Write, a setting changed**: `terraform set`, and no other setting write.
-- **Write, a game save**: prefix on `XmlSaveLoad.GetWorldData`, only when gas has been lost to space
-  since the file was last written, so the file's `GasLostToSpaceMoles` is the total at that save. It
-  writes the whole file from the values in force, as `terraform set` does. A world that never deletes
-  anything writes nothing at a save.
+- **Write, a game save**: prefix on `XmlSaveLoad.GetWorldData`, only when the lost-to-space total has
+  changed since the file was last written (gas was deleted, or `terraform reset confirm` set it back
+  to 0), so the file's `GasLostToSpaceMoles` is the total at that save. It writes the whole file from
+  the values in force, as `terraform set` does. A world that never deletes anything writes nothing at
+  a save.
+- **Not written, the reset**: `terraform reset confirm` sets the total back to 0 in force and leaves
+  every setting, `SpaceDeletesGas` included, as it was, the same as the reset treats the ceiling and
+  the rest. The planet it restores is only kept by a save, so the 0 is too: the next save writes it,
+  and quitting without saving keeps the old planet and the old total together.
 - **Leaving a world**: postfix on `PlanetaryAtmosphereSimulation.Clear`, which the game's own
   teardown calls. Back to the config, ceiling off. Without it the values in force at the main menu
   are the last world played, and `Climate.TemperaturePostfix` gates on `Settings.Enabled` rather than
@@ -377,7 +382,8 @@ other world settings are never read on a client.
 
 **The lost-to-space total follows the file, not the save.** `GasLostToSpaceMoles` is written at a save
 that changed it, so loading an older save in the same folder shows the latest total, not the total at
-that save. It is a readout only; nothing acts on it. A client is sent the host's.
+that save. It is a readout only; nothing acts on it. A client is sent the host's, so a host's reset
+reaches a joining player's readout with the next planet update.
 
 **A workshop save does not carry its file.** The upload is the single `.save`, not the folder, so an
 imported world lands in the missing-sidecar path. That is correct, and needs nothing.

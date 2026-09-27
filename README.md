@@ -159,7 +159,7 @@ F3 opens the console.
 | `terraform size <share> confirm` | Rescales the planet you are playing to that share of the size the world ships at, which changes how long terraforming takes and nothing else. Prints the size, cells, moles and pressure before and after. Host only. `terraform size <share>` alone explains and asks |
 | `terraform set` | Lists the settings the world you are playing keeps for itself, with the value in force and, where it differs, what a new world would start with. Host only |
 | `terraform set <key> <value>` | Changes one of them for this world only, and records it beside the save. Uses the same key names as the config. A change that deletes something for good asks first and needs `confirm` on the end: setting or lowering the pressure ceiling (the prompt names the planet's pressure now and how much air the first tick would delete), lowering the added heat limit, making added heat fade sooner, and turning on deleting gas released in space. Host only. `terraform set <key>` alone reports the one in force |
-| `terraform reset confirm` | Puts the whole planet back exactly as the world ships: starting air, empty clouds and ice caps, no stored heat. Host only. `terraform reset` alone explains and asks |
+| `terraform reset confirm` | Puts the whole planet back exactly as the world ships: starting air, empty clouds and ice caps, no stored heat, and the gas lost to space back to 0. The world's settings stay as they are. Host only. `terraform reset` alone explains and asks |
 | `terraform curves export` | Writes the built-in temperature curves to `BepInEx\config\TerraformingReloaded.curves.xml`. Never overwrites |
 | `terraform curves reload` | Applies that file at once, no restart |
 

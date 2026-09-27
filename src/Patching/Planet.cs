@@ -304,10 +304,11 @@ namespace TerraformingReloaded.Patching
 
         /// <summary>
         /// Puts the planet back exactly as the world ships: starting air, empty clouds, empty ice caps,
-        /// no stored heat. This is the way out of the mod. The game saves and loads the planet with or
-        /// without the mod installed, so removing the mod alone leaves the changed planet in the save,
-        /// frozen, and on a world that ships with no base temperature (Moon, Mimas) leaves its new air
-        /// at 0 K. Reset, save, then remove.
+        /// no stored heat, nothing lost to space. The world's settings stay as they are. This is the way
+        /// out of the mod. The game saves and loads the planet with or without the mod installed, so
+        /// removing the mod alone leaves the changed planet in the save, frozen, and on a world that
+        /// ships with no base temperature (Moon, Mimas) leaves its new air at 0 K. Reset, save, then
+        /// remove.
         ///
         /// Outdoor cells and everything the player built are untouched; outdoor cells relax toward
         /// the restored planet on their own, as they do toward any planet.
@@ -347,6 +348,7 @@ namespace TerraformingReloaded.Patching
                 }
                 PlanetaryAtmosphereSimulation.LatentEnergyOffset = MoleEnergy.Zero;
                 PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset = MoleEnergy.Zero;
+                Space.ForgetLosses();
             });
             return null;
         }

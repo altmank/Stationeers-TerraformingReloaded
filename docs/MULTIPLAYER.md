@@ -67,7 +67,9 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
 - **Gas released in space, for the readout.** Last come whether the host's world deletes gas released
   in space, whether that rule is installed on the host, and the host's lost-to-space total, 10 bytes.
   The joining player's `terraform` shows those, marked as the host's. Nothing on their game acts on
-  them: the deleting happens in the mixing, which only the host runs.
+  them: the deleting happens in the mixing, which only the host runs. The total is sent as it stands
+  with every planet update, so the host's `terraform reset confirm`, which sets it back to 0, shows on
+  joining players' games within `SyncIntervalSeconds`.
 - **The section's first byte says what follows.** 0 nothing, 1 the planet alone (0.10.0 and earlier),
   2 the planet and the settings (0.10.1 to 0.11.3), 3 the planet, the settings and space (0.11.4 on). A reader takes the planet from 1 or 2 and skips any other
   value; a layout, once shipped, keeps its byte and a new one takes the next. Mixed versions never

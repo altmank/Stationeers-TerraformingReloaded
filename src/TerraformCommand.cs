@@ -14,7 +14,7 @@ namespace TerraformingReloaded
     /// <summary>Console command: what the planet holds and what the mod is doing about it.</summary>
     public sealed class TerraformCommand : CommandBase
     {
-        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'set' lists the settings the world you are playing keeps for itself, and 'set <key> <value>' changes one for this world only; the config only decides what a new world starts with (host only). 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships, which is also how to remove the mod cleanly (host only). 'curves export' and 'curves reload' are for tuning the temperature response.";
+        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'set' lists the settings the world you are playing keeps for itself, and 'set <key> <value>' changes one for this world only; the config only decides what a new world starts with (host only). 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships and sets the gas lost to space back to 0, keeping this world's settings, which is also how to remove the mod cleanly (host only). 'curves export' and 'curves reload' are for tuning the temperature response.";
 
         public override string[] Arguments => new[] { "[status | set [<key> [<value> [confirm]]] | size <share> confirm | reset confirm | curves export | curves reload]" };
 
@@ -705,8 +705,8 @@ namespace TerraformingReloaded
             // It cannot be undone except by loading an earlier save, so it asks once.
             if (!confirmed)
             {
-                return "This puts the whole planet back as the world ships: starting air, empty clouds, empty ice caps, no stored heat. "
-                    + "Everything you have terraformed is lost; your base and the air inside it are untouched. "
+                return "This puts the whole planet back as the world ships: starting air, empty clouds, empty ice caps, no stored heat, and the gas lost to space back to 0. "
+                    + "Everything you have terraformed is lost; your base and the air inside it are untouched, and so are this world's settings (see terraform set). "
                     + "To go ahead: terraform reset confirm";
             }
             string problem = Planet.ResetToShipped();

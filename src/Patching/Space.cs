@@ -197,6 +197,15 @@ namespace TerraformingReloaded.Patching
             Interlocked.Exchange(ref _lostMoles, moles >= 0.0 && !double.IsInfinity(moles) ? moles : 0.0);
         }
 
+        /// <summary>
+        /// The planet is back as the world ships, so nothing has been lost from it yet. Only the total
+        /// goes: whether this world deletes gas released in space is its setting, and stays.
+        /// </summary>
+        internal static void ForgetLosses()
+        {
+            SetLost(0.0);
+        }
+
         // ---- a joining player's game -------------------------------------------------------------
 
         /// <summary>Sync, on a joining player's game: what the host's world does with space gas.</summary>
@@ -298,6 +307,12 @@ namespace TerraformingReloaded.Patching
                 if (LostMoles != 0.0)
                 {
                     return "a negative total was taken from a settings file";
+                }
+                SetLost(12.5);
+                ForgetLosses();
+                if (LostMoles != 0.0)
+                {
+                    return "a planet reset left the total at " + LostMoles.ToString("R", CultureInfo.InvariantCulture) + " mol";
                 }
                 return null;
             }

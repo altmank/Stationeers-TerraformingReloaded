@@ -201,7 +201,7 @@ internal static class Program
         }
 
         string ledger = TerraformingReloaded.Patching.Space.CheckLedger();
-        Console.WriteLine("gas lost in space running total: " + (ledger ?? "counts only while marked, per thread, and keeps every add"));
+        Console.WriteLine("gas lost in space running total: " + (ledger ?? "counts only while marked, per thread, keeps every add, and a planet reset zeroes it"));
         if (ledger != null)
         {
             Console.WriteLine("FAILED:  gas lost in space running total");
