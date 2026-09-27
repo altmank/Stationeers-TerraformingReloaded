@@ -109,15 +109,16 @@ candidates for the limit, and only one of them is real, plus a fourth a world ca
   per world), gas a rocket carries up and vents at or above 1,000 m is gone. That makes the tanks
   reusable: fill, launch, vent in space, come back. The limit is then launches, and none of the
   numbers below has been measured. They are **GUESSES**, pending one real launch to measure payload,
-  fuel and trip time:
+  fuel and trip time. Launches are the moles to remove at Standard size (about 250,000 outdoor cells,
+  as in the table under *Which constraint binds*) divided by that payload range:
 
   | | Figure |
   | --- | --- |
   | Payload per trip (tanks per fuselage and what a rocket lifts against gravity both unmeasured) | roughly 50,000 to 200,000 mol |
-  | Launches to clear Vulcan's volatiles at Standard size | about 100 to 135 |
-  | Launches to strip Venus at Standard size | about 1,100 |
-  | Launches for Mimas's removals at Standard size | about 67 |
-  | Launches for Europa's volatiles at Standard size | about 30 |
+  | Launches to clear Vulcan's volatiles at Standard size (27 per cell, 6.8 M mol) | about 34 to 135 |
+  | Launches to strip Venus at Standard size (266 per cell, 66 M mol) | about 330 to 1,330 |
+  | Launches for Mimas's removals at Standard size (181 per cell, 45 M mol) | about 225 to 900 |
+  | Launches for Europa's volatiles at Standard size (80 per cell, 20 M mol) | about 100 to 400 |
 
   Trip time and fuel per trip are not estimated at all. Heavier worlds cost more fuel per mole lifted,
   which is the rate limit. A gas engine also deletes whatever mixture it is fed once its flame is at or
