@@ -8,8 +8,8 @@
   because what it deletes is gone for good and the loss is saved), or in the config's new `Space`
   section for new worlds. Then a rocket can carry unwanted gas up and vent it off the world.
   `terraform` shows how much has been lost to space.
-- **Multiplayer:** the host's world setting applies to everyone, so gas any player vents in space is
-  deleted, once, by the host. Everyone's `terraform` shows the host's setting and the total. Host and
+- **Multiplayer:** the host's world setting applies to everyone; gas any player vents in
+  space is deleted. Everyone's `terraform` shows the host's setting and the total. Host and
   players need 0.11.4, as always.
 - **Existing worlds are unchanged:** a world saved before 0.11.4 has it off whatever the config says,
   like the pressure ceiling, until you turn it on for that world.

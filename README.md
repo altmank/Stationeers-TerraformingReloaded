@@ -202,8 +202,9 @@ lives in the host's game, and the mod sends it to every player's game every few 
   and the players together.
 - **A mod switched on in StationeersLaunchPad loads the next time the game starts.** If a player's
   readings jump like this with the mod switched on, have them restart the game.
-- **Gas released in space.** If the host's world deletes it, gas any player vents in space is deleted,
-  once, by the host. Everyone's `terraform` shows the host's setting and how much has been lost to space.
+- **Gas released in space.** In multiplayer the host's world setting applies to everyone; gas any
+  player vents in space is deleted. Everyone's `terraform` shows the host's setting and how much has
+  been lost to space.
 - **The host's settings decide the planet.** Planet size, the pressure ceiling, storms and every other
   setting a world keeps are read from the host's world file and config, and so is how often the planet
   is sent. `terraform size`, `set` and `reset` work only on the host; on a joining player's game,

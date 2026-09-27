@@ -75,7 +75,7 @@ Your changed planet lives in the save, so deleting the mod does not undo it. Run
 [*]The pressure ceiling deletes air permanently. Leave it at 0 unless you mean it.
 [*]Multiplayer: the host and everyone who joins need the mod, same version. The host's settings decide the planet for everyone, and only the host can run [b]terraform size[/b], [b]set[/b] and [b]reset[/b].
 [*][b]Experimental, off by default:[/b] [b]terraform set TraceGasGatheringEnabled on[/b] makes a small spill of a gas the planet barely holds (a furnace taken apart outside) gather beside your base, where it burns off or reaches your filters, instead of lingering over the whole planet for hours.
-[*][b]Off by default, and permanent:[/b] [b]terraform set SpaceDeletesGas on[/b] makes gas released at or above 1,000 m, where rockets in space are, disappear instead of drifting back down to the planet, so a rocket can carry unwanted gas off the world. In multiplayer the host's world setting applies to everyone: gas any player vents in space is deleted.
+[*][b]Off by default.[/b] Gas deleted in space is gone for good: switching the setting off later stops new deletion but does not bring deleted gas back. [b]terraform set SpaceDeletesGas on[/b] makes gas released at or above 1,000 m, where rockets in space are, disappear instead of drifting back down to the planet, so a rocket can carry unwanted gas off the world. In multiplayer the host's world setting applies to everyone: gas any player vents in space is deleted.
 [*]Tutorials are left alone.
 [*]If a game update changes what this depends on, the mod switches itself off and says why in the log rather than risk your save.
 [/list]
