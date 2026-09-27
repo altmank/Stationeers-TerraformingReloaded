@@ -126,8 +126,9 @@ the world's settings file records at each save that changed it and `terraform` p
 - **Where.** Three game sites hand a space cell's gas to the planet (GAME-MODEL.md). The lerp and the
   mixing share both run only inside `Atmosphere.MixInWorld`, so its prefix sets a `[ThreadStatic]` flag
   when the cell is at or above the line and the world has the setting on, and a finalizer clears it;
-  `Guards.GivePrefix`, after its own checks, drops the mixture while the flag is set. The prefix always
-  assigns the flag, so it cannot outlive the call even without the finalizer. Removal is
+  `Guards.GivePrefix`, after its own checks, drops the mixture while the flag is set. The finalizer is
+  what stops the flag outliving the call, including one that throws; the prefix always assigning it
+  only means a stale flag could never reach the next mix on that thread. Removal is
   `Guards.DeregisterPrefix`: after the D2 branch, which empties a cell whose gas the divide has already
   passed on, a space cell is counted and emptied before the game hands it over.
 - **Shape check.** `Space.CheckShape` reads the game's own IL and refuses to install unless the lerp
