@@ -104,13 +104,18 @@ namespace TerraformingReloaded.Patching
             // Per-world, not the config: this one deletes air for good and saves the loss, so it is
             // the setting a world must never inherit from whatever the config says today. No ceiling
             // is null here and never 0; the config's sentinel died at the Sidecar boundary.
+            // The pressure is worked out from the tank, not read from GlobalPressure: that is a copy
+            // the game rebuilds only at the end of a tick, and a load replaces the tank without
+            // rebuilding it, so on the first tick after every load it still held the world as shipped
+            // and cut a loaded Venus by 0.42 however far below the ceiling it was.
             if (Effective.MaxPressureKPa.HasValue)
             {
                 double cap = Effective.MaxPressureKPa.Value;
-                double pressure = PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble();
-                if (pressure > cap)
+                GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+                double pressure = Planet.PressureKPa(tank);
+                if (tank != null && pressure > cap && !double.IsInfinity(pressure))
                 {
-                    PlanetaryAtmosphereSimulation.GetGlobalGasMix()?.Scale(cap / pressure);
+                    tank.Scale(cap / pressure);
                 }
             }
 

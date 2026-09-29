@@ -174,6 +174,34 @@ namespace TerraformingReloaded.Patching
         }
 
         /// <summary>
+        /// The planet's pressure this moment in kPa, worked out from the tank itself at the planet's
+        /// temperature this moment: the same temperature call the game uses to give its one-cell copy
+        /// of the planet a temperature, and the one the temperature response adjusts. The game's own
+        /// figures, PlanetaryAtmosphereSimulation.GlobalPressure and AggregateTemperature, are only
+        /// rebuilt at the end of a planet tick, and loading a save replaces the tank without rebuilding
+        /// them, so until the first tick after a load or a world start they describe the world as it
+        /// ships, or nothing. This is right from the first moment.
+        ///
+        /// Over the tank's full Volume, not VolumeForGas, deliberately. The game's per-tick readout
+        /// scales its copy by one cell over Volume, and every outdoor cell is cloned from the tank with
+        /// the ratio cell volume over Volume, so moles times RT over Volume is the pressure a player
+        /// measures outdoors. The two differ only when the tank holds liquid, a sea, and there
+        /// VolumeForGas would read higher than anything outside does.
+        ///
+        /// NaN with no tank or no world loaded, and NaN or infinity on a planet of no usable volume
+        /// (D19): callers treat any figure that is not finite as "cannot be read".
+        /// </summary>
+        public static double PressureKPa(GlobalGasMix tank)
+        {
+            GlobalAtmosphereData data = WorldSetting.Current?.Data?.GlobalAtmosphereData;
+            if (tank == null || data == null)
+            {
+                return double.NaN;
+            }
+            return IdealGas.Pressure(tank.TotalQuantityGas(), tank.GetGlobalGasMixTemperature(data), tank.Volume).ToDouble();
+        }
+
+        /// <summary>
         /// Rescales the planet being played by <paramref name="factor"/>: the tank's volume and every
         /// gas and liquid in it, the clouds and the ice caps with their contents, and both stored
         /// heats, all by the same factor. Everything measured per litre is therefore exactly where it

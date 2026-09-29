@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.7
+
+- **Fixed: with a pressure ceiling set, loading a world deleted most of its air.** On the first
+  planet tick after every load the ceiling measured the planet as the world ships, not as it was
+  saved, and cut the planet by that much however far below the ceiling it really was: a Venus
+  world with a 100 kPa ceiling lost 58 % of its air on every load. The ceiling now works out the
+  pressure from the planet's own air at its temperature this moment, so it acts only when the
+  planet really is over it, and then cuts it down to the ceiling. Air already lost this way is not
+  given back.
+- `terraform` and the pressure figures `terraform set`, `size` and `gas` print use the same
+  reading, so they are right straight after a load too; `terraform` also shows the planet's
+  temperature from that moment rather than 0 K before the first tick.
+- **Multiplayer:** unchanged; the ceiling runs on the host only.
+
 ## 0.11.6
 
 - **New, for testing: `terraform gas add <gas> <mol> [<K>]` and `terraform gas remove <gas> <mol|all> confirm`.**

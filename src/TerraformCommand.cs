@@ -193,12 +193,13 @@ namespace TerraformingReloaded
         }
 
         /// <summary>
-        /// The figures a rescale moves beside the one it must not. The pressure is worked out from the
-        /// tank rather than read from PlanetaryAtmosphereSimulation.GlobalPressure, which the game
-        /// rebuilds once a tick from a one-cell copy of the planet: printed either side of a rescale
-        /// that would be one reading shown twice, and could not show a mistake. This is the game's own
-        /// ideal gas relation on the tank itself, and it agrees with the readout (2.1435 against the
-        /// 2.144 kPa status reported on Mars).
+        /// The figures a rescale moves beside the one it must not. The pressure is the one the ceiling
+        /// compares, Planet.PressureKPa, worked out from the tank rather than read from
+        /// PlanetaryAtmosphereSimulation.GlobalPressure, which the game rebuilds once a tick from a
+        /// one-cell copy of the planet: printed either side of a rescale that would be one reading
+        /// shown twice, and could not show a mistake. The game's own ideal gas relation on the tank
+        /// agreed with the readout on Mars (2.1435 against the 2.144 kPa status reported), whose tank
+        /// holds no liquid, so its Volume and VolumeForGas are the same.
         /// </summary>
         private static string SizeLine(GlobalGasMix tank, double shipped)
         {
@@ -206,7 +207,7 @@ namespace TerraformingReloaded
                 tank.Volume.ToDouble() / shipped,
                 (tank.Volume / Chemistry.GridVolume).ToDouble(),
                 tank.TotalQuantity().ToDouble(),
-                IdealGas.Pressure(tank.TotalQuantityGas(), PlanetaryAtmosphereSimulation.AggregateTemperature, tank.VolumeForGas()).ToDouble());
+                Planet.PressureKPa(tank));
         }
 
         // ---- terraform set ----------------------------------------------------------------------
@@ -638,13 +639,13 @@ namespace TerraformingReloaded
         }
 
         /// <summary>
-        /// The pressure the rule itself compares against: the game's per-tick planet readout, the
-        /// same member the upkeep reads. A planet of no volume has none, and the figure comes out
+        /// The pressure the rule itself compares against, Planet.PressureKPa on the tank, the same
+        /// figure the upkeep works out. A planet of no volume has none, and the figure comes out
         /// NaN (D19), so it is guarded the way the status readout is.
         /// </summary>
-        private static string PressureNow(CultureInfo c)
+        private static string PressureNow(CultureInfo c, GlobalGasMix tank)
         {
-            double pressure = PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble();
+            double pressure = Planet.PressureKPa(tank);
             return double.IsNaN(pressure) || double.IsInfinity(pressure)
                 ? "Its pressure cannot be read (this world's planet has no usable volume)."
                 : string.Format(c, "It is at {0:0.###} kPa right now.", pressure);
@@ -660,9 +661,9 @@ namespace TerraformingReloaded
         {
             StringBuilder text = new StringBuilder();
             text.Append(string.Format(c, "The pressure ceiling for this planet is {0} and you are asking for {1}; 0 means no ceiling. {2} ",
-                Ceiling(now), Ceiling(asked), PressureNow(c)));
+                Ceiling(now), Ceiling(asked), PressureNow(c, tank)));
 
-            double pressure = PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble();
+            double pressure = Planet.PressureKPa(tank);
             bool known = !double.IsNaN(pressure) && !double.IsInfinity(pressure);
             bool raising = !asked.HasValue || (now.HasValue && asked.Value > now.Value);
             if (asked.HasValue && known && pressure > asked.Value)
@@ -861,8 +862,9 @@ namespace TerraformingReloaded
         /// <summary>
         /// The figures a gas verb moves, read live from the tank rather than from the per-tick
         /// readouts, so either side of one command they can differ. The temperature is the one the
-        /// game computes for the planet this moment; the stored heat is the part of it that is heat
-        /// rather than the curve for its air, which a default addition must leave where it was.
+        /// game computes for the planet this moment and the pressure is Planet.PressureKPa, the one
+        /// the ceiling compares; the stored heat is the part of the temperature that is heat rather
+        /// than the curve for its air, which a default addition must leave where it was.
         /// </summary>
         private static string GasLine(GlobalGasMix tank, Chemistry.GasType type, CultureInfo c)
         {
@@ -871,12 +873,13 @@ namespace TerraformingReloaded
                 + PlanetaryAtmosphereSimulation.GetExternalInputEnergyOffset().ToDouble();
             return string.Format(c, "{0} {1:N3} mol, all gas {2:N3} mol, {3:0.###} kPa, {4:0.###} K (stored heat {5:+0.###;-0.###;0} K)",
                 type, tank.Get(type).ToDouble(), tank.TotalQuantityGas().ToDouble(),
-                IdealGas.Pressure(tank.TotalQuantityGas(), kelvin, tank.VolumeForGas()).ToDouble(), kelvin.ToDouble(), stored);
+                Planet.PressureKPa(tank), kelvin.ToDouble(), stored);
         }
 
         /// <summary>
         /// Added air over this world's pressure ceiling does not stay: the next planet tick scales the
-        /// whole planet down to it. Said, not refused; the ceiling is the player's own setting.
+        /// whole planet down to it. Said, not refused; the ceiling is the player's own setting. Judged
+        /// on Planet.PressureKPa, the figure the ceiling itself compares.
         /// </summary>
         private static string CeilingNote(GlobalGasMix tank, CultureInfo c)
         {
@@ -884,8 +887,7 @@ namespace TerraformingReloaded
             {
                 return "";
             }
-            double pressure = IdealGas.Pressure(tank.TotalQuantityGas(),
-                tank.GetGlobalGasMixTemperature(WorldSetting.Current.Data.GlobalAtmosphereData), tank.VolumeForGas()).ToDouble();
+            double pressure = Planet.PressureKPa(tank);
             return pressure > Effective.MaxPressureKPa.Value
                 ? string.Format(c, "  This world's pressure ceiling is {0:0.###} kPa, so while the planet is over it every planet tick scales the whole planet down to it, and most of what was added does not stay. To keep it: terraform set MaxPressureKPa none{1}",
                     Effective.MaxPressureKPa.Value, Environment.NewLine)
@@ -950,14 +952,17 @@ namespace TerraformingReloaded
             }
             // A planet of no volume has no pressure: the game divides by that volume and the figure
             // comes out NaN (D19). Say what is wrong instead of printing it; the rest of the line is
-            // still real.
-            double pressure = PlanetaryAtmosphereSimulation.GlobalPressure.ToDouble();
+            // still real. Pressure and temperature are worked out from the tank, as the ceiling does,
+            // not read from the game's per-tick figures, which right after a load still describe the
+            // world as it ships.
+            double pressure = Planet.PressureKPa(tank);
             string pressurePart = double.IsNaN(pressure) || double.IsInfinity(pressure)
                 ? "no pressure (this world's planet has no usable volume)"
                 : string.Format(c, "pressure {0:0.###} kPa", pressure);
+            GlobalAtmosphereData data = WorldSetting.Current?.Data?.GlobalAtmosphereData;
             text.AppendLine(string.Format(c, "  {0}, temperature {1:0.#} K, gas {2:0.000} mol, liquid {3:0.000} mol",
                 pressurePart,
-                PlanetaryAtmosphereSimulation.AggregateTemperature.ToDouble(),
+                data == null ? double.NaN : tank.GetGlobalGasMixTemperature(data).ToDouble(),
                 tank.TotalQuantityGas().ToDouble(), tank.TotalQuantityLiquid().ToDouble()));
             text.AppendLine(string.Format(c, "  temperature parts (K): sun angle {0:0.#}, sun distance {1:0.#}, greenhouse {2:0.#}, density {3:0.#}, weather {4:0.#}, latent {5:0.##}, external {6:0.##}",
                 PlanetaryAtmosphereSimulation.SolarAngleTemperature.ToDouble(),
