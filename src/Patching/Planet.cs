@@ -276,6 +276,83 @@ namespace TerraformingReloaded.Patching
         }
 
         /// <summary>
+        /// Puts <paramref name="moles"/> of one gas or liquid into the planet, as if it arrived at
+        /// <paramref name="kelvin"/>, or at the planet's own temperature when that is null. For the
+        /// console's debug verb, terraform gas add.
+        ///
+        /// The planet's temperature is the shipped curve for its air, plus two stored heats, each an
+        /// energy divided by the heat capacity of the planet and its reservoirs. More air is more heat
+        /// capacity, so left alone both stored heats would be spread thinner and the planet would cool
+        /// for no reason. Both are grown with the heat capacity instead, exactly as Rescale does, so
+        /// what they apply in kelvin stays where it was: air added at the planet's own temperature
+        /// neither heats nor cools it. Air added hotter or colder brings the difference in as outside
+        /// heat, which is what the game books for any gas handed to the planet
+        /// (PlanetaryAtmosphereSimulation.GiveToGlobal), and that heat then fades and is bounded like
+        /// any other. What moves the temperature otherwise is the air's own greenhouse and density
+        /// response to the new mix, which is terraforming and not heat.
+        ///
+        /// Returns the temperature the addition was booked at.
+        /// </summary>
+        public static double AddGas(GlobalGasMix tank, Chemistry.GasType type, double moles, double? kelvin)
+        {
+            double arrivedAt = 0.0;
+            UnderTankLock(() =>
+            {
+                double planetKelvin = tank.GetGlobalGasMixTemperature(WorldSetting.Current.Data.GlobalAtmosphereData).ToDouble();
+                arrivedAt = kelvin ?? planetKelvin;
+                double capacityBefore = PlanetaryAtmosphereSimulation.GetHeatCapacity().ToDouble();
+                tank.Set(new MoleQuantity(tank.Get(type).ToDouble() + moles), type);
+                double capacityAfter = PlanetaryAtmosphereSimulation.GetHeatCapacity().ToDouble();
+                KeepStoredHeatInKelvin(capacityBefore, capacityAfter);
+                PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset = new MoleEnergy(
+                    PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset.ToDouble() + (capacityAfter - capacityBefore) * (arrivedAt - planetKelvin));
+            });
+            return arrivedAt;
+        }
+
+        /// <summary>
+        /// Takes up to <paramref name="moles"/> of one gas or liquid out of the planet, clamped to
+        /// what it holds (pass infinity for all of it), with its share of the planet's stored heat,
+        /// so the temperature of what remains is where it was apart from the air's own response to
+        /// the new mix. For the console's debug verb, terraform gas remove. Returns the moles removed.
+        /// </summary>
+        public static double RemoveGas(GlobalGasMix tank, Chemistry.GasType type, double moles)
+        {
+            double removed = 0.0;
+            UnderTankLock(() =>
+            {
+                double held = tank.Get(type).ToDouble();
+                removed = Math.Min(moles, Math.Max(0.0, held));
+                if (!(removed > 0.0))
+                {
+                    removed = 0.0;
+                    return;
+                }
+                double capacityBefore = PlanetaryAtmosphereSimulation.GetHeatCapacity().ToDouble();
+                tank.Set(removed >= held ? MoleQuantity.Zero : new MoleQuantity(held - removed), type);
+                KeepStoredHeatInKelvin(capacityBefore, PlanetaryAtmosphereSimulation.GetHeatCapacity().ToDouble());
+            });
+            return removed;
+        }
+
+        /// <summary>
+        /// Moves both stored heats with the heat capacity, so the kelvin each applies does not change.
+        /// Nothing to keep when there was no heat capacity: the kelvin was not defined.
+        /// </summary>
+        private static void KeepStoredHeatInKelvin(double capacityBefore, double capacityAfter)
+        {
+            if (!(capacityBefore > 0.0) || double.IsInfinity(capacityBefore) || double.IsNaN(capacityAfter))
+            {
+                return;
+            }
+            double factor = Math.Max(0.0, capacityAfter) / capacityBefore;
+            PlanetaryAtmosphereSimulation.LatentEnergyOffset =
+                new MoleEnergy(PlanetaryAtmosphereSimulation.LatentEnergyOffset.ToDouble() * factor);
+            PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset =
+                new MoleEnergy(PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset.ToDouble() * factor);
+        }
+
+        /// <summary>
         /// Runs <paramref name="body"/> holding the lock the planet tick and every take and give hold.
         /// A rescale is asked for from the console while the simulation is running, so figures read
         /// either side of one straddle a tick's own changes unless the whole thing is held. The lock

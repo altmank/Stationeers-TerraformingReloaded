@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.6
+
+- **New, for testing: `terraform gas add <gas> <mol> [<K>]` and `terraform gas remove <gas> <mol|all> confirm`.**
+  They put a gas straight into the planet's air or take it out, so a planet can be tried out without
+  building the machines to get it there. The amount is for the whole planet; gas names are the
+  game's own, as `addgas` takes them. Added gas arrives at the planet's own temperature unless you
+  give one, so it neither heats nor cools the planet; removed gas takes its share of the planet's
+  heat with it. The temperature still follows the air's own response to its new mix. The change is
+  saved with the world and shows in `terraform`. Removing asks first. With a pressure ceiling set,
+  air above it is deleted on the next planet tick, as always, and the command says so.
+- **Multiplayer:** host only, like `terraform size`, `set` and `reset`; joining players see the
+  result within a few seconds.
+
 ## 0.11.5
 
 - **`terraform reset confirm` now also sets the gas lost to space back to 0.** The planet is back as

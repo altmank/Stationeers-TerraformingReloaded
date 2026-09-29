@@ -14,9 +14,9 @@ namespace TerraformingReloaded
     /// <summary>Console command: what the planet holds and what the mod is doing about it.</summary>
     public sealed class TerraformCommand : CommandBase
     {
-        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'set' lists the settings the world you are playing keeps for itself, and 'set <key> <value>' changes one for this world only; the config only decides what a new world starts with (host only). 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships and sets the gas lost to space back to 0, keeping this world's settings, which is also how to remove the mod cleanly (host only). 'curves export' and 'curves reload' are for tuning the temperature response.";
+        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'set' lists the settings the world you are playing keeps for itself, and 'set <key> <value>' changes one for this world only; the config only decides what a new world starts with (host only). 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships and sets the gas lost to space back to 0, keeping this world's settings, which is also how to remove the mod cleanly (host only). 'gas add <gas> <mol> [<K>]' and 'gas remove <gas> <mol|all> confirm' put a gas into the planet or take it out, for testing (host only). 'curves export' and 'curves reload' are for tuning the temperature response.";
 
-        public override string[] Arguments => new[] { "[status | set [<key> [<value> [confirm]]] | size <share> confirm | reset confirm | curves export | curves reload]" };
+        public override string[] Arguments => new[] { "[status | set [<key> [<value> [confirm]]] | size <share> confirm | reset confirm | gas add <gas> <mol> [<K>] | gas remove <gas> <mol|all> confirm | curves export | curves reload]" };
 
         public override bool IsLaunchCmd => false;
 
@@ -39,6 +39,8 @@ namespace TerraformingReloaded
                     return Set(args);
                 case "reset":
                     return Reset(args.Length > 1 && args[1].ToLowerInvariant() == "confirm");
+                case "gas":
+                    return Gas(args);
                 case "curves":
                     return Curves(args.Length > 1 ? args[1].ToLowerInvariant() : "");
                 default:
@@ -694,6 +696,207 @@ namespace TerraformingReloaded
             text.Append("This is recorded for the world you are playing and nothing else; the setting in the config is not changed. ");
             text.Append(string.Format(c, "To go ahead: terraform set MaxPressureKPa {0:0.###} confirm", asked ?? 0.0));
             return text.ToString();
+        }
+
+        // ---- terraform gas ------------------------------------------------------------------------
+
+        // Bounds on what the gas verbs accept. A mole count past a trillion or a temperature past
+        // 10,000 K is a typo, not a test.
+        private const double MaxGasMoles = 1e12;
+        private const double MaxGasKelvin = 10000.0;
+
+        private const string GasUsage = "terraform gas add <gas> <mol> [<K>] | terraform gas remove <gas> <mol|all> confirm. "
+            + "<mol> is for the whole planet, not per outdoor cell. <K> is the temperature the gas arrives at; left out, it arrives at the planet's own and neither heats nor cools it. Host only.";
+
+        /// <summary>
+        /// terraform gas add &lt;gas&gt; &lt;mol&gt; [&lt;K&gt;] and terraform gas remove &lt;gas&gt;
+        /// &lt;mol|all&gt; confirm: puts one gas straight into the planet's air or takes it out, for
+        /// testing a planet without building the machines to get it there. The same tank everything
+        /// else here works on, so the change is saved with the world and shows in terraform status.
+        /// Gas names are the game's, as addgas takes them; liquids are accepted too, because the
+        /// planet holds them (its sea and ground water).
+        ///
+        /// Removing asks first, like every other verb that deletes something for good. Adding does
+        /// not: what was added can be removed again with the same verb.
+        /// </summary>
+        private static string Gas(string[] args)
+        {
+            if (NetworkManager.IsClient)
+            {
+                return "Can only be run on the server";
+            }
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            if (tank == null || WorldSetting.Current?.Data?.GlobalAtmosphereData == null)
+            {
+                return "No planet loaded, so there is no air to change.";
+            }
+            string verb = args.Length > 1 ? args[1].ToLowerInvariant() : "";
+            if ((verb != "add" && verb != "remove") || args.Length < 4)
+            {
+                return GasUsage + " Gases: " + string.Join(", ", TankSpecies()) + ".";
+            }
+            if (!TryGasType(args[2], out Chemistry.GasType type))
+            {
+                return "'" + args[2] + "' is not a gas the planet can hold. Gases: " + string.Join(", ", TankSpecies()) + ".";
+            }
+            return verb == "add" ? AddGas(tank, type, args) : RemoveGas(tank, type, args);
+        }
+
+        private static string AddGas(GlobalGasMix tank, Chemistry.GasType type, string[] args)
+        {
+            CultureInfo c = CultureInfo.InvariantCulture;
+            if (!TryAmount(args[3], out double moles))
+            {
+                return string.Format(c, "'{0}' is not an amount. Give moles for the whole planet, more than 0 and up to {1:0.#####E+0}.", args[3], MaxGasMoles);
+            }
+            double? kelvin = null;
+            if (args.Length > 4)
+            {
+                if (!double.TryParse(args[4], NumberStyles.Float, c, out double k) || double.IsNaN(k) || !(k > 0.0) || k > MaxGasKelvin)
+                {
+                    return string.Format(c, "'{0}' is not a temperature. Give kelvin, more than 0 and up to {1:N0}, or leave it out for the planet's own.", args[4], MaxGasKelvin);
+                }
+                kelvin = k;
+            }
+
+            string before = null;
+            string after = null;
+            double arrivedAt = 0.0;
+            Planet.UnderTankLock(() =>
+            {
+                before = GasLine(tank, type, c);
+                arrivedAt = Planet.AddGas(tank, type, moles, kelvin);
+                after = GasLine(tank, type, c);
+            });
+            StringBuilder text = new StringBuilder();
+            text.AppendLine(string.Format(c, "Added {0:#,0.######} mol of {1} ({2:0.######} mol per outdoor cell) at {3:0.###} K{4}.",
+                moles, type, moles / Cells(tank), arrivedAt, kelvin.HasValue ? "" : ", the planet's own temperature, so it neither heats nor cools it"));
+            text.AppendLine("  before  " + before);
+            text.AppendLine("  now     " + after);
+            text.AppendLine(kelvin.HasValue
+                ? "  The difference from the planet's temperature is booked as added heat, which fades and is limited like any other. The rest of any change is the air's own response to its new mix."
+                : "  Any change in temperature is the air's own response to its new mix, as if it had been made in game.");
+            text.Append(CeilingNote(tank, c)).Append(GasGateNote());
+            return text.ToString().TrimEnd();
+        }
+
+        private static string RemoveGas(GlobalGasMix tank, Chemistry.GasType type, string[] args)
+        {
+            CultureInfo c = CultureInfo.InvariantCulture;
+            string typed = args[3];
+            bool all = typed.ToLowerInvariant() == "all";
+            double moles = double.PositiveInfinity;
+            if (!all && !TryAmount(typed, out moles))
+            {
+                return string.Format(c, "'{0}' is not an amount. Give moles for the whole planet, more than 0 and up to {1:0.#####E+0}, or all.", typed, MaxGasMoles);
+            }
+            double held = tank.Get(type).ToDouble();
+            if (!(held > 0.0))
+            {
+                return "The planet holds no " + type + ", so there is nothing to remove.";
+            }
+            double going = Math.Min(moles, held);
+            // It deletes air for good once saved, so it asks once, like the reset does.
+            if (args.Length < 5 || args[4].ToLowerInvariant() != "confirm")
+            {
+                return string.Format(c, "This deletes {0:N3} mol of {1} from the planet, {2} of the {3:N3} mol it holds ({4:0.######} mol per outdoor cell), with its share of the planet's heat, so what remains keeps its temperature. "
+                    + "It is gone for good once you save. To go ahead: terraform gas remove {1} {5} confirm",
+                    going, type, going >= held ? "all" : string.Format(c, "{0:0.##}%", going / held * 100.0), held, held / Cells(tank), all ? "all" : typed);
+            }
+
+            string before = null;
+            string after = null;
+            double removed = 0.0;
+            Planet.UnderTankLock(() =>
+            {
+                before = GasLine(tank, type, c);
+                removed = Planet.RemoveGas(tank, type, moles);
+                after = GasLine(tank, type, c);
+            });
+            StringBuilder text = new StringBuilder();
+            text.AppendLine(string.Format(c, "Removed {0:#,0.######} mol of {1} ({2:0.######} mol per outdoor cell) with its share of the planet's heat.",
+                removed, type, removed / Cells(tank)));
+            text.AppendLine("  before  " + before);
+            text.AppendLine("  now     " + after);
+            text.AppendLine("  Any change in temperature is the air's own response to its new mix, as if it had been removed in game.");
+            text.Append(GasGateNote());
+            return text.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// A gas or liquid by the game's own name, any case, as addgas takes it. Matched against the
+        /// names rather than parsed, so a number or a comma list (the enum parser takes both) is not
+        /// a gas. Air and Fuel are mixtures the planet cannot hold, and GlobalGasMix.Get throws on them.
+        /// </summary>
+        private static bool TryGasType(string typed, out Chemistry.GasType type)
+        {
+            foreach (Chemistry.GasType candidate in TankTypes())
+            {
+                if (string.Equals(candidate.ToString(), typed, StringComparison.OrdinalIgnoreCase))
+                {
+                    type = candidate;
+                    return true;
+                }
+            }
+            type = Chemistry.GasType.Undefined;
+            return false;
+        }
+
+        private static Chemistry.GasType[] TankTypes()
+        {
+            return Array.FindAll((Chemistry.GasType[])Enum.GetValues(typeof(Chemistry.GasType)),
+                t => Mole.MatterState(t) != AtmosphereHelper.MatterState.None);
+        }
+
+        private static string[] TankSpecies() => Array.ConvertAll(TankTypes(), t => t.ToString());
+
+        private static bool TryAmount(string typed, out double moles)
+        {
+            return double.TryParse(typed, NumberStyles.Float, CultureInfo.InvariantCulture, out moles)
+                && !double.IsNaN(moles) && moles > 0.0 && moles <= MaxGasMoles;
+        }
+
+        private static double Cells(GlobalGasMix tank) => (tank.Volume / Chemistry.GridVolume).ToDouble();
+
+        /// <summary>
+        /// The figures a gas verb moves, read live from the tank rather than from the per-tick
+        /// readouts, so either side of one command they can differ. The temperature is the one the
+        /// game computes for the planet this moment; the stored heat is the part of it that is heat
+        /// rather than the curve for its air, which a default addition must leave where it was.
+        /// </summary>
+        private static string GasLine(GlobalGasMix tank, Chemistry.GasType type, CultureInfo c)
+        {
+            TemperatureKelvin kelvin = tank.GetGlobalGasMixTemperature(WorldSetting.Current.Data.GlobalAtmosphereData);
+            double stored = PlanetaryAtmosphereSimulation.GetLatentTemperatureOffset().ToDouble()
+                + PlanetaryAtmosphereSimulation.GetExternalInputEnergyOffset().ToDouble();
+            return string.Format(c, "{0} {1:N3} mol, all gas {2:N3} mol, {3:0.###} kPa, {4:0.###} K (stored heat {5:+0.###;-0.###;0} K)",
+                type, tank.Get(type).ToDouble(), tank.TotalQuantityGas().ToDouble(),
+                IdealGas.Pressure(tank.TotalQuantityGas(), kelvin, tank.VolumeForGas()).ToDouble(), kelvin.ToDouble(), stored);
+        }
+
+        /// <summary>
+        /// Added air over this world's pressure ceiling does not stay: the next planet tick scales the
+        /// whole planet down to it. Said, not refused; the ceiling is the player's own setting.
+        /// </summary>
+        private static string CeilingNote(GlobalGasMix tank, CultureInfo c)
+        {
+            if (!Effective.MaxPressureKPa.HasValue)
+            {
+                return "";
+            }
+            double pressure = IdealGas.Pressure(tank.TotalQuantityGas(),
+                tank.GetGlobalGasMixTemperature(WorldSetting.Current.Data.GlobalAtmosphereData), tank.VolumeForGas()).ToDouble();
+            return pressure > Effective.MaxPressureKPa.Value
+                ? string.Format(c, "  This world's pressure ceiling is {0:0.###} kPa, so while the planet is over it every planet tick scales the whole planet down to it, and most of what was added does not stay. To keep it: terraform set MaxPressureKPa none{1}",
+                    Effective.MaxPressureKPa.Value, Environment.NewLine)
+                : "";
+        }
+
+        private static string GasGateNote()
+        {
+            return Gate.Enabled()
+                ? ""
+                : "  Terraforming Reloaded is not running this planet (" + Gate.Describe() + "); the planet keeps the change, but outdoor air does not draw on it until it is." + Environment.NewLine;
         }
 
         private static string Reset(bool confirmed)

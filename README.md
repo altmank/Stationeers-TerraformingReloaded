@@ -160,6 +160,8 @@ F3 opens the console.
 | `terraform set` | Lists the settings the world you are playing keeps for itself, with the value in force and, where it differs, what a new world would start with. Host only |
 | `terraform set <key> <value>` | Changes one of them for this world only, and records it beside the save. Uses the same key names as the config. A change that deletes something for good asks first and needs `confirm` on the end: setting or lowering the pressure ceiling (the prompt names the planet's pressure now and how much air the first tick would delete), lowering the added heat limit, making added heat fade sooner, and turning on deleting gas released in space. Host only. `terraform set <key>` alone reports the one in force |
 | `terraform reset confirm` | Puts the whole planet back exactly as the world ships: starting air, empty clouds and ice caps, no stored heat, and the gas lost to space back to 0. The world's settings stay as they are. Host only. `terraform reset` alone explains and asks |
+| `terraform gas add <gas> <mol> [<K>]` | For testing: puts that many moles of a gas into the whole planet (not per outdoor cell), as if it had been made there. Gas names are the game's own, as `addgas` takes them (`CarbonDioxide`, `Nitrogen`, `Water`, ...); liquids are accepted too. Without `<K>` it arrives at the planet's own temperature and neither heats nor cools it; with `<K>` the difference counts as added heat, which fades like any other. The temperature still moves by the air's own response to its new mix. Prints the gas, total, pressure and temperature before and after. With a pressure ceiling set, air above it is deleted on the next planet tick, and the command says so. Host only |
+| `terraform gas remove <gas> <mol\|all> confirm` | For testing: deletes that many moles of a gas from the planet, or `all` of it, at most what the planet holds, with its share of the planet's heat, so what remains keeps its temperature. Host only. Without `confirm` it explains and asks |
 | `terraform curves export` | Writes the built-in temperature curves to `BepInEx\config\TerraformingReloaded.curves.xml`. Never overwrites |
 | `terraform curves reload` | Applies that file at once, no restart |
 
@@ -207,7 +209,7 @@ lives in the host's game, and the mod sends it to every player's game every few 
   been lost to space.
 - **The host's settings decide the planet.** Planet size, the pressure ceiling, storms and every other
   setting a world keeps are read from the host's world file and config, and so is how often the planet
-  is sent. `terraform size`, `set` and `reset` work only on the host; on a joining player's game,
+  is sent. `terraform size`, `set`, `reset` and `gas` work only on the host; on a joining player's game,
   `terraform` shows the planet the host sent.
 - **A joining player gets the host's planet as they join**, before their first look outside, and it is
   refreshed every few seconds after that. Their sky follows it, and their outdoor temperature is worked

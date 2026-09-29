@@ -2,7 +2,7 @@
 <ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Name>Terraforming Reloaded</Name>
   <Author>XCeled</Author>
-  <Version>0.11.5</Version>
+  <Version>0.11.6</Version>
   <Description>[h1]Terraform the planet[/h1]
 The air outside is no longer bottomless. What you vent stays. What your base draws in is gone. Move enough of the right gases and the pressure, temperature, sky and weather outside change for good, saved with your world.
 
@@ -61,6 +61,7 @@ Size changes nothing else about the world: the air, pressure and temperature you
 [*][b]terraform set[/b] : the settings the world you are playing keeps for itself. [b]terraform set &lt;key&gt; &lt;value&gt;[/b] changes one for this world only. One that deletes something for good asks first
 [*][b]terraform size &lt;share&gt; confirm[/b] : change how much air the planet holds, and so how long it takes. Pressure, mix and temperature stay where they are
 [*][b]terraform reset confirm[/b] : put the planet back as the world ships. Your base is untouched
+[*][b]terraform gas add[/b] / [b]remove[/b] : put a gas into the planet or take it out, for testing
 [*][b]terraform curves export[/b] / [b]reload[/b] : tune the temperature response. See CURVES.md
 [/list]
 
@@ -73,7 +74,7 @@ Your changed planet lives in the save, so deleting the mod does not undo it. Run
 [list]
 [*]The StationeersLaunchPad config editor sets what a new world starts with; each world then keeps its own settings. Change the one you are playing with [b]terraform set[/b].
 [*]The pressure ceiling deletes air permanently. Leave it at 0 unless you mean it.
-[*]Multiplayer: the host and everyone who joins need the mod, same version. The host's settings decide the planet for everyone, and only the host can run [b]terraform size[/b], [b]set[/b] and [b]reset[/b].
+[*]Multiplayer: the host and everyone who joins need the mod, same version. The host's settings decide the planet for everyone, and only the host can run [b]terraform size[/b], [b]set[/b], [b]reset[/b] and [b]gas[/b].
 [*][b]Experimental, off by default:[/b] [b]terraform set TraceGasGatheringEnabled on[/b] makes a small spill of a gas the planet barely holds (a furnace taken apart outside) gather beside your base, where it burns off or reaches your filters, instead of lingering over the whole planet for hours.
 [*][b]Off by default.[/b] Gas deleted in space is gone for good: switching the setting off later stops new deletion but does not bring deleted gas back. [b]terraform set SpaceDeletesGas on[/b] makes gas released at or above 1,000 m, where rockets in space are, disappear instead of drifting back down to the planet, so a rocket can carry unwanted gas off the world. In multiplayer the host's world setting applies to everyone: gas any player vents in space is deleted.
 [*]Tutorials are left alone.
