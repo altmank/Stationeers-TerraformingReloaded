@@ -88,6 +88,12 @@
                that leaves space must reach the planet. Both drains must fall under half. Last,
                with the setting on again, terraform reset confirm must leave the total at exactly 0
                and the setting on.
+    -Rockets   Rocket engines burn completely (RocketsBurnCompletely). A new world must start with the
+               setting on and the rule installed. With it on, then off, the game's own combustion burns
+               a free engine chamber at the rate the mod hands an engine: a 2:1 and a 68 % methane and
+               oxygen premix must leave no oxygen on and exactly the shipped 4 % off, and hydrazine none
+               on and 4 % off. Every engine prefab's rated thrust, worked out through the rewritten burn,
+               must be 2 to 6 % higher on, and exactly the figure from load off; both are put back.
     -MenuPressure  The mix the new-game menu builds to describe a world must be the shipped planet,
                not the resized one it is playing.
     -Schedule  The two storm rules (docs/STORMS.md). Nothing else can reach them: -Storm and -Weather
@@ -164,6 +170,7 @@ param(
     [switch]$WallVent,
     [switch]$MenuPressure,
     [switch]$Space,
+    [switch]$Rockets,
     [switch]$Rescale,
     [switch]$BuildOver,
     [switch]$Unguarded,
@@ -204,7 +211,8 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
-if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Upgrade, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip, $Space | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Upgrade, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld, -Strip and -Space.' }
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Upgrade, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip, $Space, $Rockets | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Upgrade, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld, -Strip, -Space and -Rockets.' }
+if ($Rockets -and $Vanilla) { throw 'Without the mod engines burn as shipped, so there is nothing to judge.' }
 if ($Space -and $Vanilla) { throw 'Without the mod gas released in space is never handed to the planet, so there is nothing to judge.' }
 if ($Upgrade -and -not (Test-Path (Join-Path $OldRoot 'src\TerraformingReloaded.csproj'))) { throw '-Upgrade needs -OldRoot, a checkout of the earlier release (git worktree add <dir> v0.9.1).' }
 if (($Orbit -ne 0) -and ($OrbitTick -le 0)) { throw '-Orbit needs -OrbitTick, the tick to move the season at.' }
@@ -271,7 +279,7 @@ $envKeys = @(
     'TR_LIVECHECK_STRIP_TICK', 'TR_LIVECHECK_STRIP_TICKS', 'TR_LIVECHECK_STRIP_CELLS',
     'TR_LIVECHECK_STRIP_PER_CELL', 'TR_LIVECHECK_STRIP_FLOOR', 'TR_LIVECHECK_STRIP_SHARE',
     'TR_LIVECHECK_WALKCOST', 'TR_LIVECHECK_SIDECAR_TICK',
-    'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK', 'TR_LIVECHECK_SESSIONS', 'TR_LIVECHECK_RAINSAVE', 'TR_LIVECHECK_UPGRADE')
+    'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_SPACE_TICK', 'TR_LIVECHECK_ROCKETS_TICK', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK', 'TR_LIVECHECK_SESSIONS', 'TR_LIVECHECK_RAINSAVE', 'TR_LIVECHECK_UPGRADE')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -822,6 +830,24 @@ try {
         $passed = @($lines -match '^space ((removal|drain) (on|off)|reset) PASS')
         if ($passed.Count -ne 5) { throw "LiveCheck FAILED: expected five judged cases, got $($passed.Count)." }
         Write-Host 'LiveCheck OK: with the setting on, gas released in space is deleted and counted and the planet does not move; with it off, it returns to the planet and nothing is counted; terraform reset confirm zeroes the total and keeps the setting.'
+        return
+    }
+
+    if ($Rockets) {
+        # Rocket engines burn completely with the world's setting on, and as shipped with it off.
+        $log = Invoke-Game @('-new', $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_ROCKETS_TICK = '30' } `
+            { param($l) @($l -match 'LiveCheck: rockets (done|FAIL)').Count -gt 0 } 'the rocket combustion check'
+        Assert-ModLive $log
+        $lines = @($log -match 'LiveCheck: rockets ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' }
+        $lines | Write-Host
+        $failed = @($lines -match '(^rockets FAIL| FAIL )')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+        $burns = @($lines -match '^rockets burn (on|off) PASS')
+        $thrust = @($lines -match '^rockets thrust PASS')
+        if (@($lines -match '^rockets default PASS').Count -ne 1 -or $burns.Count -ne 6 -or $thrust.Count -lt 1) {
+            throw "LiveCheck FAILED: expected the default, six burns and at least one engine, got $($burns.Count) burns and $($thrust.Count) engines."
+        }
+        Write-Host 'LiveCheck OK: a new world burns rocket propellant completely, a correctly mixed or fuel-rich premix and hydrazine leave nothing unburnt with the setting on and the shipped 4 % with it off, and the rated thrust at load stays the game''s own.'
         return
     }
 

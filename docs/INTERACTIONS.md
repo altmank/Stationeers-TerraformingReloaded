@@ -91,6 +91,13 @@ through the game's own `GiveToGlobal`, so the site stays `gated` and the total i
 take (`CloneGlobalGasMix` building a cell, `AtmosphericEventInstance` refilling one, the self-test's
 own round trip) is untouched. The bounds are in ARCHITECTURE.md.
 
+**Outside the exchange: rocket engines** (`RocketsBurnCompletely`, on by default). The constant rate
+`RocketEngineBase.CombustEngine` hands `Atmosphere.TryCombust` becomes `Rockets.CombustionRate()`: 1 on
+such a world, the shipped 0.96 otherwise (ASSUMPTIONS.md R1-R7). Nothing about where the exhaust goes
+changes: `RocketEngineBase.Exhaust` and `BlockPlumeNeighbourAtmospheres` stay `gated`, and only how much
+of the chamber has burnt when it gets there differs, so a correctly mixed engine stops putting oxygen
+into the cells under it. No ledger row moves.
+
 **A hazard.** World mixing does put the read-only copy into a cell's mixing list, and
 gas is safe there because both directions test for it and go through the switched calls. Liquid mixing
 (`Atmosphere.MixLiquids`) has no such test and is safe only because the copy is built from gas alone, so

@@ -14,7 +14,7 @@ namespace TerraformingReloaded
     {
         public const string PluginGuid = "xceled.stationeers.terraformingreloaded";
         public const string PluginName = "Terraforming Reloaded";
-        public const string PluginVersion = "0.11.7";
+        public const string PluginVersion = "0.12.0";
 
         /// <summary>The game build the patches were last checked against. Advisory only.</summary>
         private const string TestedGameVersion = "0.2.6428.27798";
@@ -268,6 +268,11 @@ namespace TerraformingReloaded
             Bind("Space", "SpaceDeletesGas", Settings.SpaceDeletesGas,
                 "DESTRUCTIVE, off by default. Gas released at or above 1,000 m, where rockets in space are, is deleted instead of drifting back down to the planet, so venting from a rocket in space takes gas off the planet for good. What is deleted is saved as gone. In multiplayer the host's world setting applies to everyone, so gas any player vents in space is deleted. A world saved without this setting has it off until you turn it on for that world.",
                 v => Settings.SpaceDeletesGas = v, null, "Gas released in space is deleted", 70, world: true);
+
+            // Rockets. Its own section: it decides how an engine burns, which is none of the above.
+            Bind("Rockets", "RocketsBurnCompletely", Settings.RocketsBurnCompletely,
+                "On by default. Rocket engines burn all of the propellant that runs out first, instead of 96 % of it, so a mix with exactly the right amount of oxidiser, or too little, leaves no oxygen in the exhaust to start fires on a world whose air burns. A mix with too much oxidiser still blows the extra out. Engines give about 4 % more thrust for the same propellant. A rocket's automatic landing counts on the most thrust that rocket has ever had, so after flying with this on, turning it off (or switching to a mix with much more fuel) can bring a landing in too fast instead of calling it off. With this on, about 68 % methane to 32 % oxygen gives the thrust a 2:1 mix gives without it. A world saved without this setting takes the config's.",
+                v => Settings.RocketsBurnCompletely = v, null, "Rocket engines burn completely", 80, world: true);
 
             Bind("Multiplayer", "SyncIntervalSeconds", Settings.SyncIntervalSeconds,
                 "How often the host sends the planet state to clients.",

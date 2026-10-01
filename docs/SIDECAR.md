@@ -45,6 +45,7 @@ per-world value comes back for free. Nothing else has a carrier like that.
   <TraceGasLine>0.001</TraceGasLine>
   <SpaceDeletesGas>false</SpaceDeletesGas>
   <GasLostToSpaceMoles>0</GasLostToSpaceMoles>
+  <RocketsBurnCompletely>true</RocketsBurnCompletely>
 </TerraformingReloaded>
 ```
 
@@ -305,6 +306,7 @@ what a missing or unreadable file falls back to.
 
 | `SpaceDeletesGas` | destroys | Gas released at or above 1,000 m is deleted instead of returning to the planet, and the smaller planet is saved. `terraform set` asks before turning it on. Not recorded is off, never the config's |
 | `TraceGasGatheringEnabled`, `TraceGasGathering`, `TraceGasLine` | reversible | Decide how much of a trace gas the outdoor cells beside a base draw from the planet each tick. Nothing is deleted: the planet pays for every mole a cell takes, and a cell gives back what it does not use up. Switched off, what the cells hold drains back to the planet |
+| `RocketsBurnCompletely` | reversible | How much of the propellant that runs out first a rocket engine burns: all of it, or the game's 96 %. Nothing is deleted; what an engine does not burn leaves in its exhaust as it always has. Not recorded takes the config's, which is on by default, so a world saved before 0.12.0 burns completely unless the config says otherwise (the file gains the element at its next write). One effect outlives switching it off: a rocket's automatic landing plans with the most thrust that rocket has had, a figure the save keeps (`Rocket.MaxRecordedThrust`), so a rocket that flew with this on counts on about 4 % more thrust than its engines give once it is off (ASSUMPTIONS.md R5). `terraform set` says so when it is turned off, and does not ask first, because nothing is lost |
 
 Not world-scoped:
 

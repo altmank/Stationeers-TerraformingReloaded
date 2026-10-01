@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.12.0
+
+- **New, on by default: rocket engines burn all of their propellant.** The game burns 96 % of
+  whichever propellant runs out first and blows the other 4 % out with the exhaust. With a methane
+  and oxygen premix that is oxygen in the air under the rocket, and the exhaust is lit, so on a world
+  whose air burns (Vulcan) every launch and landing could start fires outside. Now an engine fed a
+  2:1 methane and oxygen mix, or one with a little more methane, leaves no oxygen behind. A mix with
+  more oxygen than 2:1 still blows the extra oxygen out, so mix 2:1 or slightly fuel-rich. Hydrazine
+  burns completely too, where it left 4 % before. Unburnt methane from a fuel-rich mix still leaves in
+  the exhaust and joins the planet's air, as before.
+- **Engines give about 4 % more thrust from the same propellant**, because the 4 % that used to go
+  out unburnt now burns, so a trip burns a little less. The thrust Stationpedia lists is unchanged.
+- **Careful with automatic landings if you turn it off.** A rocket's automatic landing judges its
+  approach by the most thrust that rocket has ever had. After flying with this on, turning it off (or
+  switching to a mix with much more fuel) leaves the rocket about 4 % short of what the landing counts
+  on, and a landing that should have been called off can come in too fast. To fly with it on at the
+  thrust a 2:1 mix gave before, use about 68 % methane to 32 % oxygen.
+- **Existing worlds get it too.** A world saved before 0.12.0 takes the config's setting, which is on.
+  Turn it off for one world with `terraform set RocketsBurnCompletely off`, or for new worlds in the
+  config's new `Rockets` section. `terraform` says which applies.
+- **Multiplayer:** the host's engines decide; joining players see the thrust the host works out. Host
+  and players need 0.12.0, as always.
+
 ## 0.11.7
 
 - **Fixed: with a pressure ceiling set, loading a world deleted most of its air.** On the first

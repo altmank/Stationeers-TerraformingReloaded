@@ -56,6 +56,7 @@ required set stands down, so a planet already terraformed keeps its temperature:
 | `WallVent.OnAtmosphericTick` prefix | A wall vent to outdoors mixes with a real cell, not the read-only copy (D15) |
 | `Atmosphere.LerpToGlobalAtmosphere` transpiler | Trace gases gather (below). Its one call to `TakeGlobalGasMix` becomes `TraceGases.TakeForLerp`. Refused unless the lerp takes from the planet exactly once and `TraceGases.CheckArithmetic` passes on the game's own types |
 | `Atmosphere.MixInWorld` prefix + finalizer | Gas released in space (below). Marks the thread while a cell at or above the space line mixes. Refused unless the shape check passes; without it the give filter and the removal guard delete nothing |
+| `RocketEngineBase.CombustEngine` transpiler | Rocket engines burn completely (below). Its one constant rate becomes `Rockets.CombustionRate()`. Refused unless the method calls `TryCombust` once, with a constant rate between 0 and 1 |
 | `AtmosphericScattering.UpdateAtmosphericScatteringToGlobalAtmosphere` prefix + postfix, then `ManagerUpdate` transpiler | Sky follows the air, throttled (D9). Throttle first, so the sky is never on without it |
 
 ## Detecting a game update that matters
@@ -149,6 +150,27 @@ the world's settings file records at each save that changed it and `terraform` p
   `DeregisterPrefix` return at once when `Gate.Enabled()` is false, which it is on a joining player's
   game. The host sends the setting and the total with the planet (MULTIPLAYER.md).
 
+## Rocket engines
+
+On by default (`RocketsBurnCompletely`, per world, reversible; SIDECAR.md). Every rocket engine burns its
+chamber in `RocketEngineBase.CombustEngine`, which hands `Atmosphere.TryCombust` a constant rate, 0.96,
+so 4 % of the propellant that runs out first leaves unburnt (ASSUMPTIONS.md R1-R7).
+
+- **Rewrite.** A transpiler replaces that one `ldc.r8` with a call to `Rockets.CombustionRate()`, which
+  answers 1 when the world has the setting on and `Gate.Enabled()` holds, and otherwise the constant it
+  replaced, read out of the instructions before the rewrite, so "as shipped" follows the game.
+- **Shape check.** `Rockets.RateSite` takes the instruction list and finds the constant: an `ldc.r8`,
+  then `ldc.i4.1` (`force: true`), then the call to `Atmosphere.TryCombust(double, bool)`, and that call
+  made once in the method. Anything else is refused and logged, engines burn as shipped, and `terraform`
+  says so. A rate outside (0, 1] is refused too: 0 tells `TryCombust` to work the rate out from the
+  temperature, so 1 in its place would be a different rule. PatchCheck runs the check on a Mono.Cecil
+  reading of the installed game, and two mutations of it (a second burn, a computed rate) must be refused.
+- **Rated thrust.** The game rates each engine type once, at prefab load, through the same method. No
+  world is running then, so the gate is closed and the rating is the game's own.
+- **Cost.** Once per running engine per atmosphere tick: a field read and the gate's field reads.
+- **Host only.** Engines burn inside the `RunSimulation` block; the gate is closed on a joining
+  player's game, and the setting is not sent.
+
 ## `Gate.Enabled()`
 
 True only when: patches armed, no self-test fault, config enabled, the world is not a tutorial, not a network client,
@@ -239,6 +261,6 @@ client it says whose answer it is rather than inventing one.
 `StrippedAtmosphereShare`, `StormsStopWhenAtmosphereIsMild`, `MildAtmosphereColdestKelvin`,
 `MildAtmosphereHottestKelvin`, `MildAtmosphereMinPressureKpa`, `MildAtmosphereMaxPressureKpa`,
 `MildAtmosphereMaxToxinsKpa`, `MildAtmosphereStopsSolarStorms`; `TraceGasGathering`, `TraceGasLine`;
-`SpaceDeletesGas`;
+`SpaceDeletesGas`; `RocketsBurnCompletely`;
 `SyncIntervalSeconds`;
 `StatusLogSeconds`. Player-facing descriptions are in the root README.

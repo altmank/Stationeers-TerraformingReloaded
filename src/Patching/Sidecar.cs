@@ -74,6 +74,12 @@ namespace TerraformingReloaded.Patching
         /// written with every save that changed it, so the readout survives a reload.
         /// </summary>
         public double? GasLostToSpaceMoles;
+
+        /// <summary>
+        /// Not recorded is the config's, like every setting that only changes behaviour, and the
+        /// config's default is on: a world saved before this setting existed burns completely.
+        /// </summary>
+        public bool? RocketsBurnCompletely;
     }
 
     /// <summary>
@@ -513,6 +519,7 @@ namespace TerraformingReloaded.Patching
             Effective.TraceGasLine =
                 Recorded(file.TraceGasLine, Limits.TraceGasLine, "TraceGasLine", bad)
                 ?? Settings.TraceGasLine;
+            Effective.RocketsBurnCompletely = file.RocketsBurnCompletely ?? Settings.RocketsBurnCompletely;
 
             // Deletes gas, so not recorded is off and never the config's (the ceiling's rule).
             Effective.SpaceDeletionFromWorldFile(file.SpaceDeletesGas);
@@ -588,6 +595,7 @@ namespace TerraformingReloaded.Patching
             Effective.TraceGasGatheringEnabled = Settings.TraceGasGatheringEnabled;
             Effective.TraceGasGathering = Settings.TraceGasGathering;
             Effective.TraceGasLine = Settings.TraceGasLine;
+            Effective.RocketsBurnCompletely = Settings.RocketsBurnCompletely;
         }
 
         /// <summary>
@@ -771,6 +779,7 @@ namespace TerraformingReloaded.Patching
                     TraceGasLine = Effective.TraceGasLine,
                     SpaceDeletesGas = Effective.SpaceDeletesGas,
                     GasLostToSpaceMoles = loss,
+                    RocketsBurnCompletely = Effective.RocketsBurnCompletely,
                 };
                 string path = Path.Combine(folder, FileName);
                 Salvage(path);

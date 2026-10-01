@@ -87,6 +87,7 @@ namespace TerraformingReloaded.Patching
                     WeatherOnWeatherlessWorlds = null,
                     SpaceDeletesGas = true,
                     GasLostToSpaceMoles = 1234.5,
+                    RocketsBurnCompletely = false,
                 };
                 string xml = Sidecar.ToXml(written);
                 if (!xml.Contains("xsi:nil=\"true\""))
@@ -130,6 +131,10 @@ namespace TerraformingReloaded.Patching
                 {
                     return "whether gas released in space is deleted, or the total lost, did not survive the round trip";
                 }
+                if (read.RocketsBurnCompletely != false)
+                {
+                    return "a world that turned complete rocket burning off did not stay off across the round trip";
+                }
 
                 SidecarFile partial = Sidecar.FromXml(OneElement);
                 if (partial == null || partial.MaxExternalOffsetKelvin != 7.0)
@@ -141,7 +146,8 @@ namespace TerraformingReloaded.Patching
                     || partial.AirlessAlbedo.HasValue || partial.DynamicSky.HasValue
                     || partial.StormsStopWhenStripped.HasValue || partial.MildAtmosphereColdestKelvin.HasValue
                     || partial.TraceGasGatheringEnabled.HasValue || partial.TraceGasGathering.HasValue || partial.TraceGasLine.HasValue
-                    || partial.SpaceDeletesGas.HasValue || partial.GasLostToSpaceMoles.HasValue)
+                    || partial.SpaceDeletesGas.HasValue || partial.GasLostToSpaceMoles.HasValue
+                    || partial.RocketsBurnCompletely.HasValue)
                 {
                     return "a file holding one setting invented values for the rest";
                 }

@@ -55,7 +55,9 @@ Game build 0.2.6428.27798. `D/` and `S/` as in README.md. Everything here is **C
 - **Rocket engines delete their whole feed above the line.** A gas rocket engine takes the mixture its
   input pipe holds, every gas in it, `MatterState.All` (**CODE** `GasRocketEngine.MovePropellant`; the
   governed engine up to 18 mol a tick, `GovernedGasEngine.cs:49-55`), burns what it can, and exhausts the
-  rest. When the flame is at or above 1,000 m the exhaust is removed from the engine and put nowhere
+  rest. "What it can" is 96 % of the propellant that runs out first (`RocketEngineBase.CombustEngine`,
+  `:518-521`); the world setting `RocketsBurnCompletely`, on by default, makes it all of it (ASSUMPTIONS.md
+  R1-R7). When the flame is at or above 1,000 m the exhaust is removed from the engine and put nowhere
   (`RocketEngineBase.Exhaust`, `:461-467`; below the line it goes into cells, `:482-500`), and in the
   unmodded game too. So an engine fed carbon dioxide would delete it, whatever `SpaceDeletesGas` says.
   **UNVERIFIED**: whether the flame of a rocket parked in space is at or above the line, and whether an

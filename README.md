@@ -76,6 +76,19 @@ the planet section of the save; the game reads that section with or without the 
   is deleted instead, for good, so a rocket can carry unwanted gas off the world. `terraform` shows how
   much has been lost to space. In multiplayer the host's world setting applies to everyone: gas any
   player vents in space is deleted.
+- **Rocket engines burn all of their propellant: on unless you turn it off.** The game burns 96 % of
+  whichever propellant runs out first and blows the rest out with the exhaust, which is lit. With a
+  methane and oxygen premix that is oxygen in the air under the rocket, and on a world whose air
+  burns, such as Vulcan, every launch and landing can start fires outside. With this on, a 2:1 mix,
+  or one with a little more methane, leaves no oxygen behind; a mix with more oxygen than 2:1 still
+  blows the extra out, so mix 2:1 or slightly fuel-rich. Hydrazine burns completely too. Engines give
+  about 4 % more thrust from the same propellant, so a trip burns a little less; the thrust
+  Stationpedia lists is unchanged. **Careful with automatic landings:** a rocket's automatic landing
+  plans with the most thrust that rocket has ever had, so after flying with this on, turning it off
+  (`terraform set RocketsBurnCompletely off`) or switching to a mix with much more fuel can bring a
+  landing in too fast instead of calling it off. With it on, about 68 % methane to 32 % oxygen gives
+  the thrust a 2:1 mix gives without it. Worlds saved before this setting existed take the config's,
+  which is on.
 - **Wind turbines** reward thick air: the game clamps the pressure they see to between 5 and
   25 kPa, so a thickened planet runs them up to five times harder, and under 1 kPa they give nothing.
 - **Tutorials** are left as shipped.
@@ -207,6 +220,8 @@ lives in the host's game, and the mod sends it to every player's game every few 
 - **Gas released in space.** In multiplayer the host's world setting applies to everyone; gas any
   player vents in space is deleted. Everyone's `terraform` shows the host's setting and how much has
   been lost to space.
+- **Rocket engines** burn on the host, by the host's world setting; everyone sees the thrust the
+  host works out.
 - **The host's settings decide the planet.** Planet size, the pressure ceiling, storms and every other
   setting a world keeps are read from the host's world file and config, and so is how often the planet
   is sent. `terraform size`, `set`, `reset` and `gas` work only on the host; on a joining player's game,
@@ -249,6 +264,9 @@ The few worth knowing before you start:
 - **`SpaceDeletesGas`** (the `Space` section) is **destructive** and off by default. On, gas released
   at or above 1,000 m is deleted instead of returning to the planet. A world made before this version
   has it off whatever the config says, like the pressure ceiling.
+- **`RocketsBurnCompletely`** (the `Rockets` section) is on by default. Rocket engines burn all of the
+  propellant that runs out first instead of 96 % of it. Read the landing note under What to expect
+  before turning it off on a world you have flown rockets in.
 - **The `Trace gases` section** is experimental and off by default. It switches trace gas gathering on
   and decides how many times faster the air beside your base draws a gas the planet holds only a trace
   of, and how little counts as a trace.

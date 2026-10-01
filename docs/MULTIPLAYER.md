@@ -158,6 +158,11 @@ planet: its own takes and gives go to its own copy, which nothing sends back.
   there is; the joining players' games never run it (`Gate.Enabled()` is false there, and
   `GameManager.RunSimulation` keeps the mixing off). They receive the smaller planet with the rest of it,
   and the host's setting and total for their readout. A dedicated server is the host.
+- **Rocket engines burn on the host only.** Engines burn inside the `RunSimulation` block, and a
+  joining player's game is sent each engine's force, exhaust speed and exhaust temperature
+  (`RocketEngineBase.cs:703-735`), so the host's world setting decides how completely they burn.
+  `Rockets.CombustionRate` asks `Gate.Enabled()`, false on a joining player's game, and the setting is
+  not sent.
 - **`terraform`** reports `planet: off: client, planet comes from the host` with the synced figures;
   `size`, `set` and `reset` answer "Can only be run on the server".
 

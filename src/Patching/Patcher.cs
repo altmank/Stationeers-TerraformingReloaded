@@ -350,6 +350,11 @@ namespace TerraformingReloaded.Patching
             // and without it nothing is deleted anywhere: the removal guard asks Space.Installed too.
             Extra(report, "gas lost in space", () => Space.Apply(harmony));
 
+            // Rocket engines burn all their propellant, on a world that has that on. The engine's one
+            // constant rate becomes a question asked each burn; refused, leaving engines as shipped,
+            // unless the engine still burns through exactly one constant rate.
+            Extra(report, "rocket combustion", () => Rockets.Apply(harmony));
+
             Extra(report, "planet size", () =>
             {
                 MethodInfo createPlanet = AccessTools.DeclaredMethod(typeof(GlobalGasMix), "Create", new[] { typeof(GlobalAtmosphereData) });

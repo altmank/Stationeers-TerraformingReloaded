@@ -165,6 +165,10 @@ namespace TerraformingReloaded.LiveCheck
         private const double SpaceRemoveMoles = 500.0;
         private const float SpaceHeightMetres = 1001f;
         private int _spaceStage;
+
+        // Rocket engines burn completely: from the planet tick, once, at this tick.
+        private static readonly uint RocketsTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_ROCKETS_TICK"), out uint rkt) ? rkt : 0u;
+        private bool _rocketsDone;
         private uint _spaceAt;
         private double _spacePlanet0;
         private double _spaceSpace0;
@@ -305,6 +309,10 @@ namespace TerraformingReloaded.LiveCheck
             if (_instance != null && SpaceTick > 0 && _instance._spaceStage < 4 && GameManager.GameTickCount >= SpaceTick)
             {
                 _instance.CheckSpace();
+            }
+            if (_instance != null && !_instance._rocketsDone && RocketsTick > 0 && GameManager.GameTickCount >= RocketsTick)
+            {
+                _instance.CheckRockets();
             }
             if (_instance != null && !_instance._menuMixDone && MenuMix && GameManager.GameTickCount >= 20)
             {
@@ -2749,6 +2757,121 @@ namespace TerraformingReloaded.LiveCheck
         }
 
         /// <summary>Warm carbon dioxide into one outdoor cell, the same way the injection scenario does.</summary>
+        /// <summary>
+        /// Rocket engines burn completely (Rockets.cs in the mod), from the planet tick, once. A new
+        /// world must start with the setting on and the rule installed. Then, with the setting on and
+        /// then off, the game's own TryCombust burns a free chamber at the rate the mod hands an
+        /// engine: a 2:1 and a 68 % methane premix and hydrazine, judged by what is left in the
+        /// exhaust. Last, every engine prefab works out its rated thrust through the rewritten burn
+        /// with the setting on and off: on must be about 4 % higher, and off must give back exactly
+        /// the figure the game worked out at load. The setting and the rated thrusts are put back.
+        /// </summary>
+        private void CheckRockets()
+        {
+            _rocketsDone = true;
+            try
+            {
+                Type rockets = AccessTools.TypeByName("TerraformingReloaded.Patching.Rockets");
+                System.Reflection.FieldInfo setting = EffectiveType == null ? null : AccessTools.Field(EffectiveType, "RocketsBurnCompletely");
+                if (rockets == null || setting == null)
+                {
+                    Logger.LogInfo("LiveCheck: rockets FAIL the mod's rocket rule or its setting was not found");
+                    return;
+                }
+                bool installed = (bool)AccessTools.Property(rockets, "Installed").GetValue(null, null);
+                double shipped = (double)AccessTools.Property(rockets, "ShippedRate").GetValue(null, null);
+                System.Reflection.MethodInfo rateMethod = AccessTools.DeclaredMethod(rockets, "CombustionRate");
+                bool original = (bool)setting.GetValue(null);
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                    "LiveCheck: rockets default {0} a new world has RocketsBurnCompletely {1}, rule installed {2}, shipped rate {3:R}",
+                    original && installed ? "PASS" : "FAIL", original, installed, shipped));
+
+                List<Assets.Scripts.Objects.Pipes.RocketEngineBase> engines = Assets.Scripts.Objects.Prefab.AllPrefabs
+                    .OfType<Assets.Scripts.Objects.Pipes.RocketEngineBase>().ToList();
+                Dictionary<Assets.Scripts.Objects.Pipes.RocketEngineBase, float> rated = engines.ToDictionary(e => e, e => e.MaxThrust);
+                try
+                {
+                    double least = Chemistry.MINIMUM_QUANTITY_MOLES.ToDouble();
+                    foreach (bool on in new[] { true, false })
+                    {
+                        setting.SetValue(null, on);
+                        double rate = (double)rateMethod.Invoke(null, null);
+                        string side = on ? "on" : "off";
+                        foreach (double methane in new[] { 2.0 / 3.0, 0.68 })
+                        {
+                            double oxygen = 10.0 * (1.0 - methane);
+                            double left = BurnLeft(rate, Chemistry.GasType.Oxygen,
+                                (Chemistry.GasType.Methane, 10.0 * methane), (Chemistry.GasType.Oxygen, oxygen));
+                            double expected = oxygen * (1.0 - shipped);
+                            bool pass = on ? left < least : Math.Abs(left - expected) < 1e-6;
+                            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                                "LiveCheck: rockets burn {0} {1} {2:0.###} methane premix, 10 mol, rate {3:R}: oxygen left {4:G6} mol (as shipped {5:G6})",
+                                side, pass ? "PASS" : "FAIL", methane, rate, left, expected));
+                        }
+                        double hydrazine = BurnLeft(rate, Chemistry.GasType.Hydrazine, (Chemistry.GasType.Hydrazine, 10.0));
+                        bool hydrazinePass = on ? hydrazine < least : Math.Abs(hydrazine - 10.0 * (1.0 - shipped)) < 1e-6;
+                        Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                            "LiveCheck: rockets burn {0} {1} hydrazine, 10 mol, rate {2:R}: left {3:G6} mol",
+                            side, hydrazinePass ? "PASS" : "FAIL", rate, hydrazine));
+                    }
+
+                    if (engines.Count == 0)
+                    {
+                        Logger.LogInfo("LiveCheck: rockets thrust FAIL no rocket engine prefab was found");
+                    }
+                    foreach (Assets.Scripts.Objects.Pipes.RocketEngineBase engine in engines)
+                    {
+                        setting.SetValue(null, true);
+                        engine.CalculateMaxThrust();
+                        float on = engine.MaxThrust;
+                        setting.SetValue(null, false);
+                        engine.CalculateMaxThrust();
+                        float off = engine.MaxThrust;
+                        double ratio = off > 0f ? on / (double)off : double.NaN;
+                        bool pass = off == rated[engine] && ratio > 1.02 && ratio < 1.06;
+                        Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
+                            "LiveCheck: rockets thrust {0} {1}: rated {2:0.###} kN at load, {3:0.###} kN burning completely, {4:0.###} kN as shipped, ratio {5:0.0000}",
+                            pass ? "PASS" : "FAIL", engine.PrefabName, rated[engine] / 1000f, on / 1000f, off / 1000f, ratio));
+                    }
+                }
+                finally
+                {
+                    // Rated as shipped, which is what the game worked out at load, then the setting back.
+                    setting.SetValue(null, false);
+                    foreach (Assets.Scripts.Objects.Pipes.RocketEngineBase engine in engines)
+                    {
+                        engine.CalculateMaxThrust();
+                    }
+                    setting.SetValue(null, original);
+                }
+                Logger.LogInfo("LiveCheck: rockets done");
+            }
+            catch (Exception e)
+            {
+                Logger.LogInfo("LiveCheck: rockets FAIL " + e);
+            }
+        }
+
+        /// <summary>
+        /// A free engine chamber, as the game builds one to rate an engine, holding
+        /// <paramref name="propellant"/> at 293 K and burnt once through the game's own TryCombust.
+        /// </summary>
+        private static double BurnLeft(double rate, Chemistry.GasType judged, params (Chemistry.GasType Type, double Moles)[] propellant)
+        {
+            Atmosphere chamber = new Atmosphere
+            {
+                Volume = new VolumeLitres(100.0),
+                Mode = AtmosphereHelper.AtmosphereMode.Thing,
+            };
+            foreach ((Chemistry.GasType type, double moles) in propellant)
+            {
+                MoleQuantity quantity = new MoleQuantity(moles);
+                chamber.GasMixture.Add(new Mole(type, quantity, IdealGas.Energy(new TemperatureKelvin(293.15), Mole.SpecificHeat(type), quantity)));
+            }
+            chamber.TryCombust(rate, force: true);
+            return chamber.GasMixture.GetMoleValue(judged).Quantity.ToDouble();
+        }
+
         private static void AddCarbonDioxide(Atmosphere cell, double moles)
         {
             MoleQuantity quantity = new MoleQuantity(moles);

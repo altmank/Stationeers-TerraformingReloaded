@@ -300,6 +300,8 @@ namespace TerraformingReloaded
                 () => Effective.TraceGasLine, () => Settings.TraceGasLine, v => Effective.TraceGasLine = v),
             Switch("SpaceDeletesGas", "Gas released in space is deleted",
                 () => Effective.SpaceDeletesGas, () => Settings.SpaceDeletesGas, v => Effective.SpaceDeletionByConsoleCommand(v)),
+            Switch("RocketsBurnCompletely", "Rocket engines burn completely",
+                () => Effective.RocketsBurnCompletely, () => Settings.RocketsBurnCompletely, v => Effective.RocketsBurnCompletely = v),
         };
 
         /// <summary>
@@ -392,6 +394,10 @@ namespace TerraformingReloaded
             if (key.Name == "DynamicSky" && !(bool)asked)
             {
                 text.AppendLine("  The sky stops following the air now, and keeps the look it has until this world is loaded again.");
+            }
+            if (key.Name == "RocketsBurnCompletely" && !(bool)asked)
+            {
+                text.AppendLine("  Engines give about 4 % less thrust from their next burn. A rocket's automatic landing counts on the most thrust that rocket has ever had, so a rocket that flew with this on can come in too fast instead of calling a landing off.");
             }
             text.Append("  The config's " + key.Name + " is " + Show(key, key.Config()) + ", and only decides what a new world starts with.");
             return text.ToString();
@@ -988,6 +994,7 @@ namespace TerraformingReloaded
             }
             text.AppendLine("  " + TraceGases.Describe(tank, c));
             text.AppendLine("  " + Space.Describe(c));
+            text.AppendLine("  " + Rockets.Describe(c));
             Reservoirs(text, c);
             // After the reservoirs, because the line about rain being held back is about the clouds
             // printed just above it.
@@ -1027,6 +1034,7 @@ namespace TerraformingReloaded
                     : ", trace gases do not gather")
                 // A joining player's own value means nothing; the host's is on the space line below.
                 + (NetworkManager.IsClient ? "" : Effective.SpaceDeletesGas ? ", gas released in space is deleted" : ", gas released in space returns to the planet")
+                + (NetworkManager.IsClient ? "" : Effective.RocketsBurnCompletely ? ", rocket engines burn completely" : ", rocket engines burn as shipped")
                 + "; the storm settings are under storms below; all of them with terraform set");
         }
 

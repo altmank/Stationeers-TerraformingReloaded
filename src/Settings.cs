@@ -94,6 +94,12 @@ namespace TerraformingReloaded
         /// </summary>
         public static bool SpaceDeletesGas = false;
 
+        /// <summary>
+        /// On by default: rocket engines burn all of the propellant that runs out first, instead of
+        /// the game's 96 %, so no unburnt oxidiser leaves a correctly mixed engine.
+        /// </summary>
+        public static bool RocketsBurnCompletely = true;
+
         /// <summary>Write the terraform status to the log this often. 0 is off.</summary>
         public static double StatusLogSeconds = 0.0;
     }
@@ -328,6 +334,8 @@ namespace TerraformingReloaded
         public static bool TraceGasGatheringEnabled = false;
         public static double TraceGasGathering = 200.0;
         public static double TraceGasLine = 1e-3;
+
+        public static bool RocketsBurnCompletely = true;
     }
 
     /// <summary>

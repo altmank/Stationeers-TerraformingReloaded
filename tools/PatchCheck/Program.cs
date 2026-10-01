@@ -1,7 +1,11 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Reflection;
+using System.Reflection.Emit;
+using Assets.Scripts.Atmospherics;
 
 /// <summary>
 /// Applies the mod's real patch set to the installed game's real Assembly-CSharp, outside the game.
@@ -208,6 +212,8 @@ internal static class Program
             failures++;
         }
 
+        failures += CheckRockets();
+
         Console.WriteLine(failures == 0 ? "OK" : failures + " problem(s)");
         return failures == 0 ? 0 : 1;
     }
@@ -247,6 +253,217 @@ internal static class Program
             && called.Name == target.Name
             && called.DeclaringType.FullName == declaring
             && called.Parameters.Select(p => p.ParameterType.FullName).SequenceEqual(parameters));
+    }
+
+    /// <summary>
+    /// Rocket engines burn completely. The shape check reads the engine's burn with Mono.Cecil and
+    /// must find the shipped rate; it must refuse an engine that burns twice or works its rate out;
+    /// the patch must go in (or bind, where compiling needs Unity); and with no world running the
+    /// rate an engine is handed must be the shipped one. Then the game's own combustion is run on a
+    /// free chamber at both rates, which is the outcome the setting exists for: what is left over
+    /// in the exhaust.
+    /// </summary>
+    private static int CheckRockets()
+    {
+        int failures = 0;
+        double shipped = double.NaN;
+        try
+        {
+            shipped = TerraformingReloaded.Patching.Rockets.CheckShape(CecilBody);
+            Console.WriteLine("checked: rocket combustion (one constant rate, " + shipped.ToString("R", CultureInfo.InvariantCulture) + ", into the engine's one TryCombust)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  rocket combustion, shape: " + e.Message);
+            failures++;
+        }
+
+        // Two game builds the rule must refuse: an engine that burns twice, and one that works its rate out.
+        var mutations = new (string What, Func<IList<KeyValuePair<OpCode, object>>, IList<KeyValuePair<OpCode, object>>> Change)[]
+        {
+            ("burns twice", body =>
+            {
+                int at = TerraformingReloaded.Patching.Rockets.RateSite(body, TryCombustMethod());
+                List<KeyValuePair<OpCode, object>> twice = body.ToList();
+                twice.InsertRange(at + 3, body.Skip(at).Take(3));
+                return twice;
+            }),
+            ("works its rate out", body =>
+            {
+                int at = TerraformingReloaded.Patching.Rockets.RateSite(body, TryCombustMethod());
+                List<KeyValuePair<OpCode, object>> worked = body.ToList();
+                worked[at] = new KeyValuePair<OpCode, object>(OpCodes.Ldloc_0, null);
+                return worked;
+            }),
+        };
+        foreach (var mutation in mutations)
+        {
+            bool refused = false;
+            try
+            {
+                TerraformingReloaded.Patching.Rockets.CheckShape(m => mutation.Change(CecilBody(m)));
+            }
+            catch (InvalidOperationException)
+            {
+                refused = true;
+            }
+            Console.WriteLine((refused ? "checked: rocket combustion refuses an engine that " : "FAILED:  rocket combustion accepted an engine that ") + mutation.What);
+            if (!refused)
+            {
+                failures++;
+            }
+        }
+
+        try
+        {
+            TerraformingReloaded.Patching.Rockets.Apply(new HarmonyLib.Harmony("patchcheck.rockets"));
+            Console.WriteLine("applied: rocket combustion (the engine's one rate rewritten)");
+        }
+        catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+        {
+            Console.WriteLine("bound:   rocket combustion (target found, one rate rewritten; compiling it needs Unity)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  rocket combustion: " + e.Message);
+            failures++;
+        }
+
+        double offWorld = TerraformingReloaded.Patching.Rockets.CombustionRate();
+        bool vanilla = offWorld.Equals(shipped) && offWorld.Equals(TerraformingReloaded.Patching.Rockets.ShippedRate);
+        Console.WriteLine((vanilla ? "checked: " : "FAILED:  ") + "with no world running an engine burns at " + offWorld.ToString("R", CultureInfo.InvariantCulture)
+            + ", the shipped rate, so the rated thrust worked out at load is the game's own");
+        if (!vanilla)
+        {
+            failures++;
+        }
+
+        try
+        {
+            failures += RocketBurns(shipped);
+        }
+        catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+        {
+            Console.WriteLine("skipped: rocket burns (the game's combustion needs Unity here; LiveCheck -Rockets runs it)");
+        }
+        return failures;
+    }
+
+    /// <summary>
+    /// The game's own combustion on a free chamber of propellant, at the shipped rate and
+    /// at a complete burn: a 2:1 methane and oxygen mix, the 68 % methane mix the docs recommend, an
+    /// oxygen-rich mix, and hydrazine on its own.
+    /// </summary>
+    private static int RocketBurns(double shipped)
+    {
+        int failures = 0;
+        double least = Chemistry.MINIMUM_QUANTITY_MOLES.ToDouble();
+        double complete = TerraformingReloaded.Patching.Rockets.CompleteBurn;
+        CultureInfo c = CultureInfo.InvariantCulture;
+        const Chemistry.GasType Ch4 = Chemistry.GasType.Methane;
+        const Chemistry.GasType O2 = Chemistry.GasType.Oxygen;
+        const Chemistry.GasType N2h4 = Chemistry.GasType.Hydrazine;
+
+        foreach (double methane in new[] { 2.0 / 3.0, 0.68 })
+        {
+            double oxygen = 10.0 * (1.0 - methane);
+            Dictionary<Chemistry.GasType, double> on = Burn(complete, (Ch4, 10.0 * methane), (O2, oxygen));
+            Dictionary<Chemistry.GasType, double> off = Burn(shipped, (Ch4, 10.0 * methane), (O2, oxygen));
+            double expected = oxygen * (1.0 - shipped);
+            failures += Judge(on[O2] < least && Math.Abs(off[O2] - expected) < 1e-9, string.Format(c,
+                "{0:0.###} methane premix, 10 mol: oxygen left {1:G4} mol burning completely, {2:G4} mol as shipped (expected {3:G4})",
+                methane, on[O2], off[O2], expected));
+        }
+
+        Dictionary<Chemistry.GasType, double> rich = Burn(complete, (Ch4, 5.0), (O2, 5.0));
+        failures += Judge(rich[Ch4] < least && Math.Abs(rich[O2] - 2.5) < 1e-9, string.Format(c,
+            "half methane, half oxygen, 10 mol, burning completely: methane left {0:G4} mol, oxygen left {1:G6} mol (the 2.5 mol excess)", rich[Ch4], rich[O2]));
+
+        Dictionary<Chemistry.GasType, double> hydrazineOn = Burn(complete, (N2h4, 10.0));
+        Dictionary<Chemistry.GasType, double> hydrazineOff = Burn(shipped, (N2h4, 10.0));
+        failures += Judge(hydrazineOn[N2h4] < least && Math.Abs(hydrazineOff[N2h4] - 10.0 * (1.0 - shipped)) < 1e-9, string.Format(c,
+            "hydrazine, 10 mol: left {0:G4} mol burning completely, {1:G4} mol as shipped", hydrazineOn[N2h4], hydrazineOff[N2h4]));
+        return failures;
+    }
+
+    private static int Judge(bool passed, string what)
+    {
+        Console.WriteLine((passed ? "checked: " : "FAILED:  ") + what);
+        return passed ? 0 : 1;
+    }
+
+    /// <summary>
+    /// A forced burn of a chamber holding <paramref name="propellant"/>. GasMixture.Combust is what
+    /// Atmosphere.TryCombust runs once forced; TryCombust itself also records flame figures through
+    /// the game's network manager, which cannot start outside Unity, so the mixture is burnt directly.
+    /// </summary>
+    private static Dictionary<Chemistry.GasType, double> Burn(double rate, params (Chemistry.GasType Type, double Moles)[] propellant)
+    {
+        GasMixture chamber = GasMixtureHelper.Create();
+        TemperatureKelvin kelvin = new TemperatureKelvin(293.15);
+        foreach ((Chemistry.GasType type, double moles) in propellant)
+        {
+            MoleQuantity quantity = new MoleQuantity(moles);
+            chamber.Add(new Mole(type, quantity, IdealGas.Energy(kelvin, Mole.SpecificHeat(type), quantity)));
+        }
+        chamber.Combust(rate, out _, out _);
+        Dictionary<Chemistry.GasType, double> left = new Dictionary<Chemistry.GasType, double>();
+        foreach ((Chemistry.GasType type, double _) in propellant)
+        {
+            left[type] = chamber.GetMoleValue(type).Quantity.ToDouble();
+        }
+        return left;
+    }
+
+    private static MethodInfo TryCombustMethod()
+    {
+        return HarmonyLib.AccessTools.DeclaredMethod(typeof(Atmosphere), "TryCombust", new[] { typeof(double), typeof(bool) });
+    }
+
+    /// <summary>
+    /// A method's instructions as the rule reads them, from the assembly file through Mono.Cecil:
+    /// each opcode, a double constant as itself, and a call as the method it calls, resolved by its
+    /// token in the same module one at a time. Anything else carries no operand.
+    /// </summary>
+    private static IList<KeyValuePair<OpCode, object>> CecilBody(MethodBase method)
+    {
+        string path = method.Module.FullyQualifiedName;
+        if (!Modules.TryGetValue(path, out object read))
+        {
+            read = Mono.Cecil.ModuleDefinition.ReadModule(path);
+            Modules[path] = read;
+        }
+        Mono.Cecil.MethodDefinition definition = ((Mono.Cecil.ModuleDefinition)read).LookupToken(method.MetadataToken) as Mono.Cecil.MethodDefinition;
+        if (definition == null || !definition.HasBody)
+        {
+            throw new InvalidOperationException("Mono.Cecil did not find the body of " + method.DeclaringType + "." + method.Name);
+        }
+        Dictionary<short, OpCode> codes = typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Select(f => (OpCode)f.GetValue(null))
+            .GroupBy(code => code.Value)
+            .ToDictionary(g => g.Key, g => g.First());
+        List<KeyValuePair<OpCode, object>> body = new List<KeyValuePair<OpCode, object>>();
+        foreach (Mono.Cecil.Cil.Instruction instruction in definition.Body.Instructions)
+        {
+            object operand = null;
+            if (instruction.Operand is double constant)
+            {
+                operand = constant;
+            }
+            else if (instruction.Operand is Mono.Cecil.MethodReference called)
+            {
+                try
+                {
+                    operand = method.Module.ResolveMethod(called.MetadataToken.ToInt32());
+                }
+                catch (Exception)
+                {
+                    // Not resolvable on this runtime, so not the call the rule looks for.
+                }
+            }
+            body.Add(new KeyValuePair<OpCode, object>(codes[instruction.OpCode.Value], operand));
+        }
+        return body;
     }
 
     private static Assembly Resolve(object sender, ResolveEventArgs e)
