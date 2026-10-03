@@ -2,7 +2,7 @@
 <ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Name>Terraforming Reloaded</Name>
   <Author>XCeled</Author>
-  <Version>0.13.0</Version>
+  <Version>0.13.1</Version>
   <Description>[h1]Terraform the planet[/h1]
 The air outside is no longer bottomless. What you vent stays. What your base draws in is gone. Move enough of the right gases and the pressure, temperature, sky and weather outside change for good, saved with your world.
 
@@ -92,7 +92,9 @@ Inspired by Elmotrix's Terraforming Mod. This is a new mod written for the curre
 Developed with the use of generative AI, and tokens aren't free. Buy me a coffee:
 [url=https://ko-fi.com/xceled]ko-fi.com/xceled[/url]
   </Description>
-  <ChangeLog>v0.13.0
+  <ChangeLog>v0.13.1
+- Clearer config editor text: a world setting there only applies to new worlds; change a world already started with terraform set while playing it.
+v0.13.0
 - New, off by default: the planet's air can catch fire. terraform set PlanetAirBurns on confirm turns it on for the world you are playing. When the planet's air holds a fuel and an oxidiser and would light by the game's own rules, it burns as one big fire. While it burns, it stops handing the outdoor air the gas it is using up, so a leak that drains into Vulcan's air does not come back to burn around your base.
 - New, off by default: terraform set PlanetHoldsBackWhileIgnitable on, which acts only while the fire is on. The planet then holds that gas back whenever its air is hot enough to light, not only while it burns, so not even the first tick of a leak reaches the outdoor air. Without it, on Vulcan by day that first tick can cost the vents around your base 3 to 12 % damage per leak.
 - New, off by default: terraform set PlanetKeepsTraceGas on keeps in the planet any gas too thin for an outdoor cell to keep, instead of handing it out to be deleted.

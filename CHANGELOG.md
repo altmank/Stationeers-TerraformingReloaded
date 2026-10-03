@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.1
+
+- **Clearer config editor text.** Every world setting used to end with "This is what a NEW world
+  starts with", which read as if new worlds started with that setting switched on. It now says what
+  it means: only new worlds take the value in the config editor, and a world already started is
+  changed with `terraform set <Key> <value>` while playing it. Nothing else changed.
+
 ## 0.13.0
 
 - **New, off by default: the planet's air can catch fire.** Run `terraform set PlanetAirBurns on

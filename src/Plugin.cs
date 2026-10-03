@@ -14,7 +14,7 @@ namespace TerraformingReloaded
     {
         public const string PluginGuid = "xceled.stationeers.terraformingreloaded";
         public const string PluginName = "Terraforming Reloaded";
-        public const string PluginVersion = "0.13.0";
+        public const string PluginVersion = "0.13.1";
 
         /// <summary>The game build the patches were last checked against. Advisory only.</summary>
         private const string TestedGameVersion = "0.2.6428.27798";
@@ -317,7 +317,7 @@ namespace TerraformingReloaded
             {
                 // Said in the entry itself, because the config editor is where a player would
                 // otherwise expect a change to reach the world they are in.
-                description += " This is what a NEW world starts with. Each world keeps its own; to change the world you are playing, use terraform set " + key + " <value>.";
+                description += " Only new worlds take this value. To change a world already started, use terraform set " + key + " <value> while playing it.";
             }
             var tags = new System.Collections.Generic.List<object> { new System.Collections.Generic.KeyValuePair<string, int>("Order", order) };
             if (disabled.HasValue)

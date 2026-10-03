@@ -16,8 +16,8 @@ Settings show in the StationeersLaunchPad config editor with these labels, and a
   The console changes the one you are playing.
 
 Every setting read from the world has this sentence added to the end of its description in the
-config editor: *This is what a NEW world starts with. Each world keeps its own; to change the world
-you are playing, use terraform set &lt;Key&gt; &lt;value&gt;.*
+config editor: *Only new worlds take this value. To change a world already started, use terraform set
+&lt;Key&gt; &lt;value&gt; while playing it.*
 
 | Section | Key | Label | Description | Default | Read from | Can you change it mid-game? |
 | --- | --- | --- | --- | --- | --- | --- |
