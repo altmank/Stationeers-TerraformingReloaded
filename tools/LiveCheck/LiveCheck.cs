@@ -276,9 +276,21 @@ namespace TerraformingReloaded.LiveCheck
 
         private static LiveCheck _instance;
 
+        // -PlanetBurn (PlanetBurn.cs). Held as object, and reached only through the two methods below,
+        // so a run without the mod never loads the mod's types.
+        private object _burn;
+
         private void Awake()
         {
             _instance = this;
+            if (Environment.GetEnvironmentVariable("TR_LIVECHECK_BURN_CASE") != null)
+            {
+                StartPlanetBurn();
+            }
+            if (Environment.GetEnvironmentVariable("TR_LIVECHECK_WATCH") != null)
+            {
+                StartWatch();
+            }
             // Sample at the top of the planet tick: it runs on the simulation thread after the
             // previous tick's atmosphere workers have been joined and before this tick's start, so
             // every cell and the tank are read at rest and uncached. Off this thread a mole reports a
@@ -342,8 +354,32 @@ namespace TerraformingReloaded.LiveCheck
             }
         }
 
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StartPlanetBurn()
+        {
+            PlanetBurnCheck check = PlanetBurnCheck.FromEnvironment(Logger, RunCommand, DaySpeed);
+            if (check != null)
+            {
+                check.Install(new Harmony("xceled.stationeers.terraformingreloaded.livecheck.burn"));
+                _burn = check;
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StartWatch()
+        {
+            WatchCheck.FromEnvironment(Logger)?.Install(new Harmony("xceled.stationeers.terraformingreloaded.livecheck.watch"));
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StepPlanetBurn()
+        {
+            ((PlanetBurnCheck)_burn).Step();
+        }
+
         private void Update()
         {
+            KeepRunning();
             if (_failed || !GameManager.IsBatchMode || GameManager.GameState != GameState.Running)
             {
                 return;
@@ -356,6 +392,34 @@ namespace TerraformingReloaded.LiveCheck
             {
                 _failed = true;
                 Logger.LogError("LiveCheck stopped: " + e);
+            }
+        }
+
+        // A dedicated server with no player pauses its world again after the first unpause (seen on the
+        // test server: ticks stopped at 6). A pause that lasts 10 s is that, not a save in progress.
+        private float _pausedSince = -1f;
+        private int _repauses;
+
+        private void KeepRunning()
+        {
+            if (!GameManager.IsBatchMode || !_unpaused || !WorldManager.IsGamePaused)
+            {
+                _pausedSince = -1f;
+                return;
+            }
+            float now = Time.unscaledTime;
+            if (_pausedSince < 0f)
+            {
+                _pausedSince = now;
+            }
+            else if (now - _pausedSince > 10f)
+            {
+                WorldManager.SetGamePause(pauseGame: false);
+                _pausedSince = -1f;
+                if (++_repauses <= 5)
+                {
+                    Logger.LogInfo("LiveCheck: world paused itself again at tick " + GameManager.GameTickCount + "; unpaused");
+                }
             }
         }
 
@@ -394,6 +458,10 @@ namespace TerraformingReloaded.LiveCheck
             if (Sessions && !_sessionsDone)
             {
                 SessionsStep();
+            }
+            if (_burn != null)
+            {
+                StepPlanetBurn();
             }
             if (RainSave.Length > 0 && !_rainDone && GameManager.GameTickCount >= 15)
             {

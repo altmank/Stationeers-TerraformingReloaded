@@ -108,9 +108,10 @@ namespace TerraformingReloaded.Patching
 
         /// <summary>
         /// Every planet tick, under the tank lock, before the cells mix. Decides which gases are
-        /// traces this tick and how much of each the rule may move.
+        /// traces this tick and how much of each the rule may move. A gas the planet's fire is holding
+        /// back from the outdoor air (<paramref name="held"/>) is not gathered toward it either.
         /// </summary>
-        internal static void Refresh(GlobalGasMix tank)
+        internal static void Refresh(GlobalGasMix tank, HeldGases held)
         {
             _active = false;
             Array.Clear(Budget, 0, Budget.Length);
@@ -126,12 +127,16 @@ namespace TerraformingReloaded.Patching
             bool any = false;
             for (int i = 0; i < Gases.Length; i++)
             {
-                double held = tank.Get(Gases[i]).ToDouble();
-                double gathering = FactorFor(factor, line, held * perCell);
+                if (held.Contains(Gases[i]))
+                {
+                    continue;
+                }
+                double pool = tank.Get(Gases[i]).ToDouble();
+                double gathering = FactorFor(factor, line, pool * perCell);
                 if (gathering > 1.0)
                 {
                     ExtraFactor[i] = gathering - 1.0;
-                    Budget[i] = held * MaxShareOfPoolPerTick;
+                    Budget[i] = pool * MaxShareOfPoolPerTick;
                     any = true;
                 }
             }
@@ -196,6 +201,13 @@ namespace TerraformingReloaded.Patching
                 }
             }
             return head + (found.Length == 0 ? ": none on this planet" : found.ToString());
+        }
+
+        /// <summary>The gathering budget this tick for one gas, in moles; 0 for a gas that is not gathered.</summary>
+        public static double BudgetFor(Chemistry.GasType type)
+        {
+            int i = Array.IndexOf(Gases, type);
+            return i < 0 ? 0.0 : Budget[i];
         }
 
         /// <summary>World start: nothing carries over from the last world.</summary>

@@ -355,6 +355,12 @@ namespace TerraformingReloaded.Patching
             // unless the engine still burns through exactly one constant rate.
             Extra(report, "rocket combustion", () => Rockets.Apply(harmony));
 
+            // The planet's air burns, on a world that has that on. A postfix on the one method every
+            // copy of the planet's air for a cell is built with holds back the side the fire uses up,
+            // and a prefix on the outdoor mixing notices a burning cell touching the planet. Refused
+            // unless every copy still goes through that method and the rule passes its own check.
+            Extra(report, "planet fire", () => PlanetCombustion.Apply(harmony));
+
             Extra(report, "planet size", () =>
             {
                 MethodInfo createPlanet = AccessTools.DeclaredMethod(typeof(GlobalGasMix), "Create", new[] { typeof(GlobalAtmosphereData) });
@@ -426,6 +432,7 @@ namespace TerraformingReloaded.Patching
                 Climate.Invalidate();
                 Storms.Invalidate();
                 TraceGases.Reset();
+                PlanetCombustion.WorldStart();
                 SelfTest.Arm();
                 Planet.NoteShippedReservoirs();
             }

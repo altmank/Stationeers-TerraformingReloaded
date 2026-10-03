@@ -14,7 +14,7 @@ namespace TerraformingReloaded
     {
         public const string PluginGuid = "xceled.stationeers.terraformingreloaded";
         public const string PluginName = "Terraforming Reloaded";
-        public const string PluginVersion = "0.12.0";
+        public const string PluginVersion = "0.13.0";
 
         /// <summary>The game build the patches were last checked against. Advisory only.</summary>
         private const string TestedGameVersion = "0.2.6428.27798";
@@ -273,6 +273,17 @@ namespace TerraformingReloaded
             Bind("Rockets", "RocketsBurnCompletely", Settings.RocketsBurnCompletely,
                 "On by default. Rocket engines burn all of the propellant that runs out first, instead of 96 % of it, so a mix with exactly the right amount of oxidiser, or too little, leaves no oxygen in the exhaust to start fires on a world whose air burns. A mix with too much oxidiser still blows the extra out. Engines give about 4 % more thrust for the same propellant. A rocket's automatic landing counts on the most thrust that rocket has ever had, so after flying with this on, turning it off (or switching to a mix with much more fuel) can bring a landing in too fast instead of calling it off. With this on, about 68 % methane to 32 % oxygen gives the thrust a 2:1 mix gives without it. A world saved without this setting takes the config's.",
                 v => Settings.RocketsBurnCompletely = v, null, "Rocket engines burn completely", 80, world: true);
+
+            // Fire. Its own section: it decides whether the planet's own air burns, which is none of the above.
+            Bind("Fire", "PlanetAirBurns", Settings.PlanetAirBurns,
+                "Off by default. When the planet's air holds a fuel and an oxidiser and would catch fire (its hottest hour is past the point where that air lights by itself, or a fire outdoors touches it), it burns as one big cell, by the game's own burning rules. While it burns, it stops handing the outdoor air the gas it is using up, so gas that drains from a leak never comes back to burn around your base. The heat warms the planet with no limit and fades like any other added heat; a big burn becomes a heat wave. A world saved without this setting takes the config's.",
+                v => Settings.PlanetAirBurns = v, null, "The planet's air burns", 90, world: true);
+            Bind("Fire", "PlanetHoldsBackWhileIgnitable", Settings.PlanetHoldsBackWhileIgnitable,
+                "Off by default; acts only with PlanetAirBurns on. Whenever the planet's air would light itself (its hottest hour is past the point where that air lights by itself), the planet holds back from the outdoor air the gas its fire would use up, burning or not, even before there is any. On Vulcan that is every oxidiser, all the time, so the tick a leak drains into the planet hands none of it to the outdoor air around your base. Off, it is held back only while the planet burns, and that first tick's share reaches every outdoor cell beside open ground. A world saved without this setting takes the config's.",
+                v => Settings.PlanetHoldsBackWhileIgnitable = v, null, "Hold back what would burn whenever the air would light", 91, world: true);
+            Bind("Trace gases", "PlanetKeepsTraceGas", Settings.PlanetKeepsTraceGas,
+                "Off by default. The game deletes any gas an outdoor cell holds less than 0.00001 mol of, so a gas the planet's air holds so little of that one outdoor cell's draw of it falls under that is drawn and deleted every tick by every outdoor cell beside open ground, until it is gone. On, the planet keeps such a gas instead of handing it out: nothing is deleted, and none of it reaches the outdoor air. A world saved without this setting takes the config's.",
+                v => Settings.PlanetKeepsTraceGas = v, null, "The planet keeps gas too thin for outdoor air", 63, world: true);
 
             Bind("Multiplayer", "SyncIntervalSeconds", Settings.SyncIntervalSeconds,
                 "How often the host sends the planet state to clients.",

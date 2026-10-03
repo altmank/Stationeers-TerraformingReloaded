@@ -89,6 +89,40 @@ the planet section of the save; the game reads that section with or without the 
   landing in too fast instead of calling it off. With it on, about 68 % methane to 32 % oxygen gives
   the thrust a 2:1 mix gives without it. Worlds saved before this setting existed take the config's,
   which is on.
+- **The planet's air can catch fire: off unless you turn it on.** Run `terraform set PlanetAirBurns on
+  confirm` in a world. When the planet's air holds a fuel beside an oxidiser and would light by the
+  game's own rules, it burns as one big fire, at the rate and with the products the game uses for any
+  burning patch of air. It lights in two ways: its hottest hour of the day is past the point where
+  that air lights by itself, or a fire outdoors touches it. While it burns, it stops handing the
+  outdoor air the gas it is using up, so oxygen or nitrous oxide that drains from a leak into Vulcan's
+  air does not come back to burn around your base. A leak still burns where it happens.
+  The fire's heat is real and has no limit: it fades like any other added heat, by half every hour by
+  default, but the 50 K limit on added heat does not apply to it, so a big burn becomes a heat wave
+  that can keep itself going. For scale, 5,000 mol of oxygen burnt in Vulcan's air at Standard size
+  adds about 6 K; 3 million mol adds about 1,280 to 1,360 K (more the cooler the planet is when it
+  burns) and fills the air with carbon dioxide and pollutant. A cold world catches fire only from a
+  fire outdoors, and a small fire goes out when that outdoor fire does. `terraform` shows whether the
+  planet is burning and what, what it holds back, and the heat it added. Worlds saved before this
+  setting existed take the config's, which is off. Turning it on for a world whose air already holds
+  a fuel beside an oxidiser asks for `confirm` first: the planet may catch fire at once, and the
+  outdoor air around your base, which already holds its share of that mix, burns it once.
+- **Two more switches go with it, both off by default.**
+  - `terraform set PlanetHoldsBackWhileIgnitable on` matters on a world hot enough to light its own
+    air, such as Vulcan, and acts only while the planet's fire is on. The planet decides what to hold
+    back once a tick, before the outdoor air draws from it, so in the tick a leak drains into the
+    planet the fire has not lit yet, and every outdoor cell beside open ground draws a share of the
+    leaked oxygen. On Vulcan by day those cells burn it at once, and the vents that keep those cells
+    take 3 to 12 % damage per leak, as much 100 m from the leak as 16 m. With this on, the planet
+    holds back the gas its fire would use up (on Vulcan, every oxidiser) for as long as its air is
+    hot enough to light, even while it holds none of that gas, so a leak's first tick hands none of
+    it out.
+  - `terraform set PlanetKeepsTraceGas on` keeps in the planet any gas too thin for an outdoor cell to
+    keep. The game deletes any gas an outdoor cell holds less than 0.00001 mol of. Without this, when
+    the planet holds so little of a gas that one cell's draw of it falls under that, every outdoor
+    cell beside open ground draws it and deletes it, every tick, until it is gone. With it on, nothing
+    is deleted and none of that gas reaches the outdoor air. That includes oxygen a fire leaves
+    behind, too little for the planet to burn.
+  - `terraform` shows what the planet holds back, gas by gas, and why.
 - **Wind turbines** reward thick air: the game clamps the pressure they see to between 5 and
   25 kPa, so a thickened planet runs them up to five times harder, and under 1 kPa they give nothing.
 - **Tutorials** are left as shipped.
@@ -222,6 +256,8 @@ lives in the host's game, and the mod sends it to every player's game every few 
   been lost to space.
 - **Rocket engines** burn on the host, by the host's world setting; everyone sees the thrust the
   host works out.
+- **The planet's fire** burns on the host, by the host's world settings; everyone sees what it burnt
+  and the heat it added.
 - **The host's settings decide the planet.** Planet size, the pressure ceiling, storms and every other
   setting a world keeps are read from the host's world file and config, and so is how often the planet
   is sent. `terraform size`, `set`, `reset` and `gas` work only on the host; on a joining player's game,
@@ -264,12 +300,19 @@ The few worth knowing before you start:
 - **`SpaceDeletesGas`** (the `Space` section) is **destructive** and off by default. On, gas released
   at or above 1,000 m is deleted instead of returning to the planet. A world made before this version
   has it off whatever the config says, like the pressure ceiling.
+- **`PlanetAirBurns`** (the `Fire` section) is off by default. The planet's own air burns when it holds a
+  fuel beside an oxidiser and would catch fire; see What to expect. Turning it on for a world whose air
+  already holds both asks first. **`PlanetHoldsBackWhileIgnitable`**, in the same section and off by
+  default, holds back what the fire would use up whenever the air is hot enough to light, not only
+  while it burns.
 - **`RocketsBurnCompletely`** (the `Rockets` section) is on by default. Rocket engines burn all of the
   propellant that runs out first instead of 96 % of it. Read the landing note under What to expect
   before turning it off on a world you have flown rockets in.
 - **The `Trace gases` section** is experimental and off by default. It switches trace gas gathering on
   and decides how many times faster the air beside your base draws a gas the planet holds only a trace
-  of, and how little counts as a trace.
+  of, and how little counts as a trace. **`PlanetKeepsTraceGas`**, off by default, keeps in the planet
+  a gas too thin for an outdoor cell to keep instead of letting the game delete it; gathering never
+  gathers a gas the planet is holding back.
 - **The `Storms` section** decides when a world stops getting its own storms: once its air is mostly
   gone, or once that air is mild. Both are on by default and neither does anything to a world you
   have not changed. Every number either rule uses is a setting, so nothing is hidden: the share of

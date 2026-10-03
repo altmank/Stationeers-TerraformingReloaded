@@ -98,6 +98,19 @@ changes: `RocketEngineBase.Exhaust` and `BlockPlumeNeighbourAtmospheres` stay `g
 of the chamber has burnt when it gets there differs, so a correctly mixed engine stops putting oxygen
 into the cells under it. No ledger row moves.
 
+**The planet's own fire** (`PlanetAirBurns`, off by default) adds two wrappers to the census:
+`GlobalGasMix.ToInstancedGasMixture`, the one-line copy of the tank every hand-out goes through, and
+`PlanetaryAtmosphereSimulation.GetGlobalGasMixCopy`. Their callers: the exchange take (`TakeGlobalGasMix`,
+which also serves an atmospheric event refilling a cell and the self-test), a new outdoor cell
+(`CloneGlobalGasMix`), the mixing take (`GlobalGasMix.Remove(moles, state)` from `TakeGlobalMoles`), the
+read-only copy rebuilt at the end of the tick (`TickPlanetarySimulation`), and the distant sea's colour
+(`GetGlobalGasMixCopy`, liquids only, which the hold-back never touches). Each copies the tank and the
+takes remove exactly the copy, so zeroing the held side in the copy keeps every site `gated` and the total
+exact. `PlanetCombustion.CheckShape` holds the count of each to one at load. Five new sites, no bypass.
+The armed hold-back and the trace hold (`PlanetHoldsBackWhileIgnitable`, `PlanetKeepsTraceGas`, both off
+by default) zero more gases in the same copies and add no site: what is held stays in the tank, and trace
+gas gathering (`TraceGases.Refresh`) is handed the whole hold, so it never gathers a gas held for either reason.
+
 **A hazard.** World mixing does put the read-only copy into a cell's mixing list, and
 gas is safe there because both directions test for it and go through the switched calls. Liquid mixing
 (`Atmosphere.MixLiquids`) has no such test and is safe only because the copy is built from gas alone, so

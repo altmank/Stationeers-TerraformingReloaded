@@ -16,6 +16,8 @@
     <Reference Include="$(GameDir)\rocketstation_Data\Managed\*.dll"><Private>false</Private></Reference>
     <Reference Include="$(GameDir)\BepInEx\core\BepInEx.dll"><Private>false</Private></Reference>
     <Reference Include="$(GameDir)\BepInEx\core\0Harmony.dll"><Private>false</Private></Reference>
+    <!-- Only PlanetBurn.cs uses the mod's types, and only when -PlanetBurn runs, so -Vanilla never loads them. -->
+    <Reference Include="..\..\src\bin\Release\TerraformingReloaded.dll"><Private>false</Private></Reference>
   </ItemGroup>
 
 </Project>

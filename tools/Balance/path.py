@@ -28,9 +28,10 @@ Rules applied at every step:
   - fuel (volatiles, hydrogen) and an oxidiser (oxygen, nitrous oxide, ozone) are never outdoors
     together. `Atmosphere.TryCombust` burns any fuel beside any oxidiser once a cell is sparked, at any
     temperature and with no minimum ratio, a burning cell sparks its neighbours, and above 573 K no
-    spark is needed. The planet itself never burns, only outdoor cells, so such air is survivable for
-    a careful player; but a route that depends on nobody ever striking a spark is not one to recommend.
-    SAFE = False shows what the fire rule costs;
+    spark is needed. With the mod's PlanetAirBurns on (off by default) the planet's own air burns too,
+    planet-wide, by the same rules (docs/PLANET-COMBUSTION.md), so a route that held such air would
+    meet a planet-wide fire. SAFE = False shows what the fire rule costs; fire.py judges what the
+    residues a removal leaves behind still do (docs/BALANCE.md);
   - when adding nothing helps, taking a gas out for a while is tried too (Europa's oxygen, so that
     volatiles can warm the planet safely), and counted both ways.
 
@@ -92,24 +93,25 @@ def _comes_back(world, mix, gas, **kw):
     return True
 
 
-def plan(world, level='shirt_sleeves', **kw):
+def plan(world, level='shirt_sleeves', start=None, **kw):
     """The cheapest route found over the orders the greedy walk can take its steps in. Removing first
     suits a world whose air is in the way; adding first suits one that needs bulk gas to steady it
-    before anything is taken out (Vulcan). Still a heuristic: a found route is an upper bound."""
+    before anything is taken out (Vulcan). Still a heuristic: a found route is an upper bound.
+    `start` is the air per cell to walk from, when it is not the world's own (fire.py's oxygen dump)."""
     found = cheapest(world, level, **kw)
     if not found:
         return None
-    routes = [_walk(world, level, found, order, **kw) for order in ('removals first', 'additions first')]
+    routes = [_walk(world, level, found, order, start=start, **kw) for order in ('removals first', 'additions first')]
     reached = [r for r in routes if r['reached']]
     best = min(reached, key=lambda r: r['work']) if reached else routes[0]
     best['order'] = ('removals first', 'additions first')[routes.index(best)]
     return best
 
 
-def _walk(world, level, found, order, **kw):
+def _walk(world, level, found, order, start=None, **kw):
     _heat['kelvin'] = 0.0
     _, final, _ = found
-    start = Planet(world, **kw).air
+    start = dict(start) if start is not None else Planet(world, **kw).air
     gases = sorted(set(start) | set(final))
     mix = dict(start)
     helpers = {}                                    # temporary gas -> amount in the air now

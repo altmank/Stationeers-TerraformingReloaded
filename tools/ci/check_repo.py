@@ -142,6 +142,22 @@ need(reset_body is not None and 'Space.ForgetLosses();' in reset_body.group(1),
      'the reset zeroes the lost-to-space total under the tank lock')
 need(re.search(r'Effective\.\w+\(', reset_body.group(1) if reset_body else '') is None,
      'the reset leaves every world setting alone, SpaceDeletesGas included')
+# The planet's fire runs once per planet tick, from the upkeep, under the tank lock, before the
+# pressure ceiling; a second call site would burn twice a tick. The reset puts the fire out inside the
+# same lock as the rest of the reset.
+fire = {}
+for path in SOURCES:
+    count = read(path).count('PlanetCombustion.Upkeep(')
+    if count:
+        fire[os.path.normpath(path).replace('\\', '/')] = count
+need(fire == {'src/Patching/Guards.cs': 1}, 'PlanetCombustion.Upkeep is called once, from Guards.Upkeep: %s' % (fire or '{}'))
+upkeep = re.search(r'private static void Upkeep\(\)(.*?)\n        \}', read('src/Patching/Guards.cs'), re.S)
+need(upkeep is not None and 0 <= upkeep.group(1).find('PlanetCombustion.Upkeep(') < upkeep.group(1).find('Effective.MaxPressureKPa'),
+     'the planet burns before the pressure ceiling trims the tank')
+need(reset_body is not None and 'PlanetCombustion.ForgetFire();' in reset_body.group(1),
+     'the reset puts the planet fire out and zeroes its heat under the tank lock')
+need('Limits.PlanetFireHeatJoules' in read('src/Patching/Sidecar.cs'), 'the recorded fire heat is checked against Limits')
+
 # The config editor's bounds and the settings-file check are the same declaration.
 plugin = read('src/Plugin.cs')
 world_scoped = ('MaxPressureKPa', 'ExternalHeatHalfLifeMinutes', 'MaxExternalOffsetKelvin',
@@ -204,6 +220,7 @@ SAMPLES = (
     'if (BreathingAtmosphere == null)', 'SoilingAtmosphere.Add(m)', 'GetBurningAtmosphere()', 'ScannedAtmosphere.Pressure',
     'FindAtmosphere(grid)', 'GetInputAtmos()', '_worldAtmosphere.GasMixture', '_mixingAtmos[i]', 'thing.Smelt(atmosphere)',
     'base.GridController.AtmosphericsController.HasAtmosphere(grid)',
+    '_globalGasMix.ToInstancedGasMixture();', 'PlanetaryAtmosphereSimulation.GetGlobalGasMixCopy(AtmosphereHelper.MatterState.All)',
 )
 missed = [text for text in SAMPLES if not census.PATTERN.search(text)]
 need(not missed, 'every census symbol matches its sample %s' % (missed or ''))

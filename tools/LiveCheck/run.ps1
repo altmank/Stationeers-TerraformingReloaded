@@ -94,6 +94,26 @@
                oxygen premix must leave no oxygen on and exactly the shipped 4 % off, and hydrazine none
                on and 4 % off. Every engine prefab's rated thrust, worked out through the rewritten burn,
                must be 2 to 6 % higher on, and exactly the figure from load off; both are put back.
+    -PlanetBurn  The planet's air burns (PlanetAirBurns, docs/PLANET-COMBUSTION.md Appendix H). A
+               block of 20 outdoor cells beside open ground stands in for a base's outdoor air; every
+               reading is taken inside the mod's own fire upkeep, one line a tick. Five cases, on
+               Vulcan2 unless said, the planet-side amounts scaled to the planet's size:
+                 1  5,000 mol of oxygen into a leak cell 280 m away, by day. The planet must light by
+                    heat, burn at the game's share, hold the oxidisers back, and never hand the block
+                    a held gas; off is the control, where the block must be handed oxygen and burn.
+                 2  1,000 mol each of oxygen and nitrous oxide into the planet: both held back, and
+                    tank plus outdoor cells move by Appendix C's row to 0.5 %.
+                 3  With the switch off, 50,000 mol of oxygen into the planet until the block holds
+                    its share, then on by day: the first flash, then nothing more handed out.
+                 4  Mars2 with 1,000 mol of methane, and a separate cell set on fire beside open
+                    ground: the planet lights by spark only, goes out within 2 ticks of that fire,
+                    and its heat stays under 6 K.
+                 5  The leak of case 1 at night: the leak's cells must not burn unsparked, the planet
+                    burns what drains, and the block is never handed oxidiser.
+               -BurnCase n runs one case and -BurnOff runs it with the switch off; without
+               -BurnCase every case runs, with controls for 1, 2, 4 and 5. -BurnTicks caps a run
+               (default 4,800 after the release); a run ends early once the fire has been out for
+               240 ticks, or after 1,200 ticks with the switch off.
     -MenuPressure  The mix the new-game menu builds to describe a world must be the shipped planet,
                not the resized one it is playing.
     -Schedule  The two storm rules (docs/STORMS.md). Nothing else can reach them: -Storm and -Weather
@@ -171,6 +191,10 @@ param(
     [switch]$MenuPressure,
     [switch]$Space,
     [switch]$Rockets,
+    [switch]$PlanetBurn,
+    [int]$BurnCase = 0,
+    [switch]$BurnOff,
+    [int]$BurnTicks = 4800,
     [switch]$Rescale,
     [switch]$BuildOver,
     [switch]$Unguarded,
@@ -202,6 +226,9 @@ param(
     [int]$SetAir2Tick = 0,
     [switch]$Keep,
     [switch]$Clean,
+    # Run on the dedicated test server's own install (its BepInEx, its data folder) instead of the game's.
+    [switch]$TestServer,
+    [string]$TestServerRoot = $env:TR_TEST_SERVER,   # the dedicated test server's folder
     [int]$TimeoutSeconds = 360     # raised automatically for long -Observe runs
 )
 
@@ -211,7 +238,23 @@ $root = Split-Path (Split-Path $PSScriptRoot)
 $exe = Join-Path $GameDir 'rocketstation.exe'
 if (-not (Test-Path $exe)) { throw "Stationeers not found at '$GameDir'." }
 if (Get-Process rocketstation -ErrorAction SilentlyContinue) { throw 'Stationeers is running. Close it first.' }
-if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Upgrade, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip, $Space, $Rockets | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Upgrade, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld, -Strip, -Space and -Rockets.' }
+# The game's install is only read (to compile against); with -TestServer every launch, file and save is
+# the test server's. $runDir is where the instance runs and logs; $saveDir where its saves land.
+$runDir = $GameDir
+$saveDir = Join-Path $GameDir 'saves'
+if ($TestServer) {
+    if (-not $TestServerRoot -or -not (Test-Path $TestServerRoot)) { throw "-TestServer needs the test server's folder: pass -TestServerRoot or set TR_TEST_SERVER (now '$TestServerRoot')." }
+    $runDir = Join-Path $TestServerRoot 'server'
+    $saveDir = Join-Path $TestServerRoot 'data\saves'
+    $exe = Join-Path $runDir 'rocketstation_DedicatedServer.exe'
+    if (-not (Test-Path $exe)) { throw "No test server at '$runDir'." }
+    if (Get-Process rocketstation_DedicatedServer -ErrorAction SilentlyContinue) { throw 'The test server is already running: one user at a time.' }
+    if (Test-Path (Join-Path $TestServerRoot 'test.lock.busy')) { throw 'The test server is marked busy (test.lock.busy).' }
+}
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Upgrade, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip, $Space, $Rockets, $PlanetBurn | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Upgrade, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld, -Strip, -Space, -Rockets and -PlanetBurn.' }
+if ($PlanetBurn -and $Vanilla) { throw 'Without the mod the planet never burns, which is what -BurnOff checks with the mod loaded.' }
+if (($BurnCase -lt 0) -or ($BurnCase -gt 5)) { throw '-BurnCase is 1 to 5, or 0 for every case.' }
+if (($BurnCase -ne 0 -or $BurnOff) -and -not $PlanetBurn) { throw '-BurnCase and -BurnOff only apply to -PlanetBurn.' }
 if ($Rockets -and $Vanilla) { throw 'Without the mod engines burn as shipped, so there is nothing to judge.' }
 if ($Space -and $Vanilla) { throw 'Without the mod gas released in space is never handed to the planet, so there is nothing to judge.' }
 if ($Upgrade -and -not (Test-Path (Join-Path $OldRoot 'src\TerraformingReloaded.csproj'))) { throw '-Upgrade needs -OldRoot, a checkout of the earlier release (git worktree add <dir> v0.9.1).' }
@@ -252,21 +295,22 @@ if ($LASTEXITCODE -ne 0) { throw 'Mod build failed.' }
 dotnet build (Join-Path $PSScriptRoot 'LiveCheck.csproj') -c Release -p:GameDir="$GameDir" --nologo -v quiet
 if ($LASTEXITCODE -ne 0) { throw 'LiveCheck build failed.' }
 
-$preexisting = @($names | Where-Object { Test-Path (Join-Path $GameDir $_) })
+$preexisting = if ($TestServer) { @() } else { @($names | Where-Object { Test-Path (Join-Path $GameDir $_) }) }
 if ($preexisting.Count -gt 0) {
     throw "Already present in the game folder: $($preexisting -join ', '). A headless run would mix with them; move them aside first."
 }
 
-$bepLog = Join-Path $GameDir 'BepInEx\LogOutput.log'
-$curvesFile = Join-Path $GameDir 'BepInEx\config\TerraformingReloaded.curves.xml'
+$bepLog = Join-Path $runDir 'BepInEx\LogOutput.log'
+$curvesFile = Join-Path $runDir 'BepInEx\config\TerraformingReloaded.curves.xml'
 $curvesExisted = Test-Path $curvesFile
 # The mod's config is the player's real one, shared with normal play, and a run that moves a setting
 # the way the config editor does (-Sessions) makes BepInEx save it. Byte for byte back at the end.
-$configFile = Join-Path $GameDir 'BepInEx\config\xceled.stationeers.terraformingreloaded.cfg'
+$configFile = Join-Path $runDir 'BepInEx\config\xceled.stationeers.terraformingreloaded.cfg'
 $configSaved = $null
 if (Test-Path $configFile) { $configSaved = [System.IO.File]::ReadAllBytes($configFile) }
 $unityLog = Join-Path $env:TEMP 'tr-livecheck-unity.log'
 $script:game = $null
+$savesBefore = $null
 # Every variable the driver reads, cleared before each launch and again at the end, so one scenario
 # cannot inherit another's settings.
 $envKeys = @(
@@ -279,7 +323,7 @@ $envKeys = @(
     'TR_LIVECHECK_STRIP_TICK', 'TR_LIVECHECK_STRIP_TICKS', 'TR_LIVECHECK_STRIP_CELLS',
     'TR_LIVECHECK_STRIP_PER_CELL', 'TR_LIVECHECK_STRIP_FLOOR', 'TR_LIVECHECK_STRIP_SHARE',
     'TR_LIVECHECK_WALKCOST', 'TR_LIVECHECK_SIDECAR_TICK',
-    'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_SPACE_TICK', 'TR_LIVECHECK_ROCKETS_TICK', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK', 'TR_LIVECHECK_SESSIONS', 'TR_LIVECHECK_RAINSAVE', 'TR_LIVECHECK_UPGRADE')
+    'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_SPACE_TICK', 'TR_LIVECHECK_ROCKETS_TICK', 'TR_LIVECHECK_BURN_CASE', 'TR_LIVECHECK_BURN_SWITCH', 'TR_LIVECHECK_BURN_TICK', 'TR_LIVECHECK_BURN_TICKS', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK', 'TR_LIVECHECK_SESSIONS', 'TR_LIVECHECK_RAINSAVE', 'TR_LIVECHECK_UPGRADE')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -294,12 +338,16 @@ function Invoke-Game([string[]]$arguments, [hashtable]$environment, [scriptblock
     Remove-Item $bepLog, $unityLog -ErrorAction SilentlyContinue
     foreach ($key in $envKeys) { Remove-Item "Env:$key" -ErrorAction SilentlyContinue }
     foreach ($key in $environment.Keys) { Set-Item "Env:$key" $environment[$key] }
-    $script:game = Start-Process $exe -WorkingDirectory $GameDir -PassThru -ArgumentList (@('-batchmode', '-nographics', '-logFile', "`"$unityLog`"") + $arguments)
+    # A dedicated server starts a world in the difficulty it is told; the game's own -new takes the default.
+    if ($TestServer -and $arguments[0] -eq '-new' -and $arguments.Count -eq 2) { $arguments = $arguments + @('Creative') }
+    $script:game = Start-Process $exe -WorkingDirectory $runDir -PassThru -ArgumentList (@('-batchmode', '-nographics', '-logFile', "`"$unityLog`"") + $arguments)
     Write-Host "Started headless instance, PID $($script:game.Id): waiting for $what"
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3
         if ($script:game.HasExited) { throw "The instance exited early (code $($script:game.ExitCode)). See $unityLog" }
+        # The test server's policy: it never runs beside the owner's game.
+        if ($TestServer -and (Get-Process rocketstation -ErrorAction SilentlyContinue)) { Stop-Game; throw "The owner's game started: the test server was stopped." }
         if (Test-Path $bepLog) {
             $log = @(Get-Content $bepLog)
             if (& $until $log) { return $log }
@@ -428,6 +476,13 @@ function Get-Spread($values) {
 
 try {
     $mods = Join-Path $GameDir 'mods'
+    if ($TestServer) {
+        # Staged in a temporary folder and installed by the test server's own setup, which lists exactly
+        # these mods (plus StationGod and BlueprintMod) in its modconfig.xml and removes any other.
+        $mods = Join-Path $env:TEMP 'tr-livecheck-mods'
+        if (Test-Path $mods) { Remove-Item $mods -Recurse -Force }
+        $savesBefore = @(Get-ChildItem $saveDir -Directory -ErrorAction SilentlyContinue | ForEach-Object Name)
+    }
     New-Item -ItemType Directory -Path (Join-Path $mods 'TRLiveCheck\About') -Force | Out-Null
     Copy-Item (Join-Path $PSScriptRoot 'About\*') (Join-Path $mods 'TRLiveCheck\About')
     Copy-Item (Join-Path $PSScriptRoot 'bin\Release\TRLiveCheck.dll') (Join-Path $mods 'TRLiveCheck')
@@ -439,6 +494,14 @@ try {
         New-Item -ItemType Directory -Path (Join-Path $mods 'TerraformingReloaded\About') -Force | Out-Null
         Copy-Item (Join-Path $root 'About\*') (Join-Path $mods 'TerraformingReloaded\About')
         Copy-Item (Join-Path $root 'src\bin\Release\TerraformingReloaded.dll') (Join-Path $mods 'TerraformingReloaded')
+    }
+    if ($TestServer) {
+        $install = @(Join-Path $mods 'TRLiveCheck')
+        if (Test-Path (Join-Path $mods 'TerraformingReloaded')) { $install += Join-Path $mods 'TerraformingReloaded' }
+        # -Command, not -File: -File hands an array over as one string.
+        $list = ($install | ForEach-Object { "'" + $_ + "'" }) -join ','
+        & powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($list); exit `$LASTEXITCODE" | Write-Host
+        if ($LASTEXITCODE -ne 0) { throw 'The test server setup failed.' }
     }
 
     if ($Model) { $Observe = $true }
@@ -851,6 +914,38 @@ try {
         return
     }
 
+    if ($PlanetBurn) {
+        # The planet's air burns: one launch per case and switch position, judged by the driver.
+        $runs = @(if ($BurnCase -gt 0) { [pscustomobject]@{ Case = $BurnCase; On = -not $BurnOff } } else {
+            @(@{ Case = 1; On = $true }, @{ Case = 1; On = $false }, @{ Case = 2; On = $true }, @{ Case = 2; On = $false },
+              @{ Case = 3; On = $true }, @{ Case = 4; On = $true }, @{ Case = 4; On = $false }, @{ Case = 5; On = $true }, @{ Case = 5; On = $false }) | ForEach-Object { [pscustomobject]$_ }
+        })
+        # Waiting for day or night, then the run itself, at the game's half-second tick.
+        $perRun = [int](($BurnTicks + 4000 + 600) * 0.6 + 300)
+        if ($TimeoutSeconds -lt $perRun) { $TimeoutSeconds = $perRun }
+        $verdicts = @()
+        foreach ($run in $runs) {
+            $world = if ($run.Case -eq 4) { 'Mars2' } else { 'Vulcan2' }
+            $switch = if ($run.On) { 'on' } else { 'off' }
+            $environment = @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_BURN_CASE = "$($run.Case)"; TR_LIVECHECK_BURN_SWITCH = $switch
+                TR_LIVECHECK_BURN_TICK = '30'; TR_LIVECHECK_BURN_TICKS = "$BurnTicks"; TR_LIVECHECK_DAYSPEED = $DaySpeed.ToString([cultureinfo]::InvariantCulture) }
+            $log = Invoke-Game @('-new', $world) $environment { param($l) @($l -match 'LiveCheck: burn done').Count -gt 0 } "planet burn case $($run.Case) $switch on $world"
+            Assert-ModLive $log
+            $kept = Join-Path $env:TEMP ("tr-livecheck-burn-{0}-{1}.log" -f $run.Case, $switch)
+            $log | Set-Content $kept
+            Stop-Game
+            $lines = @($log -match 'LiveCheck: burn (setup|release|switch|case|FAIL)') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' }
+            $lines | Write-Host
+            Write-Host "  every tick's reading is in $kept"
+            $verdict = @($lines -match '^burn (case \d (on|off) (PASS|FAIL)|FAIL)')
+            if ($verdict.Count -eq 0) { $verdicts += "case $($run.Case) $switch gave no verdict" }
+            elseif ($verdict[0] -notmatch 'PASS') { $verdicts += $verdict[0] }
+        }
+        if ($verdicts.Count -gt 0) { throw "LiveCheck FAILED: $($verdicts -join ' / ')" }
+        Write-Host "LiveCheck OK: $($runs.Count) planet burn run(s) passed."
+        return
+    }
+
     if ($MenuPressure) {
         # D16. The new-game menu divides a world's moles by its unscaled volume, so the mix it builds
         # must be the shipped planet even while a resized one is being played.
@@ -1003,6 +1098,12 @@ try {
 
         # Now the actual question: the unmodded game loads this save. What planet does it find?
         Remove-Item (Join-Path $mods 'TerraformingReloaded') -Recurse -Force
+        if ($TestServer) {
+            # The test server's mods are what its setup installed: install again without the mod.
+            $only = "'" + (Join-Path $mods 'TRLiveCheck') + "'"
+            & powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
+            if ($LASTEXITCODE -ne 0) { throw 'The test server setup failed.' }
+        }
         $log = Invoke-Game @('-file', 'start', $station, 'Mars2') @{ TR_LIVECHECK_INJECT = '0' } `
             { param($l) @(Get-Rows $l).Count -ge 4 } 'the unmodded game to load the save'
         if ($log -match 'Terraforming Reloaded') { throw 'The mod loaded in the unmodded phase.' }
@@ -1058,7 +1159,7 @@ try {
         Write-Host "--- phase 1: $oldVersion ---"
         if ($atSave) { Write-Host ("  at the save, tick {0}: tank {1:N3} + outdoor cells {2:N3} = {3:N3} mol" -f $atSave.Tick, $atSave.Tank, $atSave.Held, $atSave.Sum) }
         else { throw "$oldVersion logged no planet total before its save." }
-        $sidecarFile = Join-Path $GameDir "saves\$station\terraforming-reloaded.xml"
+        $sidecarFile = Join-Path $saveDir "$station\terraforming-reloaded.xml"
         if (Test-Path $sidecarFile) { throw "$oldVersion wrote a settings file, so this is not an upgrade from a release without one." }
 
         # The player then turns the ceiling on in the config, meaning it for a new world. Under the
@@ -1268,7 +1369,7 @@ try {
         Start-Sleep -Seconds 20
         $log = @(Get-Content $bepLog)
         Stop-Game
-        $file = Join-Path $GameDir "saves\$station\terraforming-reloaded.xml"
+        $file = Join-Path $saveDir "$station\terraforming-reloaded.xml"
         Write-Host '--- a world being created ---'
         @($log -match 'Per-world settings') | ForEach-Object { $_ -replace '^\[[^\]]*\]\s*', '' } | Write-Host
         $problems = @()
@@ -1410,7 +1511,7 @@ try {
         $log = @(Get-Content $bepLog)
         $saved = @(Get-Rows $log)[-1]
         Stop-Game
-        $files = @(Get-ChildItem (Join-Path $GameDir "saves\$station") -Recurse -File -ErrorAction SilentlyContinue)
+        $files = @(Get-ChildItem (Join-Path $saveDir $station) -Recurse -File -ErrorAction SilentlyContinue)
         if ($files.Count -eq 0) { throw "No save was written under saves\$station." }
         Write-Host ("saved:  tick {0}, {1} outdoor cells holding {2:0.000}, tank {3:0.000}, SUM {4:0.000}" -f $saved.Tick, $saved.Cells, $saved.Held, $saved.Tank, $saved.Sum)
         if ($saved.Cells -lt 500) { throw "Only $($saved.Cells) outdoor cells at the save; the scenario needs the gas still spread out." }
@@ -1512,7 +1613,14 @@ finally {
     if (-not $curvesExisted -and (Test-Path $curvesFile)) { Remove-Item $curvesFile -Force }
     if ($null -ne $configSaved) { [System.IO.File]::WriteAllBytes($configFile, $configSaved) }
     elseif (Test-Path $configFile) { Remove-Item $configFile -Force }
-    if ($Keep) {
+    if ($TestServer) {
+        # Only the saves this run made; the test server's own baseline saves stay.
+        if (-not $Keep -and $null -ne $savesBefore) {
+            Get-ChildItem $saveDir -Directory -ErrorAction SilentlyContinue | Where-Object { $savesBefore -notcontains $_.Name } |
+                ForEach-Object { Remove-Item $_.FullName -Recurse -Force }
+        }
+    }
+    elseif ($Keep) {
         Write-Host "Kept for inspection in ${GameDir}: $($names -join ', '). Delete them before the next run."
     }
     else {

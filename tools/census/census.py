@@ -56,6 +56,10 @@ SYMBOLS = [
     r'\b_mixingAtmos\b',
     r'AtmosphericsController\b.*\bHasAtmosphere\s*\(',
     r'\bSmelt\s*\(',
+    # The one method every copy of the planet's air for a cell goes through, where the planet's fire
+    # holds back the side it burns (docs/PLANET-COMBUSTION.md, Appendix A), and the planet's copy getter.
+    r'ToInstancedGasMixture\s*\(',
+    r'GetGlobalGasMixCopy\s*\(',
 ]
 PATTERN = re.compile('|'.join('(?:%s)' % s for s in SYMBOLS))
 METHOD = re.compile(r'^\t(?:\t)?(?:public|private|protected|internal|static|override|virtual|async|sealed|abstract|new|extern|unsafe|readonly|\s)+[\w<>\[\],.? ]+?\s+(\w+)\s*(?:<[^>]*>)?\s*\(')

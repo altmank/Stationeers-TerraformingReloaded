@@ -57,6 +57,8 @@ required set stands down, so a planet already terraformed keeps its temperature:
 | `Atmosphere.LerpToGlobalAtmosphere` transpiler | Trace gases gather (below). Its one call to `TakeGlobalGasMix` becomes `TraceGases.TakeForLerp`. Refused unless the lerp takes from the planet exactly once and `TraceGases.CheckArithmetic` passes on the game's own types |
 | `Atmosphere.MixInWorld` prefix + finalizer | Gas released in space (below). Marks the thread while a cell at or above the space line mixes. Refused unless the shape check passes; without it the give filter and the removal guard delete nothing |
 | `RocketEngineBase.CombustEngine` transpiler | Rocket engines burn completely (below). Its one constant rate becomes `Rockets.CombustionRate()`. Refused unless the method calls `TryCombust` once, with a constant rate between 0 and 1 |
+| `GasMixtureHelper.Create(GlobalGasMix, MatterState)` postfix | The planet's air burns (below). While the planet burns, every copy of its air the game hands a cell has the side the fire uses up taken out. Refused unless the exchange take, a new cell, the mixing take and the read-only copy each copy the air through it once, and `PlanetCombustionCheck.CheckArithmetic` passes on the game's own types |
+| `Atmosphere.MixInWorld` prefix | The planet's air burns: a cell that burnt last tick and trades air with the planet is the spark. Installed with the postfix above; either missing refuses the rule |
 | `AtmosphericScattering.UpdateAtmosphericScatteringToGlobalAtmosphere` prefix + postfix, then `ManagerUpdate` transpiler | Sky follows the air, throttled (D9). Throttle first, so the sky is never on without it |
 
 ## Detecting a game update that matters
@@ -171,6 +173,49 @@ so 4 % of the propellant that runs out first leaves unburnt (ASSUMPTIONS.md R1-R
 - **Host only.** Engines burn inside the `RunSimulation` block; the gate is closed on a joining
   player's game, and the setting is not sent.
 
+## The planet's air burns
+
+Off by default (`PlanetAirBurns`, per world, reversible; SIDECAR.md), with two companion switches, also off:
+the armed hold-back (`PlanetHoldsBackWhileIgnitable`) and the trace hold (`PlanetKeepsTraceGas`), both
+carried by the same postfix (`PlanetHold`, `TraceHoldRule`). The design and every number are in
+PLANET-COMBUSTION.md; the choices and their status are ASSUMPTIONS.md F0-F12.
+
+- **The rule** (`FireRule`). Every planet tick, in the upkeep under the tank lock, after the phase change
+  is put in proportion and before the pressure ceiling: one cell's worth of the tank's gas at the day's
+  hottest hour goes through the game's own `GasMixture.IsAutoIgnition` (with a 5 K margin once lit by
+  heat) and `TryCombust`'s quantity test; a spark is a burning cell that traded air with the planet
+  last tick. If it burns, the rate is the game's `Atmosphere.GetCombustionMultiplierCurved` on that sample
+  (a scratch `Atmosphere` per thread), and a gas-only copy of the whole tank goes through
+  `GasMixture.Combust` at that rate and is written back. Liquids are never read or written.
+- **The scarce side.** A copy of the sample burnt to completion by `GasMixture.Combust`: every oxidiser
+  if the oxidisers come out empty, every fuel if the fuels do, hydrazine on its own. The fuel and
+  oxidiser lists are the game's (`Combustion.Fuels`, `Oxidisers`, `Hypergolics`), cut to their gases.
+- **The hold-back.** While the planet burns, a postfix on `GasMixtureHelper.Create(GlobalGasMix,
+  MatterState)` zeroes the scarce side, quantity and heat together, in every copy of the tank it builds.
+  Every way the game hands the planet's air to a cell copies it there and then removes exactly that copy
+  (INTERACTIONS.md), so the planet stays whole. The mod's own copies (the self-test's round trip) run
+  in a `[ThreadStatic]` scope that is not held. Trace gas gathering gives a held gas no budget. Decided
+  at the upkeep, so a gas that reaches the planet during one tick's mixing can be handed out in that
+  same mixing before the next tick lights the fire: a one-tick lead, measured by LiveCheck `-PlanetBurn`.
+- **The heat.** Booked as a burnt cell books it: both stored heats grow with the heat capacity, as
+  `Planet.AddGas` does, and the heat of combustion less the products' extra heat capacity times the
+  current temperature joins the external counter and the mod's combustion heat counter. The tick's
+  settling fades all of it and holds only the rest of external heat to the 50 K limit. The counter is
+  saved in the world's settings file, scaled by rescale and gas add or remove, and zeroed by reset.
+- **The peak** is the storm rules' cached sweep of the game's formula over the sun angles, shared
+  (`Storms.DayPeak`): during a fire the air changes every tick, so it is taken again every tick.
+- **Checked at load** by `PlanetCombustionCheck.CheckArithmetic` (Appendix H cases 1 to 16 of the
+  specification, and cases 17 to 20 for the armed hold-back, both hold settings, the trace hold and the
+  self-test's count) on the game's own types; the rule is not installed if it fails. PatchCheck runs the
+  same check with the game's rate written out (the game's method needs Unity's `Math.Clamp`; its
+  constants are read off its IL instead) and needs twelve broken rules to fail it, ten of the fire and
+  two of the trace hold. Three errors in a
+  session stand the rule down, with nothing held back.
+- **Cost.** Per copy of the planet's air: one volatile read while nothing is held. Per outdoor cell per
+  tick in the mixing prefix: one volatile read while the planet holds nothing it could burn. Per planet
+  tick: a copy, a sample, and while a pair is present three game calls and a burn of a tank copy.
+- **Host only.** The upkeep runs where the simulation runs and the postfix asks `Gate.Enabled()`.
+
 ## `Gate.Enabled()`
 
 True only when: patches armed, no self-test fault, config enabled, the world is not a tutorial, not a network client,
@@ -261,6 +306,6 @@ client it says whose answer it is rather than inventing one.
 `StrippedAtmosphereShare`, `StormsStopWhenAtmosphereIsMild`, `MildAtmosphereColdestKelvin`,
 `MildAtmosphereHottestKelvin`, `MildAtmosphereMinPressureKpa`, `MildAtmosphereMaxPressureKpa`,
 `MildAtmosphereMaxToxinsKpa`, `MildAtmosphereStopsSolarStorms`; `TraceGasGathering`, `TraceGasLine`;
-`SpaceDeletesGas`; `RocketsBurnCompletely`;
+`SpaceDeletesGas`; `RocketsBurnCompletely`; `PlanetAirBurns`;
 `SyncIntervalSeconds`;
 `StatusLogSeconds`. Player-facing descriptions are in the root README.

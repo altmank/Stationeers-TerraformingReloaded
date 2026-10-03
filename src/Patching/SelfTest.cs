@@ -88,6 +88,10 @@ namespace TerraformingReloaded.Patching
                     SpaceDeletesGas = true,
                     GasLostToSpaceMoles = 1234.5,
                     RocketsBurnCompletely = false,
+                    PlanetAirBurns = false,
+                    PlanetHoldsBackWhileIgnitable = true,
+                    PlanetKeepsTraceGas = false,
+                    PlanetFireHeatJoules = -2.5e11,
                 };
                 string xml = Sidecar.ToXml(written);
                 if (!xml.Contains("xsi:nil=\"true\""))
@@ -135,6 +139,14 @@ namespace TerraformingReloaded.Patching
                 {
                     return "a world that turned complete rocket burning off did not stay off across the round trip";
                 }
+                if (read.PlanetAirBurns != false || read.PlanetFireHeatJoules != -2.5e11)
+                {
+                    return "a world that turned the planet's fire off, or the fire's heat, did not survive the round trip";
+                }
+                if (read.PlanetHoldsBackWhileIgnitable != true || read.PlanetKeepsTraceGas != false)
+                {
+                    return "a world's armed hold-back or trace hold did not survive the round trip";
+                }
 
                 SidecarFile partial = Sidecar.FromXml(OneElement);
                 if (partial == null || partial.MaxExternalOffsetKelvin != 7.0)
@@ -147,7 +159,9 @@ namespace TerraformingReloaded.Patching
                     || partial.StormsStopWhenStripped.HasValue || partial.MildAtmosphereColdestKelvin.HasValue
                     || partial.TraceGasGatheringEnabled.HasValue || partial.TraceGasGathering.HasValue || partial.TraceGasLine.HasValue
                     || partial.SpaceDeletesGas.HasValue || partial.GasLostToSpaceMoles.HasValue
-                    || partial.RocketsBurnCompletely.HasValue)
+                    || partial.RocketsBurnCompletely.HasValue
+                    || partial.PlanetAirBurns.HasValue || partial.PlanetFireHeatJoules.HasValue
+                    || partial.PlanetHoldsBackWhileIgnitable.HasValue || partial.PlanetKeepsTraceGas.HasValue)
                 {
                     return "a file holding one setting invented values for the rest";
                 }
@@ -284,7 +298,13 @@ namespace TerraformingReloaded.Patching
                 MoleEnergy heat = PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset;
                 double before = tank.TotalQuantity().ToDouble();
 
-                GasMixture taken = PlanetaryAtmosphereSimulation.TakeGlobalGasMix(Chemistry.GridVolume);
+                // The coupling alone is under test, so the take is of the planet's whole air, with nothing
+                // held back by the planet's fire.
+                GasMixture taken;
+                using (PlanetCombustion.Unheld.Begin())
+                {
+                    taken = PlanetaryAtmosphereSimulation.TakeGlobalGasMix(Chemistry.GridVolume);
+                }
                 double moved = taken.GetTotalMolesGassesAndLiquids.ToDouble();
                 double between = tank.TotalQuantity().ToDouble();
                 if (moved > 0.0)
@@ -301,15 +321,10 @@ namespace TerraformingReloaded.Patching
                     Finish(Verdict.Skipped, "the take came back empty");
                     return;
                 }
-                double tolerance = Math.Max(1e-6, before * 1e-9);
-                if (Math.Abs(before - between - moved) > tolerance)
+                string problem = RoundTripProblem(before, between, moved, after);
+                if (problem != null)
                 {
-                    Fail($"a take of {moved:0.######} mol lowered the planet by {before - between:0.######}");
-                    return;
-                }
-                if (Math.Abs(after - before) > tolerance)
-                {
-                    Fail($"after giving back what was taken the planet is off by {after - before:0.######} mol");
+                    Fail(problem);
                     return;
                 }
                 Finish(Verdict.Passed, $"take and give of {moved:0.###} mol balanced");
@@ -318,6 +333,26 @@ namespace TerraformingReloaded.Patching
             {
                 Fail("it threw: " + e.Message);
             }
+        }
+
+        /// <summary>
+        /// The verdict on one take and give: the planet must drop by what the take actually handed over
+        /// (<paramref name="moved"/>, the moles in the copy it returned), not by any share worked out
+        /// beforehand, and come back to where it was. So a gas the planet holds back, which never
+        /// leaves it, cannot make the test fail. Returns the problem, or null.
+        /// </summary>
+        public static string RoundTripProblem(double before, double between, double moved, double after)
+        {
+            double tolerance = Math.Max(1e-6, before * 1e-9);
+            if (Math.Abs(before - between - moved) > tolerance)
+            {
+                return $"a take of {moved:0.######} mol lowered the planet by {before - between:0.######}";
+            }
+            if (Math.Abs(after - before) > tolerance)
+            {
+                return $"after giving back what was taken the planet is off by {after - before:0.######} mol";
+            }
+            return null;
         }
 
         private static void Finish(Verdict verdict, string text)

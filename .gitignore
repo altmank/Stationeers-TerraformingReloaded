@@ -14,3 +14,6 @@ reference/
 # written by the game (tools/LiveCheck/run.ps1 -Dump); game data stays out of the repo
 tools/Balance/gamedata.json
 __pycache__/
+
+# the leak test's run logs (tools/LeakTest/leaktest.py)
+tools/LeakTest/results/

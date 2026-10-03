@@ -302,6 +302,12 @@ namespace TerraformingReloaded
                 () => Effective.SpaceDeletesGas, () => Settings.SpaceDeletesGas, v => Effective.SpaceDeletionByConsoleCommand(v)),
             Switch("RocketsBurnCompletely", "Rocket engines burn completely",
                 () => Effective.RocketsBurnCompletely, () => Settings.RocketsBurnCompletely, v => Effective.RocketsBurnCompletely = v),
+            Switch("PlanetAirBurns", "The planet's air burns",
+                () => Effective.PlanetAirBurns, () => Settings.PlanetAirBurns, v => Effective.PlanetAirBurns = v),
+            Switch("PlanetHoldsBackWhileIgnitable", "Hold back what would burn whenever the air would light",
+                () => Effective.PlanetHoldsBackWhileIgnitable, () => Settings.PlanetHoldsBackWhileIgnitable, v => Effective.PlanetHoldsBackWhileIgnitable = v),
+            Switch("PlanetKeepsTraceGas", "The planet keeps gas too thin for outdoor air",
+                () => Effective.PlanetKeepsTraceGas, () => Settings.PlanetKeepsTraceGas, v => Effective.PlanetKeepsTraceGas = v),
         };
 
         /// <summary>
@@ -394,6 +400,22 @@ namespace TerraformingReloaded
             if (key.Name == "DynamicSky" && !(bool)asked)
             {
                 text.AppendLine("  The sky stops following the air now, and keeps the look it has until this world is loaded again.");
+            }
+            if (key.Name == "PlanetAirBurns" && !(bool)asked)
+            {
+                text.AppendLine("  The planet's air stops burning from the next planet tick, and holds nothing back from the outdoor air; fuel and oxidiser burn only in outdoor cells. Fire heat already booked stays and fades.");
+            }
+            if (key.Name == "PlanetHoldsBackWhileIgnitable")
+            {
+                text.AppendLine((bool)asked
+                    ? "  From the next planet tick, whenever the planet's air would light itself, it holds back the gas its fire would use up, burning or not." + (Effective.PlanetAirBurns ? "" : " It acts only while PlanetAirBurns is on, which it is not on this world.")
+                    : "  From the next planet tick, the planet holds back what its fire uses up only while it burns.");
+            }
+            if (key.Name == "PlanetKeepsTraceGas")
+            {
+                text.AppendLine((bool)asked
+                    ? "  From the next planet tick, the planet keeps any gas too thin for an outdoor cell to keep, instead of handing it out to be deleted."
+                    : "  From the next planet tick, a gas too thin for an outdoor cell to keep is handed out and deleted, as the game ships.");
             }
             if (key.Name == "RocketsBurnCompletely" && !(bool)asked)
             {
@@ -555,10 +577,48 @@ namespace TerraformingReloaded
                 case "SpaceDeletesGas":
                     // Turning it on deletes from then on; turning it off deletes nothing.
                     return (bool)asked ? SpacePrompt(c) : null;
+                case "PlanetAirBurns":
+                    // Turning it on can light a mix the planet already holds; turning it off burns nothing.
+                    return (bool)asked ? FirePrompt(tank, c) : null;
                 default:
                     return null;
             }
         }
+
+        /// <summary>
+        /// Turning the planet's fire on where the planet already holds a fuel and an oxidiser, each at
+        /// or above <see cref="HeldMixPerCell"/> per outdoor cell: a mix the planet has been holding,
+        /// not a leak. It can catch fire at once, and the outdoor air beside a base burns the share it
+        /// already holds. Null, so it happens at once, for anything less.
+        /// </summary>
+        private static string FirePrompt(GlobalGasMix tank, CultureInfo c)
+        {
+            double cells = (tank.Volume / Chemistry.GridVolume).ToDouble();
+            double oxidiser = 0.0;
+            double fuel = 0.0;
+            foreach (Chemistry.GasType type in FireGases.Oxidisers)
+            {
+                oxidiser += tank.Get(type).ToDouble();
+            }
+            foreach (Chemistry.GasType type in FireGases.Fuels)
+            {
+                fuel += tank.Get(type).ToDouble();
+            }
+            if (!(cells > 0.0) || oxidiser / cells < HeldMixPerCell || fuel / cells < HeldMixPerCell)
+            {
+                return null;
+            }
+            double? peak = Storms.Now?.MildKnown == true ? Storms.Now.Hottest : (double?)null;
+            double? ignition = FireRule.IgnitionKelvin(FireRule.Shipped.Sample(tank, peak ?? 0.0));
+            return string.Format(c, "This planet's air holds {0:N3} mol of oxidiser beside {1:N3} mol of fuel. Its hottest hour is {2}, and {3}. "
+                + "Once on, the planet burns that mix whenever it is lit, and the outdoor air beside your base, which already holds its share, can flash once and damage exposed vents and cables. "
+                + "To go ahead: terraform set PlanetAirBurns on confirm",
+                oxidiser, fuel, peak.HasValue ? string.Format(c, "{0:N1} K", peak.Value) : "not worked out yet",
+                ignition.HasValue ? string.Format(c, "that air lights itself above {0:N2} K", ignition.Value) : "that air never lights itself, so only a fire outdoors would light it");
+        }
+
+        /// <summary>Moles per outdoor cell of both a fuel and an oxidiser above which turning the planet's fire on asks first.</summary>
+        private const double HeldMixPerCell = 0.001;
 
         /// <summary>
         /// What turning on the deleting of gas released in space costs, before it happens: what is up
@@ -993,6 +1053,7 @@ namespace TerraformingReloaded
                 }
             }
             text.AppendLine("  " + TraceGases.Describe(tank, c));
+            PlanetCombustion.Describe(text, c);
             text.AppendLine("  " + Space.Describe(c));
             text.AppendLine("  " + Rockets.Describe(c));
             Reservoirs(text, c);
@@ -1035,6 +1096,13 @@ namespace TerraformingReloaded
                 // A joining player's own value means nothing; the host's is on the space line below.
                 + (NetworkManager.IsClient ? "" : Effective.SpaceDeletesGas ? ", gas released in space is deleted" : ", gas released in space returns to the planet")
                 + (NetworkManager.IsClient ? "" : Effective.RocketsBurnCompletely ? ", rocket engines burn completely" : ", rocket engines burn as shipped")
+                + (NetworkManager.IsClient ? "" : Effective.PlanetAirBurns ? ", the planet's air burns" : ", the planet's air does not burn (fuel and oxidiser burn only in outdoor cells)")
+                + (NetworkManager.IsClient ? "" : Effective.PlanetHoldsBackWhileIgnitable
+                    ? ", it holds back what its fire would use up whenever its air would light (armed hold-back)"
+                    : ", it holds back what its fire uses up only while burning")
+                + (NetworkManager.IsClient ? "" : Effective.PlanetKeepsTraceGas
+                    ? ", it keeps gas too thin for outdoor air (trace hold)"
+                    : ", gas too thin for outdoor air is handed out and deleted, as shipped")
                 + "; the storm settings are under storms below; all of them with terraform set");
         }
 

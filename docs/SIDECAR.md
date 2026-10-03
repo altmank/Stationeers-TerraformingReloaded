@@ -1,7 +1,5 @@
 # Per-world settings
 
-Built and verified headlessly, not yet released.
-
 ## The problem
 
 One global config decides how a particular world behaves. Tune a setting for a new save, load an older
@@ -46,6 +44,10 @@ per-world value comes back for free. Nothing else has a carrier like that.
   <SpaceDeletesGas>false</SpaceDeletesGas>
   <GasLostToSpaceMoles>0</GasLostToSpaceMoles>
   <RocketsBurnCompletely>true</RocketsBurnCompletely>
+  <PlanetAirBurns>false</PlanetAirBurns>
+  <PlanetHoldsBackWhileIgnitable>false</PlanetHoldsBackWhileIgnitable>
+  <PlanetKeepsTraceGas>false</PlanetKeepsTraceGas>
+  <PlanetFireHeatJoules>0</PlanetFireHeatJoules>
 </TerraformingReloaded>
 ```
 
@@ -115,11 +117,12 @@ built, while on a load both do.
 - **Write, a loaded world with no file**: inside the read prefix, into the folder that already exists.
   `CreateSaveDirectory` never fires on a load, so this is the only place that case can be handled.
 - **Write, a setting changed**: `terraform set`, and no other setting write.
-- **Write, a game save**: prefix on `XmlSaveLoad.GetWorldData`, only when the lost-to-space total has
-  changed since the file was last written (gas was deleted, or `terraform reset confirm` set it back
-  to 0), so the file's `GasLostToSpaceMoles` is the total at that save. It writes the whole file from
-  the values in force, as `terraform set` does. A world that never deletes anything writes nothing at
-  a save.
+- **Write, a game save**: prefix on `XmlSaveLoad.GetWorldData`, only when a total the file records has
+  changed since it was last written: the lost-to-space total (gas was deleted, or `terraform reset
+  confirm` set it back to 0) or the planet's fire heat (a fire, its fade, a reset). So the file's
+  `GasLostToSpaceMoles` and `PlanetFireHeatJoules` are the totals at that save. It writes the whole
+  file from the values in force, as `terraform set` does. A world that neither deletes anything nor
+  burns writes nothing at a save; one with fire heat writes at every save while the heat fades.
 - **Not written, the reset**: `terraform reset confirm` sets the total back to 0 in force and leaves
   every setting, `SpaceDeletesGas` included, as it was, the same as the reset treats the ceiling and
   the rest. The planet it restores is only kept by a save, so the 0 is too: the next save writes it,
@@ -307,6 +310,9 @@ what a missing or unreadable file falls back to.
 | `SpaceDeletesGas` | destroys | Gas released at or above 1,000 m is deleted instead of returning to the planet, and the smaller planet is saved. `terraform set` asks before turning it on. Not recorded is off, never the config's |
 | `TraceGasGatheringEnabled`, `TraceGasGathering`, `TraceGasLine` | reversible | Decide how much of a trace gas the outdoor cells beside a base draw from the planet each tick. Nothing is deleted: the planet pays for every mole a cell takes, and a cell gives back what it does not use up. Switched off, what the cells hold drains back to the planet |
 | `RocketsBurnCompletely` | reversible | How much of the propellant that runs out first a rocket engine burns: all of it, or the game's 96 %. Nothing is deleted; what an engine does not burn leaves in its exhaust as it always has. Not recorded takes the config's, which is on by default, so a world saved before 0.12.0 burns completely unless the config says otherwise (the file gains the element at its next write). One effect outlives switching it off: a rocket's automatic landing plans with the most thrust that rocket has had, a figure the save keeps (`Rocket.MaxRecordedThrust`), so a rocket that flew with this on counts on about 4 % more thrust than its engines give once it is off (ASSUMPTIONS.md R5). `terraform set` says so when it is turned off, and does not ask first, because nothing is lost |
+| `PlanetAirBurns` | reversible | Whether the planet's own air burns when it holds a fuel beside an oxidiser and would catch fire. What a fire burns is gone, as any fire's is, but the switch deletes nothing by itself and turning it off stops the next tick's burn. Not recorded takes the config's, which is off, so a world saved before 0.13.0 does not burn unless the config says otherwise. Turning it on asks first when the planet already holds a mix, because the outdoor air beside a base can flash once |
+| `PlanetHoldsBackWhileIgnitable` | reversible | Whether the planet's fire holds back the side it would use up whenever its air would light itself, or only while it burns. Holding back moves nothing: the held gas stays in the planet. Not recorded takes the config's, which is off |
+| `PlanetKeepsTraceGas` | reversible | Whether the planet keeps a gas too thin for an outdoor cell to keep, or hands it out for the game to delete. On deletes nothing; off is the game's own deletion, a gas at a time, and turning it back on keeps what is left. Not recorded takes the config's, which is off |
 
 Not world-scoped:
 
@@ -386,6 +392,15 @@ other world settings are never read on a client.
 that changed it, so loading an older save in the same folder shows the latest total, not the total at
 that save. It is a readout only; nothing acts on it. A client is sent the host's, so a host's reset
 reaches a joining player's readout with the next planet update.
+
+**The fire heat follows the file too, and is squared with the save at load.** `PlanetFireHeatJoules` is
+the part of the save's added heat (`ExternalOffset`) that the planet's own fire booked, which the added
+heat limit does not apply to. It is written at a save that changed it, so an older save in the same folder
+can be loaded beside a newer figure. The first planet tick of a world checks the two against each other:
+a figure the save's added heat cannot hold within the limit is cut toward that added heat, and never past
+zero, so a mismatch can only lose heat, never make it, and the loss is logged. A world with no figure
+(saved before 0.13.0, or a file that cannot vouch for it) has none, so the limit applies to all of its
+added heat on the first tick: the safe direction.
 
 **A workshop save does not carry its file.** The upload is the single `.save`, not the folder, so an
 imported world lands in the missing-sidecar path. That is correct, and needs nothing.

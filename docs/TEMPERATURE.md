@@ -146,6 +146,22 @@ no amount of terraforming Mars can exercise the mod's formula. Mars measures the
 game's own temperature; the rule here can only be measured somewhere else. `tools/ci/test_model.py`
 pins that ("a world with its own curves is left alone").
 
+## The planet's fire and temperature
+
+Two things about the planet's own fire (PLANET-COMBUSTION.md) touch temperature:
+
+- **Its heat is not capped.** It joins the external counter and fades by the added heat half-life like
+  the rest, but the 50 K limit applies only to the external heat that is not the fire's. A big burn is a
+  heat wave: 3 million mol of oxygen burnt in a Vulcan of 250,000 cells adds about 1,280 K from a planet
+  at 1,000 K, booked as the game books a burnt cell (PatchCheck prints the figure); the same burn at
+  night, from a cooler planet, **MEASURED** 1,362.7 K. The cooler the planet when it burns, the larger
+  the rise (PLANET-COMBUSTION.md, Decisions). The heat enters the temperature on the next
+  evaluation, because the formula divides the stored heat by the heat capacity every time it is asked.
+- **Its gate uses the day's peak.** Whether the planet lights by heat is asked at the hottest hour of the
+  day at the current point of the orbit, from the storm rules' sweep of the game's formula, the mod's
+  response and both stored heats included. Everything else about the planet still uses the current
+  temperature, the fire's own heat booking included.
+
 ## Phase change and reachability
 
 `tools/Balance/planet.py` applies the game's phase rules to a settled planet, from constants the game

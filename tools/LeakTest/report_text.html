@@ -1,0 +1,237 @@
+<h1>The planet's air burns: what the headless runs measured</h1>
+<p class="muted">Terraforming Reloaded 0.13.0. Every run on the dedicated test server
+(game build 0.2.6428.27798, no player connected). Labels:
+<span class="m">measured</span> is read from a run; <span class="mod">modelled</span> is worked out by PatchCheck or
+<code>tools/Balance</code>. Raw logs: <code>tools/LeakTest/results/</code> (not committed).</p>
+
+<h2>Executive summary</h2>
+<div class="key"><b>What ran.</b> LiveCheck <code>-PlanetBurn</code> (5 cases, switch on and off: all pass), the standing
+regression (default, <code>-SaveLoad</code>, <code>-Reset</code>, <code>-Model -World Vulcan2</code>: all pass), a liveness census, and 41 runs
+on Vulcan2 at size 0.05: 50 to 20,000 mol of oxygen, a tank vent and a pipe burst, midday, dusk and night, oxygen plus
+nitrous oxide, each with the switch on and off; two controls with nothing released; a 3 M mol planet dump at night. All on the dedicated test server; no player.</div>
+<ul>
+<li><b>The switch works where it is meant to.</b> With it off, any oxygen leak by day, from 50 mol up, sets every live outdoor cell
+on the planet burning for as long as the oxygen lasts and breaks every powered vent at every station, 100 m away included. With it on,
+the planet burns the oxygen in 23 to 52 s (1,000 to 20,000 mol), and the far stations' vents lose 3.3% (200 to 5,000 mol) to
+10-11.7% (20,000 mol). <span class="m">measured</span></li>
+<li><b>Only live cells burn.</b> With no player, the live outdoor air is the cells kept by powered vents, passive vents and batteries:
+one each. Every burn away from the leak was in such a cell; walls, frames, solar panels, tanks, pipes and cables were never damaged,
+except a cable 2 m from a 20,000 mol leak (65-68%). <span class="m">measured</span></li>
+<li><b>Design problem: the one-tick lead.</b> In the tick the oxygen reaches the planet, before the hold-back arms, the planet hands it
+to every live outdoor cell. The amount per cell is identical with the switch on and off (1.3e-4 mol a cell at 1,000 mol; 5.6e-4 at
+5,000; 2.2e-3 at 20,000). By day those cells are above methane's ignition point and burn for 1 to 6 ticks. After that tick nothing more
+arrives: the hold-back does its job. By dusk and night the handed oxygen does not light and drains back. This is the case for
+arming the hold-back whenever the ignition gate is open. <span class="m">measured</span></li>
+<li><b>3 M mol dump at night</b>: 99% burnt in 103 s, the fire line reads burning until 243 s; +1,362.7 K (modelled 1,274-1,280 K);
+fading with a half-life of about 61 minutes; no errors in the server log. <span class="m">measured</span></li>
+</ul>
+<h3>The leak test's pass criteria (switch on)</h3>
+<table><tr><th>Criterion</th><th>Verdict</th><th>Measured</th></tr>
+<tr><td>1. The far station never burns after a leak; no sensor beyond the cloud shows held-back gas above 1e-6 of the planet's per-cell amount</td><td class="fail">FAIL</td>
+<td>By day from 200 mol up the far station's cells burn for 1 to 6 ticks: the one-tick lead. They hold about 3% of the planet's per-cell amount, not 1e-6. Not at 50 mol, dusk or night.
+Run valid: with the switch off the far station burns from 50 mol up.</td></tr>
+<tr><td>2. The on damage radius is at least the off radius minus one station; the 2 m station is damaged at midday from 1,000 mol</td><td class="pass">PASS</td>
+<td>2 m vent damaged from 50 mol up. On radius 100 m (through the lead) from 200 mol; 4 m at 50 mol against 100 m off.</td></tr>
+<tr><td>3. Two oxidisers both held back</td><td class="pass">PASS, bar the lead</td><td>Oxygen plus nitrous oxide: the same one-tick hand-out (1.5e-3 mol to the far station's 3 cells), burnt by day, nothing after it.</td></tr>
+<tr><td>4. The cold world fizzles: out within 2 ticks of the leak's fire, under 1 K</td><td class="fail">PART</td><td>Out 2 ticks after; but +4.13 K for 1,000 mol of methane (LiveCheck case 4, Mars2).</td></tr>
+<tr><td>5. The first flash is the only time the far station burns</td><td class="muted">PART</td><td>LiveCheck case 3: the block's last fire 17 ticks after switching on, +60.1 K. The lead burns the far station anyway (criterion 1).</td></tr>
+<tr><td>6. No new chain: no 467 mol tank breaks with the switch on</td><td class="pass">PASS</td><td>No tank broke in any of the 41 runs, on or off.</td></tr>
+<tr><td>7. The 3 M dump burns out within 3 minutes; the heat wave shows uncapped; the game keeps running</td><td class="fail">PART</td>
+<td>99.9% gone at 158 s, but the fire line reads burning to 243 s. Heat uncapped (+1,362.7 K). 0 error lines; the game ran on to the end of the run, 740 ticks.</td></tr>
+</table>
+<h3>Other findings</h3>
+<ul>
+<li>Nitrous oxide lights a leak's own cells at night, switch on or off alike (2 m and 4 m vents about 50%, 8 m 10%). <span class="m">measured</span></li>
+<li>At night with the switch off the leaked oxygen sits unburnt in the planet (99.9% left at the end of the run); at night with it on the planet burns it,
+because the planet is judged at its hottest hour (971 K) while the cells are at 400-550 K. As designed.</li>
+<li>LiveCheck's own block hook caught 6 burns while 20 cells showed Inflamed in case 1's lead tick, so its lead figures (2.9e-4 mol, 166 J) are a lower bound.
+The matrix counts the station cells directly.</li>
+</ul>
+
+<h2>What ran</h2>
+<h3>LiveCheck <code>-PlanetBurn</code>, the five headless cases of Appendix H <span class="m">measured</span></h3>
+<p>A new Vulcan2 world at size 0.05 (250,000 outdoor cells; case 4 on Mars2) per case and switch position. The driver
+reads everything inside the mod's own fire upkeep, one line a tick, and catches every burn of its test cells at the
+burn itself. All ten runs pass.</p>
+@@LIVECHECK@@
+<h3>Standing regression on the 0.13.0 build <span class="m">measured</span></h3>
+@@REGRESSION@@
+<p class="muted"><code>-Reset</code> failed on its first run ("The mod loaded in the unmodded phase"): the runner left the mod installed on the test server. Fixed in the runner (it reinstalls without the mod for that phase) and rerun: pass.</p>
+
+<h2>Which cells are simulated: what keeps outdoor air live</h2>
+<p>An outdoor cell only exists, mixes, exchanges with the planet and can burn while something creates it or keeps it
+live. Everything else is the planet's read-only air, which is never handed gas and never burns.</p>
+<h3>From the game's code</h3>
+<ul>
+<li><b>Created or re-activated</b> by <code>AtmosphericsController.CloneGlobalAtmosphere</code>
+(<code>AtmosphericsController.cs:289-312</code>; the thread-safe form <code>AtmosphericsManager.cs:755-769</code>), which sets the
+cell <code>Active</code>. Its callers include: a powered, switched-on active vent every atmospheric tick
+(<code>ActiveVent.cs:386-391, 383</code>; unpowered or off it never asks); a passive vent with an open grid every tick
+(<code>PassiveVent.cs:27-55</code>, <code>Pipe.cs:557</code>); a bursting pipe at each of its grids (<code>Pipe.cs:425-433</code>);
+any powered device that turns power into heat outdoors above the Armstrong limit (<code>Device.cs:1512-1516</code>);
+batteries (<code>Battery.cs:553</code>); a breathing entity once (<code>Entity.cs:1222-1225</code>); a burning thing or
+structure every fire tick (<code>DynamicThing.cs:2211</code>, <code>SmallGrid.cs:185</code>, <code>Structure.cs:2267</code>);
+portables, generators, furnaces, burners, rocket engines and weather events (36 call sites in all).</li>
+<li><b>Kept</b> while <code>Atmosphere.IsLive</code> holds (<code>Atmosphere.cs:1134-1158</code>): a room; or open neighbours and
+not within a sixth of the neighbour threshold of the planet's air; or awaiting a structure event; or a structure in
+the cell that blocks gravity and not air (a frame). A cell that fails it goes Active, Passive, MarkedForRemoval over
+two processing passes (<code>AtmosphericsManager.cs:180-205</code>) and is removed, handing its gas to the planet,
+unless something re-activates it first.</li>
+<li><b>Exchanging with the planet</b>: a live cell with open ground beside it and no cell there relaxes toward the planet
+every tick (<code>Atmosphere.cs:1728-1731</code>), which is where the planet's air is handed out.</li>
+<li><b>Spreading</b>: a cell further from the planet's air than the threshold makes real cells for its empty neighbours
+(<code>Atmosphere.cs:2021-2068</code>): a leak's own cloud.</li>
+</ul>
+<h3>Measured, one source per station, no player <span class="m">measured</span></h3>
+@@LIVE@@
+<p>A frame, a wall and a solar panel make no cell of their own; an unpowered vent makes none; a powered vent (either
+direction), a passive vent and a battery each keep exactly one. On a base with no player, the only outdoor air the
+planet ever hands anything to is those few vent and device cells. That is where a planet-wide hand-out can land, and
+the only place it can burn.</p>
+
+<h2>The one-tick lead <span class="m">measured</span></h2>
+<p>The hold-back is decided at the planet tick. Oxygen that reaches the planet during one tick's mixing can be handed to
+live cells in that same mixing, before the fire lights at the next tick. It lands in every live cell exchanging with
+the planet, wherever it is: a vent at the far station (100 m) gets its share exactly like one at 16 m.</p>
+<h3>At the leak site (stations at 16, 32 and 100 m are out of reach of the leak's own cloud, which reaches about 6 m)</h3>
+@@LEADSITE@@
+<p>Read with LiveCheck case 1 (5,000 mol at 280 m from a 20-cell block of base cells, by day): 1 tick, 20 cells Inflamed,
+at least 2.9e-4 mol of oxygen burnt, at most 8.0e-5 mol in one cell, 166 J. With the switch off the same block burnt for about
+1,200 ticks: 9 mol, 5.2 MJ. Case 5 at night: 8.5e-4 mol handed out, none burnt. <span class="m">measured</span></p>
+<p>What the table shows: the first hand-out is the same with the switch on and off, run for run, to three figures. The switch only
+decides what happens next. Off, the cells go on receiving oxygen and burn until the run ends; on, they get that one tick's share,
+burn it in 1 to 6 ticks by day, and nothing more arrives. The vent in each cell takes 3.3% damage (200-1,000 mol), 6.7% (5,000) or
+10-11.7% (20,000) from that one burn. Each leak would add that again at every vent on the planet.</p>
+
+<h2>Leak matrix <span class="m">measured</span></h2>
+<p>Site: a new creative Vulcan2 world at size 0.05, release point R at (1301, 301, 1). Stations on one bearing at 2, 4, 8,
+16 and 32 m and a far station 100 m the other way. Each holds an active vent (powered from its own battery, inward, on a
+pipe stub), a 6,000 L in-line tank, a straight and a heavy cable, a straight and an insulated pipe, a solar panel, an iron
+wall and a steel frame; the tanks at 8 m and the far station hold 467 mol of oxygen. <b>Gas release</b>: the gas goes into a
+6,000 L in-line tank piped to a passive vent at R. <b>Burst</b>: into a lone 10 L pipe at R, filled past its 60,795 kPa burst
+pressure (small releases are put in hot to get there). Every run starts from the same save; the server is restarted
+for each. Runs end once the fire has been out 240 ticks, or after 600 ticks with the switch off (the off state never
+goes quiet: the planet keeps handing oxygen out).</p>
+<p class="box"><b>Reading "Burnt in outdoor cells".</b> It is derived, not counted: released, less what the planet burnt
+(its burn share times its oxidiser, logged every second tick), less what is left at the end. The night oxygen-only runs with the switch on
+measure its error: no outdoor cell burnt in them (no burning cell anywhere, every tick), yet it shows 6 to 12%. Read the day
+figures with that margin. "Local fire" and "Damage" are counted directly.</p>
+@@MATRIX@@
+
+<h3>Damage by distance <span class="m">measured</span></h3>
+@@DAMAGE@@
+
+<h3>On and off side by side <span class="m">measured</span></h3>
+@@ONOFF@@
+
+<h2>Planet fire and heat curves <span class="m">measured</span></h2>
+@@CURVES@@
+
+<h2>What lights a cell</h2>
+<p>Secondary to liveness: a cell that is not live cannot burn, whatever sparks near it.</p>
+<h3>From the game's code</h3>
+<ul>
+<li><b>The gate</b> (<code>Atmosphere.TryCombust</code>, <code>Atmosphere.cs:2205-2221</code>): a cell burns when it is
+<code>Sparked</code>, or forced, or <code>GasMixture.IsAutoIgnition()</code> (a fuel above 1 mol in the cell and the cell above the
+fuel's ignition point, 573.15 K for methane), and holds at least the smallest amount of fuel and of oxidiser. The spark is
+cleared every tick.</li>
+<li><b>Fire spreads by spark, not by heat.</b> A burning (Inflamed) cell sparks every cell it gives gas to while mixing
+(<code>Atmosphere.cs:1788-1792</code>); gas given to the planet goes into the planet instead (<code>:1784-1786</code>), where the
+mod's spark prefix picks it up. Heat moves too, but a neighbour lights from heat only through autoignition.</li>
+<li><b>What sets <code>Sparked</code> on an outdoor world cell</b>: a burning thing (<code>DynamicThing.cs:2210-2220</code>), a
+burning structure (<code>Structure.cs:2267-2272</code>), a burning small-grid piece (<code>SmallGrid.cs:185-190</code>), a powered wall
+heater outdoors (<code>WallHeater.cs:76-82</code>), rocket exhaust (<code>RocketEngineBase.cs:488-493, 574-582</code>), a welding
+torch (<code>WeldingTorch.cs:232</code>), a road flare (<code>RoadFlare.cs:172</code>), dynamite and grenades
+(<code>Dynamite.cs:137</code>, <code>Grenade.cs:143</code>), and an atmospheric event with a spark (<code>AtmosphericEventInstance.cs:528</code>).
+Everything else in the list sparks a device's <i>internal</i> or pipe atmosphere (generators, combustion machines, pipe igniter,
+suits, circuits), not the world cell.</li>
+<li><b>Not sparkers</b>: active and passive vents never set <code>Sparked</code>, and carry no fire into pipes; a breaking powered
+cable calls <code>WorldManager.Spark</code> (<code>Cable.cs:168-171</code>), which only emits particles and does nothing on a
+dedicated server (<code>WorldManager.cs:662-670</code>, <code>IsBatchMode</code>).</li>
+</ul>
+<h3>Measured</h3>
+<p>On Vulcan2 by day the planet's air in a live cell is above methane's ignition point and holds 27 mol of methane a cell, so
+any live cell handed oxidiser lights by heat, with no sparker. Every burn at a station in the matrix was in a live vent or
+battery cell; no wall, frame, solar panel, cable, tank or pipe was ever damaged. The code shows a breaking cable
+cannot spark the air on a server.</p>
+
+<h2>Open questions, resolved</h2>
+<table><tr><th>Unknown</th><th>Measured</th><th>Run</th></tr>
+<tr><td>How many outdoor cells exchange with the planet</td><td>Quiet site: 26 live outdoor cells in the whole world, all 26 exchanging.
+During a 5,000 mol leak: up to 133 live, 87 exchanging, back to the base set once the cloud is gone. A bare new world: 7, all exchanging.
+<span class="m">measured</span></td><td>every matrix run; LiveCheck case 1</td></tr>
+<tr><td>The exchange rate (the lerp a cell moves toward the planet per tick)</td><td>0.200 to 0.207 on every logged tick of every run <span class="m">measured</span></td><td>all</td></tr>
+<tr><td>Hot-spell length (how long the fire heat lasts)</td><td>3 M mol dump: +1,362.7 K at its peak (tick 182), 1,297.6 K at tick 738; a half-life of about 61 minutes from that slope,
+the design's 60-minute fade. Ordinary leaks: +1.1 to +7.6 K, fading the same way. <span class="m">measured</span></td><td>night 3 M dump; matrix</td></tr>
+<tr><td>Heat of the 3 M mol dump</td><td>+1,362.7 K fire heat, planet at 2,815 K at the hottest hour and 2,523 K now at night;
+modelled 1,280 K (PLANET-COMBUSTION.md, from 1,000 K) and 1,274 K (BALANCE.md). Measured is 6% above the model. <span class="m">measured</span></td><td>night 3 M dump, run twice, same to 0.01 K</td></tr>
+<tr><td>How fast the 3 M mol dump burns</td><td>Half gone 26 ticks after the dump (13 s), 90% at 98 (49 s), 99% at 206 (103 s), 99.9% at 316 (158 s);
+the planet stops burning at tick 486-488 (243 s). <span class="m">measured</span></td><td>night 3 M dump</td></tr>
+<tr><td>Cell-to-cell spread of a leak's cloud</td><td>5,000 mol O2: 25 cells within 4 m at +3 ticks, 117 within 6.3 m at +5, 163 within 7.5 m at +10, none left at +40.
+About a metre a tick at first. Burning cells in the matrix reach 6 m with the switch on, except through the hand-out. <span class="m">measured</span></td><td>LiveCheck case 1; matrix rings</td></tr>
+<tr><td>Planet fire length for a leak</td><td>1,000 mol: ticks 4-50 by day, 4-54 at night; 5,000 mol: 6-82 by day, 4-84 at night. <span class="m">measured</span></td><td>matrix</td></tr>
+<tr><td>Hydrazine threshold</td><td>520.808 K, printed by PatchCheck. <span class="mod">modelled</span></td><td>PatchCheck</td></tr>
+</table>
+
+<h2>Terraforming routes per world (BALANCE.md) <span class="mod">modelled</span></h2>
+<p>From <code>docs/BALANCE.md</code>, "The planet's air burns: what it does to each route", written by
+<code>tools/Balance/fire.py</code> and held by <code>test_fire.py</code>.</p>
+<table><tr><th>World</th><th>Fuel beside an oxidiser on the route</th><th>Ignition</th><th>Heat</th><th>Cost change</th><th>Verdict</th></tr>
+<tr><td>Mars2</td><td>never</td><td>none</td><td>none</td><td>none</td><td>unaffected</td></tr>
+<tr><td>Lunar</td><td>never</td><td>none</td><td>none</td><td>none</td><td>unaffected</td></tr>
+<tr><td>Venus</td><td>never</td><td>none</td><td>none</td><td>none</td><td>unaffected</td></tr>
+<tr><td>MimasHerschel</td><td>80 CH4 beside the 0.5 O2 residue, steps 43-205</td><td>spark only, fizzles (182 K against 573 K)</td><td>up to +125 K, fading</td><td>4.5 mol a cell less to add</td><td>unaffected</td></tr>
+<tr><td>Europa3</td><td>80 CH4 beside the O2 residue, then the CH4 residue beside returning O2</td><td>spark only, fizzles (234-307 K)</td><td>up to +153 K, fading</td><td>+2.5 h removal on about 220 h</td><td>slower</td></tr>
+<tr><td>Vulcan2</td><td>0.5 CH4 + 0.4 H2 residue beside the O2 going in, steps 214-333</td><td>spark only (no fuel above 1 mol a cell)</td><td>up to +85 K, fading</td><td>+1.5 h removal on 222 h</td><td>slower</td></tr>
+<tr><td>Vulcan2, deliberate O2 dump</td><td>15 O2 per cell, burnt at once</td><td>lit by heat</td><td>+1,274 K, fading by half every hour</td><td>232 h against 222 h</td><td>slower</td></tr>
+</table>
+<p>The dump's heat is modelled to fade by half every hour. The matrix's 3 M mol planet dump at night is the measured check on
+its burn time and heat (see the matrix and curves).</p>
+
+<h2>Method notes</h2>
+<ul>
+<li>The 3 M mol was put straight into the planet (<code>terraform gas add</code>), not released from tanks.</li>
+<li>Each run is one sample; the 3 M mol dump was run twice and agreed to 0.01 K.</li>
+</ul>
+
+<h2>Follow-up: armed hold-back and trace hold <span class="m">measured</span></h2>
+<p class="muted">The same test server and leak site (Vulcan2, size 0.05, release point R, stations at 2 to 32 m and 100 m),
+with both settings built. Each run restarts from the site's save and sets all three switches with <code>terraform set</code>;
+all three ship off. Raw logs: <code>tools/LeakTest/results/followup_*.json</code>, reduced by <code>followup_report.py</code>.</p>
+<h3>The one-tick lead, 1,000 mol of oxygen through the vent at midday, fire on</h3>
+<table><tr><th>Armed hold-back</th><th>Oxidiser handed to the cells at 16 m, 32 m and 100 m (mol, over the run)</th><th>Most in one cell (mol)</th><th>Ticks a far cell burnt</th><th>Heat in far cells (J)</th><th>Vent damage, 8 to 100 m</th><th>Vent damage, 2 m and 4 m</th><th>Planet fire</th></tr>
+<tr><td>on</td><td class="pass">0, 0, 0</td><td>0</td><td>0</td><td>0</td><td class="pass">none</td><td>66.7 %, 63.3 %</td><td>ticks 4 to 50</td></tr>
+<tr><td>off (control)</td><td class="fail">2.57e-4, 2.10e-4, 3.44e-4 (at tick 5)</td><td>1.34e-4</td><td>1 at each</td><td>148, 121, 198</td><td class="fail">3.3 % at each of 8, 16, 32 and 100 m</td><td>66.7 %, 63.3 %</td><td>ticks 6 to 52</td></tr>
+</table>
+<p>With the armed hold-back on, the far stations' cells saw no oxidiser at any tick, and none of their cells burnt. The control reproduces
+the lead exactly as the matrix measured it (1.3e-4 mol a cell, one tick, 3.3 % to every vent). The local damage at 2 m and 4 m, from the
+leak's own cloud, is the same either way. With the fire on and the air past ignition, the readout read
+<code>planet holds back from the outdoor air: Oxygen 0 mol (armed hold-back), NitrousOxide 0 mol (armed hold-back), Ozone 0 mol (armed hold-back)</code>
+before the leak, and the same with the planet's oxygen (347 mol, then 109 mol) while it burnt.</p>
+<h3>The trace hold, 1.5 mol of oxygen put into the planet, fire off (6e-6 mol a cell; at the exchange rate 0.201, 1.2e-6 a cell, under the game's 1e-5)</h3>
+<table><tr><th>Setting</th><th>Ticks</th><th>Planet oxygen (mol)</th><th>Oxygen in any outdoor cell</th><th>Readout</th></tr>
+<tr><td>trace hold on</td><td>300</td><td class="pass">1.5 to 1.5</td><td>0</td><td><code>Oxygen 1.5 mol (trace hold)</code></td></tr>
+<tr><td>trace hold off</td><td>300</td><td class="fail">1.5 to 1.48484 (0.0152 mol deleted)</td><td>0 (drawn and deleted in the same tick)</td><td><code>nothing</code></td></tr>
+<tr><td>trace hold on again</td><td>100</td><td class="pass">1.484586 to 1.484586</td><td>0</td><td><code>Oxygen 1.484586 mol (trace hold)</code></td></tr>
+<tr><td>then fire and armed hold-back on</td><td>100</td><td>1.484586 to 1.484586</td><td>0</td><td><code>Oxygen 1.484586 mol (armed hold-back and trace hold), NitrousOxide 0 mol (armed hold-back), Ozone 0 mol (armed hold-back)</code></td></tr>
+<tr><td>then armed hold-back off</td><td>100</td><td>1.484586 to 1.484586</td><td>0</td><td><code>Oxygen 1.484586 mol (trace hold)</code></td></tr>
+</table>
+<p>The settings line followed every switch in the same reading. 26 outdoor cells exchanged with the planet throughout.</p>
+<h3>What a burn leaves, 200 mol of oxygen through the vent at midday, fire on, armed hold-back off</h3>
+<table><tr><th>Trace hold</th><th>Planet oxygen once the leak's cells had drained (tick 50)</th><th>At tick 900</th><th>Oxygen in outdoor cells after tick 38</th></tr>
+<tr><td>on</td><td>0.812518 mol</td><td class="pass">0.812518 mol (unchanged for 850 ticks)</td><td>0</td></tr>
+<tr><td>off (control)</td><td>0.812024 mol</td><td class="fail">0.788623 mol (0.0234 mol deleted)</td><td>0</td></tr>
+</table>
+<p>The burn leaves about 0.81 mol, 3.3e-6 mol a cell, under the 1e-5 mol a cell the game's own test needs before anything burns, so the
+planet cannot burn it. With the trace hold on it stays in the planet; off, the exchanging cells draw it and the game deletes it.</p>
+<h3>Regression on the new build</h3>
+<ul>
+<li>LiveCheck <code>-PlanetBurn</code> (all three switches off by default; the driver turns the fire on): 9 of 10 passed on the first pass, case 1
+reproducing the lead exactly (166.4 J). Case 2 with the fire on failed by 0.57 % on hydrogen: the driver's baseline was read on the main
+thread and raced a cell's exchange. Fixed in the driver (read at the start of the planet tick) and rerun: every product exact (carbon dioxide
++7,200, pollutant +2,700, steam +400, nitrogen +1,900, methane -2,700, hydrogen -300).</li>
+<li>LiveCheck default run: passed.</li>
+<li>PatchCheck: cases 1 to 20 hold; the three switches ship off; all 12 broken rules are caught (7 earlier, 3 of the armed hold-back,
+2 of the trace hold).</li>
+<li>No errors in the server log in any follow-up run.</li>
+</ul>

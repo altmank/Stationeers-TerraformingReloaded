@@ -100,6 +100,24 @@ namespace TerraformingReloaded
         /// </summary>
         public static bool RocketsBurnCompletely = true;
 
+        /// <summary>
+        /// Off by default: the planet's air burns as one big cell when it holds a fuel beside an
+        /// oxidiser and would catch fire, and holds back from the outdoor air the side it uses up.
+        /// </summary>
+        public static bool PlanetAirBurns = false;
+
+        /// <summary>
+        /// Off by default: with the planet's fire on, the planet holds back the side its fire would
+        /// use up whenever its air would light itself, not only while it burns.
+        /// </summary>
+        public static bool PlanetHoldsBackWhileIgnitable = false;
+
+        /// <summary>
+        /// Off by default: the planet keeps any gas so thin that an outdoor cell's draw of it would be
+        /// deleted, instead of handing it out to be deleted.
+        /// </summary>
+        public static bool PlanetKeepsTraceGas = false;
+
         /// <summary>Write the terraform status to the log this often. 0 is off.</summary>
         public static double StatusLogSeconds = 0.0;
     }
@@ -187,6 +205,14 @@ namespace TerraformingReloaded
         /// Venus holds about 1.6e9 mol, and the largest planet size is ten times shipped.
         /// </summary>
         public static readonly Range GasLostToSpaceMoles = new Range(0.0, 1e15);
+
+        /// <summary>
+        /// Not a setting, the combustion heat a world's file records, in joules. Signed, because the
+        /// game's booking nets the products' extra heat capacity out of the heat of combustion, which
+        /// can come out below zero on a planet hotter than about 3,000 K. Far beyond any planet: 3 M mol
+        /// of oxygen burnt on a Vulcan of 250,000 cells books about 1.2e12 J.
+        /// </summary>
+        public static readonly Range PlanetFireHeatJoules = new Range(-1e18, 1e18);
     }
 
     /// <summary>
@@ -336,6 +362,10 @@ namespace TerraformingReloaded
         public static double TraceGasLine = 1e-3;
 
         public static bool RocketsBurnCompletely = true;
+
+        public static bool PlanetAirBurns = false;
+        public static bool PlanetHoldsBackWhileIgnitable = false;
+        public static bool PlanetKeepsTraceGas = false;
     }
 
     /// <summary>

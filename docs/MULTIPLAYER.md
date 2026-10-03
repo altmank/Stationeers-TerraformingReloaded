@@ -163,6 +163,10 @@ planet: its own takes and gives go to its own copy, which nothing sends back.
   (`RocketEngineBase.cs:703-735`), so the host's world setting decides how completely they burn.
   `Rockets.CombustionRate` asks `Gate.Enabled()`, false on a joining player's game, and the setting is
   not sent.
+- **The planet's air burns on the host only.** The fire runs in the planet upkeep and the hold-back
+  asks `Gate.Enabled()`, false on a joining player's game. Joining players are sent the tank and both
+  stored heats with the planet state (`Sync`), so they see what the fire leaves and its heat wave; the
+  setting and the fire heat figure are not sent, and their `terraform` says `planet fire: run by the host`.
 - **`terraform`** reports `planet: off: client, planet comes from the host` with the synced figures;
   `size`, `set` and `reset` answer "Can only be run on the server".
 
@@ -195,11 +199,10 @@ dedicated server at least for readouts; it is a player's account, not a measurem
   parallel passes, each traced to a guard or a known entry point; none left `unknown`. A snapshot for
   game build 0.2.6428.27798, and `census.py --check` does not cover it, so re-run it after a game
   update that touches networking.
-- Not run: no multiplayer session on this project's machines, so neither the per-update warning nor
-  the sync bandwidth has been measured.
 
 ## Open
 
+- **The per-update warning and the sync bandwidth** need a multiplayer session to measure.
 - **Not seen on a second machine:** the sky and the host's settings reaching a joining player
   (0.10.1). Both are worked out from code only.
 - **The planet goes out about 20 times per sync window.** Harmless; sending once needs state the

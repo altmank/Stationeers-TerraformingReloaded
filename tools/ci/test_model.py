@@ -213,6 +213,47 @@ check("the burn makes more pollutant than a recipe wants, so the recipe's share 
       budget['pollutant to store'] > 0.0
       and ice_budget({'CarbonDioxide': 100.0, 'Pollutant': 2.0})['ice'] == ice_budget({'CarbonDioxide': 100.0})['ice'])
 
+# The planet's fire (tools/Balance/fire.py, the scenario report in docs/BALANCE.md): the game's combustion
+# table, each oxidiser shared between the fuels by need, as docs/PLANET-COMBUSTION.md Appendix C states it
+# for a Vulcan of 250,000 cells. Specific heats differ in the fixture, so only moles and the heat of
+# combustion are checked here; tools/Balance/test_fire.py checks the rest against the game's data.
+from fire import burn, enough_to_burn, ignition_kelvin   # noqa: E402
+
+VULCAN = {'CarbonDioxide': 12.0, 'Methane': 27.0, 'Hydrogen': 3.0, 'Pollutant': 15.0}
+SPEC_CELLS = 250000.0
+
+
+def burnt_with(**added):
+    air = dict(VULCAN)
+    for gas, moles in added.items():
+        air[gas] = air.get(gas, 0.0) + moles / SPEC_CELLS
+    after, energy = burn(air, 1.0)
+    return {g: (after.get(g, 0.0) - air.get(g, 0.0)) * SPEC_CELLS for g in set(air) | set(after)}, energy * SPEC_CELLS
+
+
+def row_holds(moved, expected):
+    return all(abs(moved.get(g, 0.0) - want) <= 1e-6 * max(1.0, abs(want)) for g, want in expected.items()) \
+        and all(abs(m) < 1e-6 for g, m in moved.items() if g not in expected)
+
+
+moved, energy = burnt_with(Oxygen=5000.0)
+check('fire: 5,000 mol of oxygen on Vulcan burns to Appendix C\'s row', row_holds(moved, {
+    'Oxygen': -5000.0, 'Methane': -9000.0, 'Hydrogen': -1000.0, 'Pollutant': 13500.0, 'CarbonDioxide': 27000.0, 'Steam': 1500.0}), str(moved))
+check('fire: and gives 2.88 GJ', abs(energy - 2.88e9) < 1e3, '%.6g' % energy)
+moved, energy = burnt_with(Oxygen=1000.0, NitrousOxide=1000.0)
+check('fire: oxygen beside nitrous oxide burns to Appendix C\'s row', row_holds(moved, {
+    'Oxygen': -1000.0, 'NitrousOxide': -1000.0, 'Methane': -2700.0, 'Hydrogen': -300.0, 'Pollutant': 2700.0,
+    'CarbonDioxide': 7200.0, 'Steam': 400.0, 'Nitrogen': 1900.0}), str(moved))
+check('fire: and gives 1.152 GJ, nitrous oxide doubling the heat', abs(energy - 1.152e9) < 1e3, '%.6g' % energy)
+moved, _ = burnt_with(NitrousOxide=26.0)
+check('fire: 26 mol of nitrous oxide burns to Appendix C\'s row', row_holds(moved, {
+    'NitrousOxide': -26.0, 'Methane': -23.4, 'Hydrogen': -2.6, 'CarbonDioxide': 46.8, 'Steam': 2.6, 'Nitrogen': 49.4}), str(moved))
+check('fire: Vulcan lights itself above 573.15 K', ignition_kelvin(VULCAN) == 573.15)
+check('fire: over a mole of nitrous oxide a cell lowers that by 250 K', ignition_kelvin(dict(VULCAN, NitrousOxide=1.2)) == 323.15)
+check('fire: half a mole of fuel a cell never lights itself', ignition_kelvin({'Methane': 0.5, 'Oxygen': 200.0}) is None)
+check('fire: a burnable pair is the game\'s 0.00001 mol of each',
+      enough_to_burn({'Methane': 1e-5, 'Oxygen': 1e-5}) and not enough_to_burn({'Methane': 1e-5, 'Oxygen': 9e-6}))
+
 print()
 print('%d failed' % len(failures) if failures else 'all passed')
 sys.exit(1 if failures else 0)

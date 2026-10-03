@@ -281,72 +281,17 @@ namespace TerraformingReloaded.Patching
 
         /// <summary>
         /// The day's coldest and hottest, and the pressure and toxin load at each, at the current
-        /// point in the orbit.
-        ///
-        /// The sweep itself is cached on the air, because it costs 37 evaluations of the game's
-        /// temperature formula. Three things move the forecast without the air moving, so the cache
-        /// is keyed on them too: the orbit, which is the whole point of the rule being seasonal; a
-        /// running storm, whose offset the formula adds; and the two heat offsets. The offsets are
-        /// the clean case: they are the same at every angle, so they come out of the cached figures
-        /// and go back in fresh every tick, which is free because Upkeep has just read both.
-        ///
-        /// The air is keyed on what the temperature actually consumes -- the greenhouse index and
-        /// the gas density -- plus the toxin moles, and not on total moles: swapping 42 mol of
-        /// methane for 42 mol of nitrogen leaves the total alone and changes all three.
+        /// point in the orbit, from the cached sweep (<see cref="CurrentSweep"/>).
         /// </summary>
         private static void MeasureMild(GlobalGasMix tank, GlobalAtmosphereData data, Snapshot snapshot)
         {
-            OrbitalSimulation orbit = OrbitalSimulation.System;
-            if (orbit == null)
-            {
-                return;
-            }
-            double percent = orbit.GetSolarEnergyPercentClamped(orbit.GetSolarEnergy(), orbit.CalculateSolarIrradiance());
-            if (double.IsNaN(percent) || double.IsInfinity(percent))
+            if (!CurrentSweep(tank, data, out double percent, out double coldest, out double hottest))
             {
                 return;
             }
             snapshot.OrbitPercent = percent;
-
-            // The game adds each of these to every temperature it reports, and only when it is a
-            // number. Read the same way, so what is taken out of the sweep is what went into it.
-            double heat = Finite(PlanetaryAtmosphereSimulation.GetLatentTemperatureOffset().ToDouble())
-                + Finite(PlanetaryAtmosphereSimulation.GetExternalInputEnergyOffset().ToDouble());
-
-            float ghgIndex = TerraForming.GetGhgIndex(tank);
             MoleQuantity gas = tank.TotalQuantityGas();
-            double density = IdealGas.GetMilliMolesPerLitre(tank.Volume, gas);
             MoleQuantity toxins = ToxinMoles(tank);
-            bool weatherRunning = WeatherManager.IsWeatherEventRunning;
-
-            if (!_haveSweep
-                || !ReferenceEquals(_keyData, data)
-                || ghgIndex != _keyGhgIndex
-                || density != _keyDensity
-                || toxins.ToDouble() != _keyToxinMoles
-                || weatherRunning != _keyWeatherRunning
-                || Math.Abs(percent - _keyOrbitPercent) >= OrbitStep)
-            {
-                if (!TakeSweep(tank, data, (float)percent, heat))
-                {
-                    _haveSweep = false;
-                    return;
-                }
-                _keyData = data;
-                _keyGhgIndex = ghgIndex;
-                _keyDensity = density;
-                _keyToxinMoles = toxins.ToDouble();
-                _keyWeatherRunning = weatherRunning;
-                _keyOrbitPercent = percent;
-                _haveSweep = true;
-            }
-
-            double coldest = _sweepColdest + heat;
-            double hottest = _sweepHottest + heat;
-            if (double.IsNaN(coldest) || double.IsNaN(hottest))
-            {
-                return;
-            }
             VolumeLitres gasVolume = tank.VolumeForGas();
             snapshot.Coldest = coldest;
             snapshot.Hottest = hottest;
@@ -384,6 +329,83 @@ namespace TerraformingReloaded.Patching
             }
             snapshot.MildFailures = failures;
             snapshot.Mild = Effective.StormsStopWhenAtmosphereIsMild && failures.Count == 0;
+        }
+
+        /// <summary>
+        /// The day's hottest hour at the current point in the orbit, with every stored heat in, for
+        /// the planet's fire (PlanetCombustion), which runs before the pressure ceiling and so before
+        /// <see cref="Update"/> in the same tick. The same cached sweep: shared, not copied. False
+        /// when it cannot be worked out (no orbit, or a figure that is not a number).
+        /// </summary>
+        internal static bool DayPeak(GlobalGasMix tank, GlobalAtmosphereData data, out double hottest)
+        {
+            return CurrentSweep(tank, data, out _, out _, out hottest);
+        }
+
+        /// <summary>
+        /// The day's coldest and hottest at the current point in the orbit, with both stored heats in.
+        ///
+        /// The sweep itself is cached on the air, because it costs 37 evaluations of the game's
+        /// temperature formula. Three things move the forecast without the air moving, so the cache
+        /// is keyed on them too: the orbit, which is the whole point of the rule being seasonal; a
+        /// running storm, whose offset the formula adds; and the two heat offsets. The offsets are
+        /// the clean case: they are the same at every angle, so they come out of the cached figures
+        /// and go back in fresh every call.
+        ///
+        /// The air is keyed on what the temperature actually consumes -- the greenhouse index and
+        /// the gas density -- plus the toxin moles, and not on total moles: swapping 42 mol of
+        /// methane for 42 mol of nitrogen leaves the total alone and changes all three.
+        /// </summary>
+        private static bool CurrentSweep(GlobalGasMix tank, GlobalAtmosphereData data, out double percent, out double coldest, out double hottest)
+        {
+            coldest = hottest = percent = double.NaN;
+            OrbitalSimulation orbit = OrbitalSimulation.System;
+            if (orbit == null)
+            {
+                return false;
+            }
+            percent = orbit.GetSolarEnergyPercentClamped(orbit.GetSolarEnergy(), orbit.CalculateSolarIrradiance());
+            if (double.IsNaN(percent) || double.IsInfinity(percent))
+            {
+                return false;
+            }
+
+            // The game adds each of these to every temperature it reports, and only when it is a
+            // number. Read the same way, so what is taken out of the sweep is what went into it.
+            double heat = Finite(PlanetaryAtmosphereSimulation.GetLatentTemperatureOffset().ToDouble())
+                + Finite(PlanetaryAtmosphereSimulation.GetExternalInputEnergyOffset().ToDouble());
+
+            float ghgIndex = TerraForming.GetGhgIndex(tank);
+            MoleQuantity gas = tank.TotalQuantityGas();
+            double density = IdealGas.GetMilliMolesPerLitre(tank.Volume, gas);
+            MoleQuantity toxins = ToxinMoles(tank);
+            bool weatherRunning = WeatherManager.IsWeatherEventRunning;
+
+            if (!_haveSweep
+                || !ReferenceEquals(_keyData, data)
+                || ghgIndex != _keyGhgIndex
+                || density != _keyDensity
+                || toxins.ToDouble() != _keyToxinMoles
+                || weatherRunning != _keyWeatherRunning
+                || Math.Abs(percent - _keyOrbitPercent) >= OrbitStep)
+            {
+                if (!TakeSweep(tank, data, (float)percent, heat))
+                {
+                    _haveSweep = false;
+                    return false;
+                }
+                _keyData = data;
+                _keyGhgIndex = ghgIndex;
+                _keyDensity = density;
+                _keyToxinMoles = toxins.ToDouble();
+                _keyWeatherRunning = weatherRunning;
+                _keyOrbitPercent = percent;
+                _haveSweep = true;
+            }
+
+            coldest = _sweepColdest + heat;
+            hottest = _sweepHottest + heat;
+            return !double.IsNaN(coldest) && !double.IsNaN(hottest);
         }
 
         /// <summary>

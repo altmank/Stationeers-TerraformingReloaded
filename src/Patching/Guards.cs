@@ -75,31 +75,36 @@ namespace TerraformingReloaded.Patching
         /// alone that drifts without bound, and on an airless world it divides banked energy by the
         /// heat capacity of the first puff of vented gas. Drain it like a planet radiating to space,
         /// and bound the shift it can apply.
+        ///
+        /// The game's phase change books heat unevenly: freezing a gas adds its heat of vaporisation
+        /// and of fusion, but evaporating it again takes back only the first, and melting the ice caps
+        /// takes back more than freezing into them gave. Measured live: 20 mol per cell of CO2 frozen
+        /// and returned left 17 % of its heat behind for good. Every cycle adds to a counter that is
+        /// saved and never drained, so it gets the same fade and the same bound as outside heat.
+        ///
+        /// The planet's own fire books its heat into the external counter too, and that part, the
+        /// combustion heat, fades like the rest but is not bound (docs/PLANET-COMBUSTION.md).
         /// </summary>
         private static void Upkeep()
         {
             double capacity = PlanetaryAtmosphereSimulation.GetHeatCapacity().ToDouble();
-
-            double external = PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset.ToDouble();
-            double settled = Settle(external, capacity);
-            if (settled != external)
-            {
-                PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset = new MoleEnergy(settled);
-            }
-
-            // The game's phase change books heat unevenly: freezing a gas adds its heat of vaporisation
-            // and of fusion, but evaporating it again takes back only the first, and melting the ice caps
-            // takes back more than freezing into them gave. Measured live: 20 mol per cell of CO2 frozen
-            // and returned left 17 % of its heat behind for good. Every cycle adds to a counter that is
-            // saved and never drained, so it gets the same fade and the same bound as outside heat.
             double latent = PlanetaryAtmosphereSimulation.LatentEnergyOffset.ToDouble();
-            settled = Settle(latent, capacity);
-            if (settled != latent)
+            double external = PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset.ToDouble();
+            StoredHeats settled = PlanetCombustion.Settle(latent, external, capacity);
+            if (settled.External != external)
             {
-                PlanetaryAtmosphereSimulation.LatentEnergyOffset = new MoleEnergy(settled);
+                PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset = new MoleEnergy(settled.External);
+            }
+            if (settled.Latent != latent)
+            {
+                PlanetaryAtmosphereSimulation.LatentEnergyOffset = new MoleEnergy(settled.Latent);
             }
 
             Planet.KeepPhaseChangeInProportion();
+
+            // Before the ceiling, which then trims what the burn's products added, and after the phase
+            // change, so the fire burns the air this tick's cells will be handed.
+            PlanetCombustion.Upkeep();
 
             // Per-world, not the config: this one deletes air for good and saves the loss, so it is
             // the setting a world must never inherit from whatever the config says today. No ceiling
@@ -108,10 +113,10 @@ namespace TerraformingReloaded.Patching
             // the game rebuilds only at the end of a tick, and a load replaces the tank without
             // rebuilding it, so on the first tick after every load it still held the world as shipped
             // and cut a loaded Venus by 0.42 however far below the ceiling it was.
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
             if (Effective.MaxPressureKPa.HasValue)
             {
                 double cap = Effective.MaxPressureKPa.Value;
-                GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
                 double pressure = Planet.PressureKPa(tank);
                 if (tank != null && pressure > cap && !double.IsInfinity(pressure))
                 {
@@ -119,34 +124,15 @@ namespace TerraformingReloaded.Patching
                 }
             }
 
-            // After the ceiling, so the budgets are shares of the tank the cells will draw from.
-            TraceGases.Refresh(PlanetaryAtmosphereSimulation.GetGlobalGasMix());
+            // After the ceiling, so the trace hold and the budgets are worked out on the tank the cells
+            // will draw from, and after the fire, so a gas the planet holds back for either reason is
+            // never gathered.
+            PlanetCombustion.PublishHold(tank);
+            TraceGases.Refresh(tank, PlanetCombustion.HeldBackFrom(tank));
 
             // Last, after the phase change has been put back in proportion and after the ceiling has
             // scaled the tank, or it would forecast air this same tick is about to change.
             Storms.Update();
-        }
-
-        /// <summary>One tick of fading toward zero, then the bound on the kelvin it may apply.</summary>
-        private static double Settle(double energy, double capacity)
-        {
-            if (double.IsNaN(energy) || double.IsInfinity(energy))
-            {
-                return 0.0;
-            }
-            // Both per-world: they write back into counters the save carries, so a shorter half-life
-            // or a lower limit deletes banked heat for good. Null is "never fades".
-            double? halfLifeMinutes = Effective.ExternalHeatHalfLifeMinutes;
-            if (halfLifeMinutes.HasValue && halfLifeMinutes.Value > 0.0)
-            {
-                energy *= Math.Pow(0.5, GameManager.GameTickSpeedSeconds / (halfLifeMinutes.Value * 60.0));
-            }
-            double limit = Math.Max(0.0, Effective.MaxExternalOffsetKelvin) * Math.Max(0.0, capacity);
-            if (double.IsNaN(limit))
-            {
-                limit = 0.0;
-            }
-            return Math.Max(-limit, Math.Min(limit, energy));
         }
 
         // ---- WallVent.OnAtmosphericTick ------------------------------------------------------------
@@ -279,9 +265,10 @@ namespace TerraformingReloaded.Patching
             {
                 Log.Error("Could not bring outdoor cells up to date before saving; this save may be off by one tick of gas flow. " + e.Message);
             }
-            // The gas lost to space so far goes into the world's settings file with the save, so the
-            // file's total is the one at the save. Best effort, like every write of that file.
-            Sidecar.RecordLossAtSave();
+            // The gas lost to space and the planet's fire heat go into the world's settings file with
+            // the save, so the file's totals are the ones at the save. Best effort, like every write of
+            // that file.
+            Sidecar.RecordTotalsAtSave();
         }
 
         // ---- WeatherManager.ScheduleWeatherEvent --------------------------------------------------

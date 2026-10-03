@@ -113,6 +113,24 @@ Game build 0.2.6428.27798. `D/` and `S/` as in README.md. Everything here is **C
 - **Not networked**: `TerraForming.SerializeOnJoin/DeserializeOnJoin/Serialize/Deserialize` are
   called at the right points and have empty bodies. A client builds its tank from the world file.
 
+## Air moving between cells and the planet
+
+PLANET-COMBUSTION.md Appendix A has the whole account, with citations. In short:
+
+- **Cell to cell.** Every registered cell mixes once a tick (0.5 s). Each gives 1/(n+1) of its gas to a
+  pool, n being its open neighbours (skipping one it is more than 1.2 times the pressure of), and the
+  pool is shared back by pressure ratio, clamped to 0.1 to 10, times volume share. A cell not within
+  `GlobalAtmosphereNeighbourThreshold` of the planet's air makes real cells for its empty neighbours;
+  one within it mixes with the planet directly; one within a sixth of it is not live and is removed after
+  two ticks, its gas given to the planet. A burning cell sparks the cells it gives to, but not the planet.
+- **Planet to cell.** The exchange take, the mixing take from open ground, a new outdoor cell, an
+  atmospheric event filling a cell and the read-only copy all build their mixture with
+  `GasMixtureHelper.Create(GlobalGasMix, ...)`, proportional to the tank.
+- **Cell to planet.** The exchange give, the mixing share to open ground and a removed cell, all through
+  `GiveToGlobal`.
+- **Order within a tick.** The planet tick (the mod's upkeep first), then mixing, then burning, then
+  removal of settled cells. Gas leaves a cell before that cell burns in the tick.
+
 ## Temperature
 
 `GlobalGasMix.GetGlobalGasMixTemperature` (:549):
@@ -196,8 +214,10 @@ into the ice clouds. It runs in the unmodded game too.
   at auto-ignition, provided it holds any fuel (volatiles, hydrogen, alcohol) beside any oxidiser
   (oxygen, nitrous oxide, ozone): there is no minimum ratio and no minimum temperature for a sparked
   cell. A burning cell sparks its neighbours (`:1789`). Auto-ignition is 573.15 K for volatiles and
-  hydrogen, lowered by 250 K with nitrous oxide present and 150 K with ozone. The planet tank never
-  burns, only cells. So fuel beside oxygen outdoors is a standing fire around the base waiting for
+  hydrogen, lowered by 250 K with over a mole of nitrous oxide in the cell and 150 K with over a mole of
+  ozone (`GasMixture.cs:2330-2331`). In the game the planet tank never burns, only cells; with the mod's
+  `PlanetAirBurns` on (off by default) the planet's air burns too, as one big cell by the same rules
+  (PLANET-COMBUSTION.md). So fuel beside oxygen outdoors is a standing fire around the base waiting for
   one spark, at any temperature: adding oxygen to Vulcan before removing its fuel burns at once, and
   volatiles on Europa (340 mol of oxygen per cell) burn at the first spark.
   How much burns in a tick (`Atmosphere.GetCombustionMultiplierCurved`, `CombustionResult.RunCombustion`):
@@ -209,8 +229,10 @@ into the ice clouds. It runs in the unmodded game too.
   with nitrous oxide or ozone.
 - **A spill of oxidiser on Vulcan** (**MEASURED** 2026-09-26, TR 0.10.1, planet size 0.05): a furnace
   taken apart outdoors put about 26 mol of nitrous oxide and 1.6 mol of oxygen into a planet of
-  250,000 cells, a ten-thousandth of a mole of nitrous oxide per cell. Nitrous oxide lowers methane's
-  auto-ignition by 250 K, so every exchanging cell burned what the exchange brought it each tick
+  250,000 cells, a ten-thousandth of a mole of nitrous oxide per cell. That is far under the mole of
+  nitrous oxide a cell needs before it lowers methane's auto-ignition (above), so the cells did not
+  light by a lowered threshold: by day Vulcan's cells are past 573 K anyway, and a burning cell sparks
+  the cells it gives to. Every exchanging cell burned what the exchange brought it each tick
   (about 0.00002 mol, all of it, being under 0.0003) and stayed `Inflamed`, setting outdoor vents,
   cable and an APC alight. The planet lost it at 0.00084 mol/s, which would have kept those cells
   burning for five to eight hours, until each cell's share fell under the 0.00001 mol line. This is

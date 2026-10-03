@@ -258,6 +258,7 @@ namespace TerraformingReloaded.Patching
                         new MoleEnergy(PlanetaryAtmosphereSimulation.LatentEnergyOffset.ToDouble() * factor);
                     PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset =
                         new MoleEnergy(PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset.ToDouble() * factor);
+                    PlanetCombustion.ScaleHeat(factor);
                     // Cloud and ice cap volumes and the phase rates, now rather than a tick later.
                     KeepPhaseChangeInProportion();
                 }
@@ -378,6 +379,7 @@ namespace TerraformingReloaded.Patching
                 new MoleEnergy(PlanetaryAtmosphereSimulation.LatentEnergyOffset.ToDouble() * factor);
             PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset =
                 new MoleEnergy(PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset.ToDouble() * factor);
+            PlanetCombustion.ScaleHeat(factor);
         }
 
         /// <summary>
@@ -409,7 +411,7 @@ namespace TerraformingReloaded.Patching
 
         /// <summary>
         /// Puts the planet back exactly as the world ships: starting air, empty clouds, empty ice caps,
-        /// no stored heat, nothing lost to space. The world's settings stay as they are. This is the way
+        /// no stored heat, no fire, nothing lost to space. The world's settings stay as they are. This is the way
         /// out of the mod. The game saves and loads the planet with or without the mod installed, so
         /// removing the mod alone leaves the changed planet in the save, frozen, and on a world that
         /// ships with no base temperature (Moon, Mimas) leaves its new air at 0 K. Reset, save, then
@@ -454,6 +456,7 @@ namespace TerraformingReloaded.Patching
                 PlanetaryAtmosphereSimulation.LatentEnergyOffset = MoleEnergy.Zero;
                 PlanetaryAtmosphereSimulation.ExternalInputEnergyOffset = MoleEnergy.Zero;
                 Space.ForgetLosses();
+                PlanetCombustion.ForgetFire();
             });
             return null;
         }

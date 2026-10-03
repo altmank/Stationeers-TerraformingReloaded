@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.13.0
+
+- **New, off by default: the planet's air can catch fire.** Run `terraform set PlanetAirBurns on
+  confirm` to turn it on for the world you are playing. When the planet's air holds a fuel and an
+  oxidiser and would light by the game's own rules, it burns as one big fire, at the rate and with the
+  products the game uses for any burning patch of air. It lights in two ways: its hottest hour of the
+  day is past the point where that air lights by itself, or a fire outdoors touches it. While it
+  burns, it stops handing the outdoor air the gas it is using up. Turn it on if leaks keep coming back
+  to burn: without it, oxygen or nitrous oxide that drains from a leak into Vulcan's air is handed back
+  to the outdoor air around your base and burns there. A leak still burns where it happens.
+- **New, off by default: the planet can hold back what would burn before it lights.** Run `terraform
+  set PlanetHoldsBackWhileIgnitable on`. It acts only while `PlanetAirBurns` is on, and it matters on a
+  world hot enough to light its own air, such as Vulcan. The planet decides what to hold back once a
+  tick, before the outdoor air draws from it, so in the tick a leak drains into the planet the fire
+  has not lit yet, and every outdoor cell beside open ground draws a share of the leaked oxygen. On
+  Vulcan by day those cells burn it at once, and the vents that keep those cells take 3 to 12 %
+  damage per leak, as much 100 m from the leak as 16 m. With this on, the planet holds back the gas its fire would use up (on Vulcan, every oxidiser) for as long
+  as its air is hot enough to light, even while it holds none of that gas, so a leak's first tick
+  hands none of it out.
+- **New, off by default: the planet keeps gas too thin for the outdoor air.** Run `terraform set
+  PlanetKeepsTraceGas on`. The game deletes any gas an outdoor cell holds less than 0.00001 mol of.
+  When the planet holds so little of a gas that one cell's draw of it falls under that, every outdoor
+  cell beside open ground draws it and deletes it, every tick, until the planet has none left. With
+  this on, the planet keeps such a gas instead: nothing is deleted, and none of it reaches the outdoor
+  air. That includes oxygen a fire leaves behind, too little for the planet to burn.
+- **The fire's heat is real and has no limit.** It joins the planet's added heat, which fades by half
+  every hour by default, but the 50 K limit on added heat does not apply to it: a big burn becomes a
+  heat wave, and a heat wave can keep the fire going. For scale, at Standard size (250,000 outdoor
+  cells), 5,000 mol of oxygen burnt in Vulcan's air adds about 6 K; 3 million mol adds about 1,280 to
+  1,360 K (more the cooler the planet is when it burns) and fills the air with carbon dioxide and
+  pollutant.
+- **Cold worlds catch fire only from a fire outdoors**, and a small fire goes out when that outdoor
+  fire does: a fuel leak on Mars does not set the planet alight by itself.
+- `terraform` shows whether the planet is burning and what, the heat it added, and what it holds back
+  from the outdoor air, gas by gas, with the reason for each: while burning, armed hold-back (the
+  setting above) or trace hold. All three are world settings; a new world takes them from the config's
+  `Fire` and `Trace gases` sections.
+- **Your saves:** a world saved before 0.13.0, or saved with 0.13.0 without these settings, loads with
+  all three off until you turn them on for that world. Turning the fire on asks for `confirm` when the
+  planet's air already holds a fuel and an oxidiser: it may catch fire at once, and the outdoor air
+  around your base, which already holds its share of that mix, will burn it once.
+- Trace gas gathering never gathers a gas the planet is holding back, for either reason.
+- **Multiplayer:** the planet burns on the host; joining players see the result and the heat. Host
+  and players need 0.13.0, as always.
+
 ## 0.12.0
 
 - **New, on by default: rocket engines burn all of their propellant.** The game burns 96 % of

@@ -270,6 +270,106 @@ a real base reaching +25 K by venting.
 Why Mars needs carbon dioxide as well as oxygen: nights start 50 K too cold, oxygen and nitrogen both
 cool the planet a little in the game's index, and the potent warmers (pollutant, volatiles) are toxic.
 
+## The planet's air burns: what it does to each route
+
+From 0.13.0, with `PlanetAirBurns` on (off by default), the planet's own air burns when it holds a fuel
+beside an oxidiser and would catch fire (docs/PLANET-COMBUSTION.md). This is every shipped world's route with
+the planet fire on. `python tools/Balance/fire.py` writes the table; `python tools/Balance/test_fire.py`
+recomputes every verdict and fails when one differs from the table below, so a change to the planner,
+the cost model or the rule cannot move a verdict without this section moving with it. The chemistry is
+the game's (**CODE**: the combustion table, enthalpies, ignition points and smallest amounts), and
+`tools/ci/test_model.py` holds it to PLANET-COMBUSTION.md's Appendix C in CI.
+
+**How a route is judged.** `path.py` never puts more than half a mole per cell of a fuel beside more
+than half a mole of an oxidiser, so no state the planner writes down is a fire. But removing a gas is
+dilution and stops at half a mole per cell (`removal.FLOOR`): the model's timeline takes a removed gas
+to zero, the game never does. A route that removes one side and later adds the other therefore holds
+that residue beside the other side for a while. Those windows are what the rule can act on, and the
+table lists each one with the residue put back in.
+
+- **Lit by heat** needs a fuel above one mole per cell (`GasMixture.IsAutoIgnition`), and is asked at
+  the hottest hour of the hottest season plus the world's hottest storm (VulcanSolarStorm +500 K by day,
+  Lunar's SolarStorm +50 K, MarsDustStorm +30 K at night; Europa's and Venus's storms only cool).
+- **Spark only** is a window no heat can light. It burns while a fire outdoors touches the planet (a
+  rocket launch, a vent burning, a leak), at the game's share a tick. How much burns depends on how long
+  the spark lasts, so it is priced at its bound: the whole residue, once. It fizzles when the spark ends
+  unless its own heat lifts the hottest hour past ignition, which none of these do.
+- The heat is booked at the hottest hour half way round the orbit and fades by half every hour. Route
+  steps take hours, so it is a transient and is not carried into the next step.
+- A product the route still puts in later (carbon dioxide on a cold world) is made for it, and is
+  counted as that much less to add. What is left over has to come back out, priced by `removal.py` for
+  the reference base at Standard size.
+
+| World | Route | Fuel beside an oxidiser | Ignition crossing | Fire size (per cell) | Heat | Cost change | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Mars2 | add CarbonDioxide 67, Oxygen 57, Pollutant 1; remove nothing | never | none | none | none | none | unaffected |
+| Lunar | add CarbonDioxide 62, Oxygen 57, Pollutant 2; remove nothing | never | none | none | none | none | unaffected |
+| Europa3 | add CarbonDioxide 288, Methane 80, Oxygen 340, Pollutant 2; remove Methane 80, Oxygen 340 | residue Oxygen, steps 2 to 121: Methane 80, Oxygen 0.5 | spark only, fizzles (hottest hour 234 K, storms +0 K, ignition 573 K) | Methane 1.00, Oxygen 0.50 | 286.0 GJ per M cells, +153 K at most, fading | 6.13 mol a cell less to add, +2.5 h removal | slower |
+| Europa3 | add CarbonDioxide 288, Methane 80, Oxygen 340, Pollutant 2; remove Methane 80, Oxygen 340 | residue Methane+Oxygen, steps 122 to 122: Methane 0.5, Oxygen 0.5 | spark only, fizzles (hottest hour 307 K, storms +0 K, ignition never (no fuel above 1 mol a cell)) | Methane 0.50, Oxygen 0.25 | 143.0 GJ per M cells, +16 K at most, fading | 6.13 mol a cell less to add, +2.5 h removal | slower |
+| Europa3 | add CarbonDioxide 288, Methane 80, Oxygen 340, Pollutant 2; remove Methane 80, Oxygen 340 | residue Methane, steps 123 to 162: Methane 0.5, Oxygen 8.5 | spark only, fizzles (hottest hour 307 K, storms +0 K, ignition never (no fuel above 1 mol a cell)) | Methane 0.50, Oxygen 0.25 | 143.0 GJ per M cells, +15 K at most, fading | 6.13 mol a cell less to add, +2.5 h removal | slower |
+| MimasHerschel | add CarbonDioxide 359, Helium 20, Methane 104, Oxygen 114, Pollutant 2; remove Helium 20, Methane 104, Oxygen 57 | residue Oxygen, steps 43 to 205: Methane 80, Oxygen 0.5 | spark only, fizzles (hottest hour 182 K, storms +0 K, ignition 573 K) | Methane 1.00, Oxygen 0.50 | 286.0 GJ per M cells, +125 K at most, fading | 4.50 mol a cell less to add | unaffected |
+| Venus | add Oxygen 48; remove CarbonDioxide 177, HydrochloricAcid 89 | never | none | none | none | none | unaffected |
+| Vulcan2 | add CarbonDioxide 25, Nitrogen 46, Oxygen 193, Pollutant 8; remove CarbonDioxide 18, Hydrogen 3, Methane 27, Pollutant 22 | model, steps 214 to 333: Methane 0.5, Hydrogen 0.4, Oxygen 4.817 | spark only, fizzles (hottest hour 1184 K, storms +500 K, ignition never (no fuel above 1 mol a cell)) | Hydrogen 0.40, Methane 0.50, Oxygen 0.45 | 265.4 GJ per M cells, +85 K at most, fading | +1.5 h removal | slower |
+| Vulcan2 | oxygen dump: 15.0 O2 per cell, then the route from the burnt air | deliberate, at once | lit by heat (hottest hour 1725 K) | all fuel: CarbonDioxide 93.0, Pollutant 55.5, Steam 4.5 | 8640.0 GJ per M cells, +1274 K, fading by half every hour | 232 h against 222 h | slower |
+
+**Mars2, Lunar and Venus: unaffected.** No fuel goes into their air at any point of the route, residues
+included. One thing changes in play rather than on the route: a terraformed oxygen world now burns the
+methane a fuel-rich rocket leaves in its air the next time a fire outdoors touches it, which only removes
+fuel.
+
+**Europa3: slower, by about 2.5 hours on 220.** The route takes the 340 mol per cell of oxygen out to make
+room for 80 of methane as a temporary warming gas, then takes the methane out and puts the oxygen back.
+Twice the planet holds a pair:
+
+1. 80 methane beside the oxygen's half-mole residue. The hottest hour is 234 K against an ignition point
+   of 573 K, and Europa's storms only cool it, so it never lights itself. A spark burns the residue once:
+   1 methane and 0.5 oxygen per cell become 3 carbon dioxide and 1.5 pollutant, and the planet warms by
+   up to 153 K for an hour or two. Nothing on the route depends on that warmth; what it lets thaw back
+   into the air freezes out again as it fades, by the game's own phase change.
+2. The methane's half-mole residue beside the returning oxygen: no ignition point at all (no fuel above
+   one mole per cell), so spark only, 1.5 carbon dioxide and 0.75 pollutant per cell, up to 16 K.
+
+The carbon dioxide and most of the pollutant are gas the route puts in afterwards anyway, 6.1 mol per
+cell less to mine. The last 0.62 mol per cell of pollutant is more than the finished air may hold, and
+taking it out is the 2.5 hours. Way round: take the oxygen below half a mole per cell before the
+methane goes in, or let the residue burn early, while the route is still taking pollutant out.
+
+**MimasHerschel: unaffected.** The same pattern as Europa: 80 methane beside the oxygen's residue
+(hottest hour 182 K, ignition 573 K, no storms). A spark makes 3 carbon dioxide and 1.5 pollutant per
+cell and a heat wave of up to 125 K that fizzles; all of it is gas the route adds later, 4.5 mol per cell
+less to mine.
+
+**Vulcan2: slower, by about 1.5 hours on 222.** The route takes the methane and hydrogen out before any
+oxygen goes in, and the oxygen then goes in beside their residue, 0.5 methane and 0.4 hydrogen per cell.
+Vulcan's hottest hour is 1,184 K (1,725 K at the near end of the orbit, 500 K more in a solar storm), but
+heat is not the question: with no fuel above one mole per cell this air never lights itself. A spark burns
+the residue once, making 1.5 carbon dioxide, 0.75 pollutant and 0.6 steam per cell and up to 85 K of heat
+for an hour or two, and that has to come back out. Way round: take the fuels below half a mole per cell
+before the oxygen goes in, or put a little oxygen in early and let a launch burn the residue while the
+route is still taking pollutant out.
+
+**Vulcan2, the deliberate oxygen dump: slower, by about 10 hours.** The alternative to taking Vulcan's
+fuel out by dilution is to burn it in place: 15 mol per cell of oxygen (3.75 million mol on a Standard
+planet) is exactly what its 27 methane and 3 hydrogen need. Vulcan always lights itself, so the dump
+burns within minutes of arriving and leaves 93 carbon dioxide, 55.5 pollutant and 4.5 steam per cell
+where there were 12, 15 and none. The heat is 8.6 MJ per cell, booked as the game books a burnt cell: a
+heat wave of about 1,270 K at mid-orbit, which fades by half every hour (under 50 K after about five
+hours; PLANET-COMBUSTION.md's 1,280 K for 3 million mol at 1,000 K is the same arithmetic). The route from that air is
+232 hours against 222: mining the dumped oxygen adds 2 hours, and taking out 74 carbon dioxide, 54
+pollutant and 4 steam per cell, where the dilution route takes out 27 methane, 22 pollutant, 18 carbon
+dioxide and 3 hydrogen, adds 8. Not worth it, and while the heat wave lasts the
+planet is about 2,400 K, where the game's phase change and storms have never been seen to run.
+
+What this leaves out, and why it does not move a verdict:
+
+- **Sparks are priced at their bound.** A residue burnt only partly makes less product, so the cost
+  changes above are the most a spark can cost; a partial burn leaves the rest for the next spark.
+- **The heat wave's knock-on.** The model judges a settled planet. A transient of up to 153 K on a cold
+  world melts and evaporates what has frozen out and refreezes it as it fades, which the game's own
+  phase change does both ways and the route already allows for.
+- **Rockets and leaks** are not routes. What a leak does is measured by the leak test (VERIFICATION.md, *The
+  leak test*), not modelled here.
+
 ## What the model leaves open
 
 docs/ASSUMPTIONS.md is the register. For pacing the ones that matter are S9 (removal is dilution), S10

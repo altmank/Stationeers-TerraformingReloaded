@@ -80,6 +80,25 @@ namespace TerraformingReloaded.Patching
         /// config's default is on: a world saved before this setting existed burns completely.
         /// </summary>
         public bool? RocketsBurnCompletely;
+
+        /// <summary>
+        /// Not recorded is the config's, like every setting that only changes behaviour, and the
+        /// config's default is on: a world saved before this setting existed burns.
+        /// </summary>
+        public bool? PlanetAirBurns;
+
+        /// <summary>Not recorded is the config's, like every setting that only changes behaviour; the config's default is off.</summary>
+        public bool? PlanetHoldsBackWhileIgnitable;
+
+        /// <summary>Not recorded is the config's, like every setting that only changes behaviour; the config's default is off.</summary>
+        public bool? PlanetKeepsTraceGas;
+
+        /// <summary>
+        /// Not a setting: the part of the planet's added heat that its own fire booked, in joules,
+        /// which the added heat limit does not apply to. Written with every save that changed it.
+        /// Not recorded is none, so the limit applies to all of the added heat a save carries.
+        /// </summary>
+        public double? PlanetFireHeatJoules;
     }
 
     /// <summary>
@@ -159,6 +178,7 @@ namespace TerraformingReloaded.Patching
 
         /// <summary>The gas lost to space the file holds, so a save that changed nothing writes nothing.</summary>
         private static double _recordedLoss;
+        private static double _recordedFireHeat;
 
         /// <summary>The file this world's settings are in, or null while there is none.</summary>
         public static string FilePath => _filePath;
@@ -222,6 +242,8 @@ namespace TerraformingReloaded.Patching
                 SeedFromConfig();
                 Space.SetLost(0.0);
                 _recordedLoss = 0.0;
+                PlanetCombustion.SetHeat(0.0);
+                _recordedFireHeat = 0.0;
                 _folder = null;
                 _filePath = null;
                 _fileVersion = 0;
@@ -256,6 +278,8 @@ namespace TerraformingReloaded.Patching
             Effective.NoSpaceDeletion();
             Space.SetLost(0.0);
             _recordedLoss = 0.0;
+            PlanetCombustion.SetHeat(0.0);
+            _recordedFireHeat = 0.0;
             try
             {
                 Begin();
@@ -520,6 +544,9 @@ namespace TerraformingReloaded.Patching
                 Recorded(file.TraceGasLine, Limits.TraceGasLine, "TraceGasLine", bad)
                 ?? Settings.TraceGasLine;
             Effective.RocketsBurnCompletely = file.RocketsBurnCompletely ?? Settings.RocketsBurnCompletely;
+            Effective.PlanetAirBurns = file.PlanetAirBurns ?? Settings.PlanetAirBurns;
+            Effective.PlanetHoldsBackWhileIgnitable = file.PlanetHoldsBackWhileIgnitable ?? Settings.PlanetHoldsBackWhileIgnitable;
+            Effective.PlanetKeepsTraceGas = file.PlanetKeepsTraceGas ?? Settings.PlanetKeepsTraceGas;
 
             // Deletes gas, so not recorded is off and never the config's (the ceiling's rule).
             Effective.SpaceDeletionFromWorldFile(file.SpaceDeletesGas);
@@ -527,6 +554,11 @@ namespace TerraformingReloaded.Patching
             double lost = Recorded(file.GasLostToSpaceMoles, Limits.GasLostToSpaceMoles, "GasLostToSpaceMoles", bad) ?? 0.0;
             Space.SetLost(lost);
             _recordedLoss = lost;
+            // Also a total: one the file cannot vouch for is none, and the limit then applies to all
+            // of the added heat the save carries.
+            double fireHeat = Recorded(file.PlanetFireHeatJoules, Limits.PlanetFireHeatJoules, "PlanetFireHeatJoules", bad) ?? 0.0;
+            PlanetCombustion.SetHeat(fireHeat);
+            _recordedFireHeat = fireHeat;
 
             if (bad.Count == 0)
             {
@@ -596,6 +628,9 @@ namespace TerraformingReloaded.Patching
             Effective.TraceGasGathering = Settings.TraceGasGathering;
             Effective.TraceGasLine = Settings.TraceGasLine;
             Effective.RocketsBurnCompletely = Settings.RocketsBurnCompletely;
+            Effective.PlanetAirBurns = Settings.PlanetAirBurns;
+            Effective.PlanetHoldsBackWhileIgnitable = Settings.PlanetHoldsBackWhileIgnitable;
+            Effective.PlanetKeepsTraceGas = Settings.PlanetKeepsTraceGas;
         }
 
         /// <summary>
@@ -717,16 +752,17 @@ namespace TerraformingReloaded.Patching
 
         /// <summary>
         /// The game is saving (XmlSaveLoad.GetWorldData, main thread, planet tick paused). Writes the
-        /// file only when the lost-to-space total has changed since it was last written (gas was
-        /// deleted, or the planet was reset), so on a world that
-        /// never deletes anything a save writes nothing beside it. The file is written whole, as
-        /// terraform set writes it. Never throws: the save must not notice.
+        /// file only when a total it records has changed since it was last written: the gas lost to
+        /// space (gas was deleted, or the planet was reset) or the planet's fire heat (a fire, its
+        /// fade, a reset). On a world that does neither, a save writes nothing beside it. The file is
+        /// written whole, as terraform set writes it. Never throws: the save must not notice.
         /// </summary>
-        public static void RecordLossAtSave()
+        public static void RecordTotalsAtSave()
         {
             try
             {
-                if (NetworkManager.IsClient || RecordRefusal() != null || Space.LostMoles == _recordedLoss)
+                if (NetworkManager.IsClient || RecordRefusal() != null
+                    || (Space.LostMoles == _recordedLoss && PlanetCombustion.Heat == _recordedFireHeat))
                 {
                     return;
                 }
@@ -754,6 +790,7 @@ namespace TerraformingReloaded.Patching
                     return false;           // a new world's folder is born by CreateSaveDirectory, not here
                 }
                 double loss = Space.LostMoles;
+                double fireHeat = PlanetCombustion.Heat;
                 SidecarFile file = new SidecarFile
                 {
                     Version = SchemaVersion,
@@ -780,6 +817,10 @@ namespace TerraformingReloaded.Patching
                     SpaceDeletesGas = Effective.SpaceDeletesGas,
                     GasLostToSpaceMoles = loss,
                     RocketsBurnCompletely = Effective.RocketsBurnCompletely,
+                    PlanetAirBurns = Effective.PlanetAirBurns,
+                    PlanetHoldsBackWhileIgnitable = Effective.PlanetHoldsBackWhileIgnitable,
+                    PlanetKeepsTraceGas = Effective.PlanetKeepsTraceGas,
+                    PlanetFireHeatJoules = fireHeat,
                 };
                 string path = Path.Combine(folder, FileName);
                 Salvage(path);
@@ -792,6 +833,7 @@ namespace TerraformingReloaded.Patching
                 _filePath = path;
                 _fileVersion = SchemaVersion;
                 _recordedLoss = loss;
+                _recordedFireHeat = fireHeat;
                 return true;
             }
             catch (Exception e)
