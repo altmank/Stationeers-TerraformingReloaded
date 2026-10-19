@@ -62,6 +62,12 @@ namespace TerraformingReloaded.Patching
         public double? MildAtmosphereMaxToxinsKpa;
         public bool? MildAtmosphereStopsSolarStorms;
 
+        /// <summary>Null means no floor, recorded or not: a world saved before the setting existed has none.</summary>
+        public double? StormFloorKelvin;
+
+        /// <summary>Null means no ceiling, recorded or not: a world saved before the setting existed has none.</summary>
+        public double? StormCeilingKelvin;
+
         public bool? TraceGasGatheringEnabled;
         public double? TraceGasGathering;
         public double? TraceGasLine;
@@ -472,9 +478,10 @@ namespace TerraformingReloaded.Patching
         /// means by a field the version that wrote it did not know: the ceiling falls to none, the
         /// rest fall back to the config.
         ///
-        /// Null in the two fields the config flags with 0 is a recorded state, not an absence: no
-        /// ceiling, and heat that never fades. A 0 in either of them in the file is the config's
-        /// sentinel leaking through a hand edit, and is out of range exactly like a negative is.
+        /// Null in the four fields the config flags with 0 is a recorded state, not an absence: no
+        /// ceiling, heat that never fades, and no storm floor or ceiling. A 0 in any of them in the
+        /// file is the config's sentinel leaking through a hand edit, and is out of range exactly
+        /// like a negative is.
         /// </summary>
         private static void Take(SidecarFile file, string path)
         {
@@ -536,6 +543,12 @@ namespace TerraformingReloaded.Patching
                 Recorded(file.MildAtmosphereMaxToxinsKpa, Limits.MildAtmosphereMaxToxinsKpa, "MildAtmosphereMaxToxinsKpa", bad)
                 ?? Settings.MildAtmosphereMaxToxinsKpa;
             Effective.MildAtmosphereStopsSolarStorms = file.MildAtmosphereStopsSolarStorms ?? Settings.MildAtmosphereStopsSolarStorms;
+            // Null is a recorded "no bound", like the half-life's "never fades"; a refused value
+            // keeps the config's, which TakeFromConfig has already put there.
+            StormBounds configBounds = Effective.StormBounds;
+            Effective.StormBounds = new StormBounds(
+                RecordedBound(file.StormFloorKelvin, Limits.StormFloorKelvin, "StormFloorKelvin", configBounds.FloorKelvin, bad),
+                RecordedBound(file.StormCeilingKelvin, Limits.StormCeilingKelvin, "StormCeilingKelvin", configBounds.CeilingKelvin, bad));
             Effective.TraceGasGatheringEnabled = file.TraceGasGatheringEnabled ?? Settings.TraceGasGatheringEnabled;
             Effective.TraceGasGathering =
                 Recorded(file.TraceGasGathering, Limits.TraceGasGathering, "TraceGasGathering", bad)
@@ -595,6 +608,19 @@ namespace TerraformingReloaded.Patching
         }
 
         /// <summary>
+        /// One storm bound as the file recorded it: none when the file records none, the value when it
+        /// is one the setting can take, and <paramref name="config"/> plus a name on the list when not.
+        /// </summary>
+        private static double? RecordedBound(double? value, Range range, string field, double? config, List<string> bad)
+        {
+            if (!value.HasValue)
+            {
+                return null;
+            }
+            return Recorded(value, range.AboveMin, field, bad) ?? config;
+        }
+
+        /// <summary>
         /// Copies the config into the values in force, except the pressure ceiling, which this
         /// cannot touch: a loaded world's ceiling comes out of its own file or nowhere, and a new
         /// world's out of <see cref="Effective.CeilingForNewWorld"/>. None of the rest can delete
@@ -624,6 +650,9 @@ namespace TerraformingReloaded.Patching
             Effective.MildAtmosphereMaxPressureKpa = Settings.MildAtmosphereMaxPressureKpa;
             Effective.MildAtmosphereMaxToxinsKpa = Settings.MildAtmosphereMaxToxinsKpa;
             Effective.MildAtmosphereStopsSolarStorms = Settings.MildAtmosphereStopsSolarStorms;
+            Effective.StormBounds = new StormBounds(
+                Settings.StormFloorKelvin > 0.0 ? (double?)Settings.StormFloorKelvin : null,
+                Settings.StormCeilingKelvin > 0.0 ? (double?)Settings.StormCeilingKelvin : null);
             Effective.TraceGasGatheringEnabled = Settings.TraceGasGatheringEnabled;
             Effective.TraceGasGathering = Settings.TraceGasGathering;
             Effective.TraceGasLine = Settings.TraceGasLine;
@@ -811,6 +840,8 @@ namespace TerraformingReloaded.Patching
                     MildAtmosphereMaxPressureKpa = Effective.MildAtmosphereMaxPressureKpa,
                     MildAtmosphereMaxToxinsKpa = Effective.MildAtmosphereMaxToxinsKpa,
                     MildAtmosphereStopsSolarStorms = Effective.MildAtmosphereStopsSolarStorms,
+                    StormFloorKelvin = Effective.StormBounds.FloorKelvin,
+                    StormCeilingKelvin = Effective.StormBounds.CeilingKelvin,
                     TraceGasGatheringEnabled = Effective.TraceGasGatheringEnabled,
                     TraceGasGathering = Effective.TraceGasGathering,
                     TraceGasLine = Effective.TraceGasLine,

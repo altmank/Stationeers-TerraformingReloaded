@@ -161,7 +161,8 @@ need('Limits.PlanetFireHeatJoules' in read('src/Patching/Sidecar.cs'), 'the reco
 # The config editor's bounds and the settings-file check are the same declaration.
 plugin = read('src/Plugin.cs')
 world_scoped = ('MaxPressureKPa', 'ExternalHeatHalfLifeMinutes', 'MaxExternalOffsetKelvin',
-                'GhgResponseScale', 'DensityResponseScale', 'AirlessAlbedo', 'TraceGasGathering', 'TraceGasLine')
+                'GhgResponseScale', 'DensityResponseScale', 'AirlessAlbedo', 'TraceGasGathering', 'TraceGasLine',
+                'StormFloorKelvin', 'StormCeilingKelvin')
 for name in world_scoped:
     need(('Bounds(Limits.%s)' % name) in plugin, 'the %s config entry takes its range from Limits' % name)
     need(re.search(r'public static readonly Range %s = new Range\(' % name, read('src/Settings.cs')) is not None,

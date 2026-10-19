@@ -38,6 +38,8 @@ per-world value comes back for free. Nothing else has a carrier like that.
   <MildAtmosphereMaxPressureKpa>607.95</MildAtmosphereMaxPressureKpa>
   <MildAtmosphereMaxToxinsKpa>1</MildAtmosphereMaxToxinsKpa>
   <MildAtmosphereStopsSolarStorms>false</MildAtmosphereStopsSolarStorms>
+  <StormFloorKelvin xsi:nil="true" />
+  <StormCeilingKelvin xsi:nil="true" />
   <TraceGasGatheringEnabled>false</TraceGasGatheringEnabled>
   <TraceGasGathering>200</TraceGasGathering>
   <TraceGasLine>0.001</TraceGasLine>
@@ -95,6 +97,8 @@ Exactly one function knows that.
 | --- | --- | --- |
 | `MaxPressureKPa` | no ceiling | **null** |
 | `ExternalHeatHalfLifeMinutes` | never fades | **null** |
+| `StormFloorKelvin` | no floor | **null** |
+| `StormCeilingKelvin` | no ceiling | **null** |
 | `GhgResponseScale` | off | 0, a real value on a real range |
 | `DensityResponseScale` | off | 0, same |
 | `MaxExternalOffsetKelvin` | no shift allowed | 0, same |
@@ -306,6 +310,7 @@ what a missing or unreadable file falls back to.
 | `DynamicSky` | reversible | Only how the sky is drawn. Switched off mid-game, the sky keeps the look it has until the world is loaded again, because the game only sets it from the world's data at a world start |
 | `WeatherOnWeatherlessWorlds` | reversible | Decides whether a full cloud may rain or snow. The cloud has already emptied into the air either way |
 | The nine `Storms` settings | reversible | Decide whether a storm is scheduled. Suppressing one writes nothing the save carries: `WeatherManager.CreateSaveData` then holds "no event, and a cooldown long past", the state the unmodded game sits in between storms. Turning a rule back on schedules exactly one storm, then the world's own cadence resumes |
+| `StormFloorKelvin`, `StormCeilingKelvin` | reversible | Read-time only: they limit what a running storm does to the temperature, which drives phase change, so like the response strengths, set them back and the matter comes back. Null is a recorded "none", so a file from before 0.14.0 reads as none, not as the config's |
 
 | `SpaceDeletesGas` | destroys | Gas released at or above 1,000 m is deleted instead of returning to the planet, and the smaller planet is saved. `terraform set` asks before turning it on. Not recorded is off, never the config's |
 | `TraceGasGatheringEnabled`, `TraceGasGathering`, `TraceGasLine` | reversible | Decide how much of a trace gas the outdoor cells beside a base draw from the planet each tick. Nothing is deleted: the planet pays for every mole a cell takes, and a cell gives back what it does not use up. Switched off, what the cells hold drains back to the planet |

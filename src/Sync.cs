@@ -28,9 +28,12 @@ namespace TerraformingReloaded
     /// temperature formula and rebuilds the sky locally, so without them it would use its own config
     /// for a world whose settings are the host's.
     ///
-    /// Last come whether the host's world deletes gas released in space, and how much it has
+    /// Then come whether the host's world deletes gas released in space, and how much it has
     /// deleted, for the joining player's readout. Nothing on their game acts on them: the deleting
     /// happens where the mixing runs, which is the host.
+    ///
+    /// Last come the host's storm floor and ceiling, which the temperature formula applies, so a
+    /// client evaluating it during a storm reads what the host reads.
     ///
     /// The leading byte says what follows. LaunchPadBooster refuses a join between different
     /// versions of the mod, so both ends normally write and read the same layout; the byte still lets
@@ -44,6 +47,7 @@ namespace TerraformingReloaded
         private const byte PlanetOnly = 1;
         private const byte PlanetAndSettings = 2;
         private const byte PlanetSettingsAndSpace = 3;
+        private const byte PlanetSettingsSpaceAndStormBounds = 4;
 
         private static readonly FieldInfo[] MixFields = typeof(GlobalGasMixSaveData)
             .GetFields(BindingFlags.Public | BindingFlags.Instance)
@@ -102,7 +106,7 @@ namespace TerraformingReloaded
                 writer.WriteByte(Nothing);
                 return;
             }
-            writer.WriteByte(PlanetSettingsAndSpace);
+            writer.WriteByte(PlanetSettingsSpaceAndStormBounds);
             writer.WriteInt32(MixFields.Length);
             WriteMix(writer, data.GlobalGasMix);
             WriteMix(writer, data.LiquidClouds);
@@ -117,6 +121,22 @@ namespace TerraformingReloaded
             writer.WriteBoolean(Effective.SpaceDeletesGas);
             writer.WriteBoolean(Space.Installed);
             writer.WriteDouble(Space.LostMoles);
+            StormBounds bounds = Effective.StormBounds;
+            WriteBound(writer, bounds.FloorKelvin);
+            WriteBound(writer, bounds.CeilingKelvin);
+        }
+
+        private static void WriteBound(RocketBinaryWriter writer, double? kelvin)
+        {
+            writer.WriteBoolean(kelvin.HasValue);
+            writer.WriteDouble(kelvin ?? 0.0);
+        }
+
+        private static double? ReadBound(RocketBinaryReader reader)
+        {
+            bool set = reader.ReadBoolean();
+            double kelvin = reader.ReadDouble();
+            return set ? kelvin : (double?)null;
         }
 
         /// <summary>
@@ -159,7 +179,7 @@ namespace TerraformingReloaded
             try
             {
                 byte kind = reader.ReadByte();
-                if (kind != PlanetOnly && kind != PlanetAndSettings && kind != PlanetSettingsAndSpace)
+                if (kind != PlanetOnly && kind != PlanetAndSettings && kind != PlanetSettingsAndSpace && kind != PlanetSettingsSpaceAndStormBounds)
                 {
                     return;
                 }
@@ -180,7 +200,10 @@ namespace TerraformingReloaded
                     ExternalOffset = new DoubleReference(reader.ReadDouble()),
                 };
                 HostSettings? settings = kind >= PlanetAndSettings ? new HostSettings(reader) : (HostSettings?)null;
-                HostSpace? space = kind == PlanetSettingsAndSpace ? new HostSpace(reader) : (HostSpace?)null;
+                HostSpace? space = kind >= PlanetSettingsAndSpace ? new HostSpace(reader) : (HostSpace?)null;
+                StormBounds bounds = kind == PlanetSettingsSpaceAndStormBounds
+                    ? new StormBounds(ReadBound(reader), ReadBound(reader))
+                    : null;
                 if (!NetworkManager.IsClient || PlanetaryAtmosphereSimulation.GetGlobalGasMix() == null)
                 {
                     return;
@@ -201,6 +224,10 @@ namespace TerraformingReloaded
                 if (space.HasValue)
                 {
                     Space.FromHost(space.Value.Deletes, space.Value.Installed, space.Value.LostMoles);
+                }
+                if (bounds != null)
+                {
+                    Apply(bounds);
                 }
                 Gate.SetHostPlanet(true);
             }
@@ -242,6 +269,31 @@ namespace TerraformingReloaded
             }
             Effective.DynamicSky = host.DynamicSky;
             Sidecar.TakenFromHost();
+        }
+
+        /// <summary>
+        /// The host's storm bounds, checked against the same ranges as a world's settings file: a
+        /// bound the config editor would refuse leaves this game's own in place for that bound.
+        /// </summary>
+        private void Apply(StormBounds host)
+        {
+            StormBounds own = Effective.StormBounds;
+            double? floor = Accepted(host.FloorKelvin, Limits.StormFloorKelvin, own.FloorKelvin, "storm floor");
+            double? ceiling = Accepted(host.CeilingKelvin, Limits.StormCeilingKelvin, own.CeilingKelvin, "storm ceiling");
+            if (floor != own.FloorKelvin || ceiling != own.CeilingKelvin)
+            {
+                Effective.StormBounds = new StormBounds(floor, ceiling);
+            }
+        }
+
+        private double? Accepted(double? host, Range range, double? own, string what)
+        {
+            if (!host.HasValue || range.AboveMin.Holds(host.Value))
+            {
+                return host;
+            }
+            Fault("Host sent a " + what + " outside what the setting accepts. This game's own is used.");
+            return own;
         }
 
         private static void WriteMix(RocketBinaryWriter writer, GlobalGasMixSaveData mix)

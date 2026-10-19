@@ -125,6 +125,23 @@ internal static class Program
             failures++;
         }
 
+        // Storm bounds: the rule by hand and across a grid, then wrong rules it must catch.
+        string bounds = TerraformingReloaded.Patching.StormBounds.Check();
+        failures += Judge(bounds == null, "storm bounds: " + (bounds ?? "a storm stops at the floor and ceiling, never moves a planet already past them, and leaves everything else alone"));
+        var wrongBounds = new (string What, Func<TerraformingReloaded.Patching.StormBounds, double, double, double> Rule)[]
+        {
+            ("clamping the whole temperature, which raises a planet already below the floor",
+                (b, t, e) => Math.Min(Math.Max(t, b.FloorKelvin ?? double.MinValue), b.CeilingKelvin ?? double.MaxValue)),
+            ("ignoring the bounds", (b, t, e) => t),
+            ("taking the storm out entirely while a bound is set", (b, t, e) => b.IsOff ? t : t - e),
+            ("swapping floor and ceiling", (b, t, e) => new TerraformingReloaded.Patching.StormBounds(b.CeilingKelvin, b.FloorKelvin).Limit(t, e)),
+        };
+        foreach (var wrong in wrongBounds)
+        {
+            string caught = TerraformingReloaded.Patching.StormBounds.Check(wrong.Rule);
+            failures += Judge(caught != null, "storm bounds check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+
         // Gas released in space. The shape check proves the places space gas reaches the planet are
         // still exactly where the rule expects. This runtime's mscorlib has no System.Span, so it
         // cannot open the body of the mixing method at all; the check is handed a counter that reads

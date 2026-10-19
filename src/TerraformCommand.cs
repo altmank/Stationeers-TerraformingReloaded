@@ -292,6 +292,20 @@ namespace TerraformingReloaded
                 () => Effective.MildAtmosphereMaxToxinsKpa, () => Settings.MildAtmosphereMaxToxinsKpa, v => Effective.MildAtmosphereMaxToxinsKpa = v),
             Switch("MildAtmosphereStopsSolarStorms", "Mild air stops solar storms too",
                 () => Effective.MildAtmosphereStopsSolarStorms, () => Settings.MildAtmosphereStopsSolarStorms, v => Effective.MildAtmosphereStopsSolarStorms = v),
+            new WorldKey
+            {
+                Name = "StormFloorKelvin", Label = "Storm floor", Unit = "K", Limits = Limits.StormFloorKelvin, ZeroMeans = "no floor",
+                Get = () => Effective.StormBounds.FloorKelvin,
+                Config = () => Settings.StormFloorKelvin > 0.0 ? (double?)Settings.StormFloorKelvin : null,
+                Set = v => Effective.StormBounds = Effective.StormBounds.WithFloor((double?)v),
+            },
+            new WorldKey
+            {
+                Name = "StormCeilingKelvin", Label = "Storm ceiling", Unit = "K", Limits = Limits.StormCeilingKelvin, ZeroMeans = "no ceiling",
+                Get = () => Effective.StormBounds.CeilingKelvin,
+                Config = () => Settings.StormCeilingKelvin > 0.0 ? (double?)Settings.StormCeilingKelvin : null,
+                Set = v => Effective.StormBounds = Effective.StormBounds.WithCeiling((double?)v),
+            },
             Switch("TraceGasGatheringEnabled", "Trace gases gather (experimental)",
                 () => Effective.TraceGasGatheringEnabled, () => Settings.TraceGasGatheringEnabled, v => Effective.TraceGasGatheringEnabled = v),
             Number("TraceGasGathering", "Speed at the trace line (below it: doubles per factor of ten, up to 10x)", "x", Limits.TraceGasGathering,
@@ -396,6 +410,10 @@ namespace TerraformingReloaded
             if (key.Name == "SpaceDeletesGas" && (bool)asked)
             {
                 text.Append(SpaceLine());
+            }
+            if (key.Name == "StormFloorKelvin" || key.Name == "StormCeilingKelvin")
+            {
+                text.AppendLine("  Applies at once, to a storm already running too: only the storm's own effect on the planet temperature is limited.");
             }
             if (key.Name == "DynamicSky" && !(bool)asked)
             {

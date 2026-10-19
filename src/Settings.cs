@@ -69,6 +69,12 @@ namespace TerraformingReloaded
         /// <summary>Air shields radiation, so a mild world stops solar storms as well.</summary>
         public static bool MildAtmosphereStopsSolarStorms = false;
 
+        /// <summary>Coldest a running weather event may take the planet, in kelvin. 0 means no floor.</summary>
+        public static double StormFloorKelvin = 0.0;
+
+        /// <summary>Hottest a running weather event may take the planet, in kelvin. 0 means no ceiling.</summary>
+        public static double StormCeilingKelvin = 0.0;
+
         /// <summary>
         /// Experimental, off by default: trace gases gather where they are consumed.
         /// </summary>
@@ -196,6 +202,12 @@ namespace TerraformingReloaded
         public static readonly Range MildAtmosphereMinPressureKpa = new Range(0.0, 10000.0);
         public static readonly Range MildAtmosphereMaxPressureKpa = new Range(0.0, 10000.0);
         public static readonly Range MildAtmosphereMaxToxinsKpa = new Range(0.0, 1000.0);
+
+        /// <summary>In the config 0 means no floor. In a file use <see cref="Range.AboveMin"/>.</summary>
+        public static readonly Range StormFloorKelvin = new Range(0.0, 5000.0);
+
+        /// <summary>In the config 0 means no ceiling. In a file use <see cref="Range.AboveMin"/>.</summary>
+        public static readonly Range StormCeilingKelvin = new Range(0.0, 5000.0);
 
         public static readonly Range TraceGasGathering = new Range(1.0, 2000.0);
         public static readonly Range TraceGasLine = new Range(0.0, 0.01);
@@ -356,6 +368,19 @@ namespace TerraformingReloaded
         public static double MildAtmosphereMaxPressureKpa = 607.95;
         public static double MildAtmosphereMaxToxinsKpa = 1.0;
         public static bool MildAtmosphereStopsSolarStorms = false;
+
+        private static volatile Patching.StormBounds _stormBounds = Patching.StormBounds.Off;
+
+        /// <summary>
+        /// The floor and ceiling on what a running weather event does to the planet temperature.
+        /// One reference, so the temperature formula on a worker thread reads both bounds of one
+        /// setting. Never null: assigning null is no bounds.
+        /// </summary>
+        public static Patching.StormBounds StormBounds
+        {
+            get => _stormBounds;
+            set => _stormBounds = value ?? Patching.StormBounds.Off;
+        }
 
         public static bool TraceGasGatheringEnabled = false;
         public static double TraceGasGathering = 200.0;

@@ -70,8 +70,12 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
   them: the deleting happens in the mixing, which only the host runs. The total is sent as it stands
   with every planet update, so the host's `terraform reset confirm`, which sets it back to 0, shows on
   joining players' games within `SyncIntervalSeconds`.
+- **The storm floor and ceiling.** After space come the host's `StormFloorKelvin` and
+  `StormCeilingKelvin`, each a flag and a number, 18 bytes. The joining player's game applies them in
+  the temperature formula, so during a storm it reads what the host reads; one outside the setting's
+  range keeps the player's own for that bound.
 - **The section's first byte says what follows.** 0 nothing, 1 the planet alone (0.10.0 and earlier),
-  2 the planet and the settings (0.10.1 to 0.11.3), 3 the planet, the settings and space (0.11.4 on). A reader takes the planet from 1 or 2 and skips any other
+  2 the planet and the settings (0.10.1 to 0.11.3), 3 the planet, the settings and space (0.11.4 to 0.13.2), 4 those and the storm bounds (0.14.0 on). A reader takes the planet from 1 or 2 and skips any other
   value; a layout, once shipped, keeps its byte and a new one takes the next. Mixed versions never
   meet in practice, because the exact version match above refuses the join, so this guards a
   hand-built or mis-versioned peer, not a supported mix: a 0.10.0 game reading a 2 would skip the
@@ -130,8 +134,8 @@ planet: its own takes and gives go to its own copy, which nothing sends back.
   Between refreshes their own game ticks the copy on its own (freezing, melting, cloud tips), which
   the next refresh overwrites.
 - **Temperature.** The temperature rule runs on a joining player's game (`Climate.TemperaturePostfix`
-  checks only `Settings.Enabled`), on the host's three response settings once the first planet state
-  has arrived (`Sync.Apply`). `Climate.Lookup` rebuilds its per-world entry when those change, so the
+  checks only `Settings.Enabled`), on the host's three response settings and storm bounds once the first
+  planet state has arrived (`Sync.Apply`). `Climate.Lookup` rebuilds its per-world entry when those change, so the
   planet's temperature matches the host's. Before 0.10.1 it used the player's own config for them.
 - **Sky: follows the host's air.** On a joining player's game `Gate.SkyEnabled()` asks every
   condition of `Enabled()` except the client check, plus `Gate.HostPlanet`: set when `Sync.Read` has

@@ -14,7 +14,7 @@ namespace TerraformingReloaded
     {
         public const string PluginGuid = "xceled.stationeers.terraformingreloaded";
         public const string PluginName = "Terraforming Reloaded";
-        public const string PluginVersion = "0.13.2";
+        public const string PluginVersion = "0.14.0";
 
         /// <summary>The game build the patches were last checked against. Advisory only.</summary>
         private const string TestedGameVersion = "0.2.6428.27798";
@@ -250,6 +250,12 @@ namespace TerraformingReloaded
             Bind("Storms", "MildAtmosphereStopsSolarStorms", Settings.MildAtmosphereStopsSolarStorms,
                 "Air shields radiation, so a mild world stops solar storms as well. Off by default: on the Moon they give four times normal solar power.",
                 v => Settings.MildAtmosphereStopsSolarStorms = v, null, "Mild air stops solar storms too", 58, world: true);
+            Bind("Storms", "StormFloorKelvin", Settings.StormFloorKelvin,
+                "Coldest a storm may take the planet, in kelvin. 0 means no floor. While a storm runs, its cold never takes the planet below this; a planet already colder without the storm stays where it is. Only the storm's own effect is limited. A world saved without this setting has no floor until you set one for that world.",
+                v => Settings.StormFloorKelvin = v, Bounds(Limits.StormFloorKelvin), "Storm floor (K)", 59, "%.2f", world: true);
+            Bind("Storms", "StormCeilingKelvin", Settings.StormCeilingKelvin,
+                "Hottest a storm may take the planet, in kelvin. 0 means no ceiling. While a storm runs, its heat never takes the planet above this; a planet already hotter without the storm stays where it is. Only the storm's own effect is limited. A world saved without this setting has no ceiling until you set one for that world.",
+                v => Settings.StormCeilingKelvin = v, Bounds(Limits.StormCeilingKelvin), "Storm ceiling (K)", 60, "%.2f", world: true);
 
             // Trace gases. Their own section: they decide how outdoor air near a base draws from the
             // planet, which is neither climate nor storms.

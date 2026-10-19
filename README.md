@@ -56,7 +56,10 @@ the planet section of the save; the game reads that section with or without the 
   Neither happens on a world you have not changed. Solar storms are not stopped by taking the air
   away, because air was never what caused them. `terraform` says which of the two is holding storms
   back, and which point in the world's year it judged that at, because a world can be calm in one
-  season and stormy in another.
+  season and stormy in another. A world can also be given a storm floor and ceiling (off unless you
+  set them): a storm then never takes the planet colder than the floor or hotter than the ceiling,
+  so a cold snap cannot freeze the air out of the sky. Only the storm's own effect is limited; a
+  planet already colder than the floor without the storm stays as cold as it is.
 - **Seas.** Enough liquid on the planet (rain that stays liquid) and the game raises a sea 2 to 10 m
   deep, and everything outdoors below it counts as under water. The amount of liquid that takes
   is fixed by the game and does not shrink with planet size.
@@ -264,8 +267,8 @@ lives in the host's game, and the mod sends it to every player's game every few 
   `terraform` shows the planet the host sent.
 - **A joining player gets the host's planet as they join**, before their first look outside, and it is
   refreshed every few seconds after that. Their sky follows it, and their outdoor temperature is worked
-  out with the host's greenhouse strength, air density strength and airless reflectivity, so it reads
-  the same as the host's.
+  out with the host's greenhouse strength, air density strength, airless reflectivity and storm
+  floor and ceiling, so it reads the same as the host's.
 - **A host without the mod** turns away a player who has it, unless both games also run another mod
   that syncs through StationeersLaunchPad. Then the game runs as shipped, and the player with the mod
   sees exactly that.
@@ -320,6 +323,13 @@ The few worth knowing before you start:
   the pressure it must stay between, and the most toxic gas allowed. The mild rule is judged at the
   point in the orbit the world is at, so a world near the edge of those bounds is calm in a good
   season and stormy in a bad one. Solar storms follow the opposite rule and have their own setting.
+- **`StormFloorKelvin`** and **`StormCeilingKelvin`** (the `Storms` section) are off by default (0).
+  Set, a running storm never takes the planet below the floor or above the ceiling, and everything
+  that follows the temperature (freezing, melting, the outdoor air) follows the limited one. Only
+  the storm's own effect is limited: a planet already past a bound without the storm is left where it
+  is. A world made before this version has neither, whatever the config says; `terraform set
+  StormFloorKelvin <K>` sets one for the world you are playing, and takes effect on a storm already
+  running.
 
 ## If a game update breaks it
 

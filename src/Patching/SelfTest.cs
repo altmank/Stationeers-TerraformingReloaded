@@ -85,6 +85,8 @@ namespace TerraformingReloaded.Patching
                     AirlessAlbedo = 0.3,
                     DynamicSky = false,
                     WeatherOnWeatherlessWorlds = null,
+                    StormFloorKelvin = 228.15,
+                    StormCeilingKelvin = null,
                     SpaceDeletesGas = true,
                     GasLostToSpaceMoles = 1234.5,
                     RocketsBurnCompletely = false,
@@ -131,6 +133,10 @@ namespace TerraformingReloaded.Patching
                 {
                     return "a recorded off, or a switch that is not set, did not survive the round trip";
                 }
+                if (read.StormFloorKelvin != 228.15 || read.StormCeilingKelvin.HasValue)
+                {
+                    return "a storm floor, or a storm ceiling that is not set, did not survive the round trip";
+                }
                 if (read.SpaceDeletesGas != true || read.GasLostToSpaceMoles != 1234.5)
                 {
                     return "whether gas released in space is deleted, or the total lost, did not survive the round trip";
@@ -157,6 +163,7 @@ namespace TerraformingReloaded.Patching
                     || partial.GhgResponseScale.HasValue || partial.DensityResponseScale.HasValue
                     || partial.AirlessAlbedo.HasValue || partial.DynamicSky.HasValue
                     || partial.StormsStopWhenStripped.HasValue || partial.MildAtmosphereColdestKelvin.HasValue
+                    || partial.StormFloorKelvin.HasValue || partial.StormCeilingKelvin.HasValue
                     || partial.TraceGasGatheringEnabled.HasValue || partial.TraceGasGathering.HasValue || partial.TraceGasLine.HasValue
                     || partial.SpaceDeletesGas.HasValue || partial.GasLostToSpaceMoles.HasValue
                     || partial.RocketsBurnCompletely.HasValue

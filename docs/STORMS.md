@@ -3,7 +3,8 @@
 **Built in 0.10.0.** `src/Patching/Storms.cs` holds both rules, the day forecast and the readout;
 `Guards.ScheduleWeatherPrefix` and `Guards.CanScheduleWeatherPrefix` are the two hooks;
 `tools/LiveCheck/run.ps1 -Schedule` judges them. Part three, at the end, is what changed between the
-specification and the thing, and what was measured.
+specification and the thing, and what was measured. Part four is the storm floor and ceiling,
+which limit what a running storm does to the temperature.
 
 **Part one is the specification.** Build from it.
 **Part two is the research behind it.** Read it before changing a number or a rule, because most of
@@ -505,3 +506,63 @@ So on every shipped world the rule is a no-op at world start, and it is the temp
 the pressure ones, that do that work on three of the five. Only Mars was measured live; the rest are
 arithmetic on the shipped mole counts and the worlds' own temperature curves. A **custom** world
 could ship an atmosphere inside all five, which is what WORLDS.md warns its authors about.
+
+---
+
+# Part four: storm floor and ceiling (0.14.0)
+
+The two rules above decide whether a storm comes. This decides how far a storm that does come may
+move the planet temperature. Off by default: a world without either bound behaves exactly as before.
+
+## The rule
+
+Two world settings, `StormFloorKelvin` and `StormCeilingKelvin`, in the `Storms` section. In the
+config 0 means none; in a world's file none is an empty element. While a weather event runs, let
+`T` be the planet temperature with the event and `T0` the same temperature without the event's own
+share (the game's offset plus the in-proportion correction above). Then
+
+- floor `F`: `T = max(T, min(T0, F))`
+- ceiling `C`: `T = min(T, max(T0, C))`
+
+So a cold snap stops at the floor, a heat storm stops at the ceiling, a planet already below the floor
+(or above the ceiling) without the storm is left where it is, and the result always lies between
+`T0` and `T`: the bounds can only take back part of the storm, never add anything of their own. A
+storm that cools never meets the ceiling and one that warms never meets the floor, which is also why
+a floor set above the ceiling is harmless and is not refused. With no storm running nothing changes.
+
+The motivating case: Venus with a cold snap redefined to -700 K and a floor of 228 K, so carbon
+dioxide, which freezes out at 220 K, never leaves the sky because of the snap.
+
+## Where it is applied
+
+At the end of `Climate.TemperaturePostfix`, on every world being played, including Mars and others
+whose curves the mod otherwise leaves alone. That is the one place the planet temperature comes from,
+so everything that reads it agrees: outdoor cells, the planet's freezing and melting (the game's
+phase-change methods in `GlobalGasMix` ask the same formula), the ice caps (which read the planet's
+air), `AggregateTemperature` (`Climate.ReadoutPostfix`), the `terraform` temperature line, and the
+day's coldest and hottest in the mild rule's forecast. The forecast's cache cannot add the two heat
+offsets back on top of a bounded figure, so while a storm runs with a bound set the sweep is taken
+fresh every tick, and also whenever the bounds change. The rule is `StormBounds.Limit`, a pure
+function; `Effective.StormBounds` publishes both bounds as one immutable object, because the formula
+runs on atmosphere worker threads.
+
+## What a player sees
+
+`terraform` prints a `bounds:` line under `storms:` with both bounds and, while a storm runs, how
+many kelvin the floor or ceiling is holding the planet off where the storm would take it (also part
+of the "adding" figure on the temperature response line). `terraform set StormFloorKelvin <K>`
+changes it for the world being played, at once, a running storm included; `0` or `none` removes it.
+Nothing is deleted either way, so neither asks first.
+
+**A world saved before 0.14.0 has neither bound**, whatever the config says: the file can only record
+none as an empty element, which is also what a missing element reads as, the same as the added heat
+half-life (SIDECAR.md). A world with no file at all, and a new world, take the config's.
+
+## How it is checked
+
+`StormBounds.Check` works through twelve hand cases and sweeps every combination of six floors, six
+ceilings, 41 planet temperatures and 65 storm offsets against the invariants (between `T0` and `T`,
+never past a bound the storm caused, untouched inside the bounds or with none set).
+`tools/PatchCheck` runs it and hands it four wrong rules (clamping the whole temperature, ignoring
+the bounds, removing the storm, swapping floor and ceiling), each of which it must reject. Not run
+live: the postfix needs a running world and a storm.

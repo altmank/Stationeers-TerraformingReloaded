@@ -393,6 +393,9 @@ namespace TerraformingReloaded.Patching
         // The one-argument overload calls this one, so patching only this covers both exactly once.
         // __instance is the mix being asked about: the planet, or a fresh starting mix when the
         // new-game menu works out a temperature range, which then reads as shipped.
+        // Last, a running weather event's share of the result (the game's offset plus the
+        // in-proportion correction) is held inside the world's storm bounds. That applies on every
+        // world being played, including those whose curves the mod leaves alone.
         public static void TemperaturePostfix(GlobalGasMix __instance, GlobalAtmosphereData data, float solarAngle, float solarEnergyPercent, ref TemperatureKelvin __result)
         {
             if (!Settings.Enabled || __instance == null || data == null)
@@ -400,26 +403,26 @@ namespace TerraformingReloaded.Patching
                 return;
             }
             Entry entry = Lookup(data);
-            if (entry == null || !entry.Adjust || !(entry.FillGhg || entry.FillDensity || entry.FillBase))
+            if (entry == null)
             {
                 return;
             }
             try
             {
-                // The game asks the ice caps for "their" temperature when it decides whether they melt
-                // (GlobalGasMix.MeltMoleQuantity evaluates this on the caps themselves). The caps hold
-                // no gas, so left alone they would read the planet as if it had no air: a terraformed
-                // Europa's caps would sit at 125 K for ever and never give back what froze into them.
-                // The planet has one temperature; its reservoirs read the planet's air.
-                GlobalGasMix air = Planet.IsReservoir(__instance) ? (PlanetaryAtmosphereSimulation.GetGlobalGasMix() ?? __instance) : __instance;
-                float index = TerraForming.GetGhgIndex(air);
-                float density = (float)IdealGas.GetMilliMolesPerLitre(air.Volume, air.TotalQuantityGas());
-                double delta = Response(entry, solarAngle, solarEnergyPercent, index, float.IsNaN(density) ? 0f : density);
-                if (entry.FillBase)
+                double storm = RunningStormKelvin(solarAngle);
+                double delta = 0.0;
+                double stormShare = storm;
+                if (entry.Adjust && (entry.FillGhg || entry.FillDensity || entry.FillBase))
                 {
-                    delta += AirlessBaseAt(entry, solarAngle);
+                    delta = AirResponse(entry, __instance, solarAngle, solarEnergyPercent);
+                    double inProportion = StormInProportion(entry, solarAngle, solarEnergyPercent, storm, __result.ToDouble() + delta);
+                    delta += inProportion;
+                    stormShare += inProportion;
                 }
-                delta += StormInProportion(entry, solarAngle, solarEnergyPercent, __result.ToDouble() + delta);
+                double kelvin = __result.ToDouble() + delta;
+                double bounded = Effective.StormBounds.Limit(kelvin, stormShare);
+                _lastBoundShift = bounded - kelvin;
+                delta += bounded - kelvin;
                 // Exactly nothing to add: leave the game's own value alone, bit for bit.
                 if (delta == 0.0 || double.IsNaN(delta) || double.IsInfinity(delta))
                 {
@@ -437,24 +440,54 @@ namespace TerraformingReloaded.Patching
         }
 
         /// <summary>
+        /// Kelvin the mod's response adds to the game's figure for this mix: the greenhouse and
+        /// density parts, and the base an airless world lacks.
+        /// </summary>
+        private static double AirResponse(Entry entry, GlobalGasMix mix, float solarAngle, float solarEnergyPercent)
+        {
+            // The game asks the ice caps for "their" temperature when it decides whether they melt
+            // (GlobalGasMix.MeltMoleQuantity evaluates this on the caps themselves). The caps hold
+            // no gas, so left alone they would read the planet as if it had no air: a terraformed
+            // Europa's caps would sit at 125 K for ever and never give back what froze into them.
+            // The planet has one temperature; its reservoirs read the planet's air.
+            GlobalGasMix air = Planet.IsReservoir(mix) ? (PlanetaryAtmosphereSimulation.GetGlobalGasMix() ?? mix) : mix;
+            float index = TerraForming.GetGhgIndex(air);
+            float density = (float)IdealGas.GetMilliMolesPerLitre(air.Volume, air.TotalQuantityGas());
+            double delta = Response(entry, solarAngle, solarEnergyPercent, index, float.IsNaN(density) ? 0f : density);
+            if (entry.FillBase)
+            {
+                delta += AirlessBaseAt(entry, solarAngle);
+            }
+            return delta;
+        }
+
+        /// <summary>
+        /// The offset the game's formula adds for the weather event running now, at this sun angle,
+        /// asked exactly as the formula asks it; 0 when none runs.
+        /// </summary>
+        private static double RunningStormKelvin(float solarAngle)
+        {
+            if (!WeatherManager.IsWeatherEventRunning)
+            {
+                return 0.0;
+            }
+            GlobalTemperatureOffsetData offset = WeatherManager.CurrentWeatherEvent?.TemperatureOffset;
+            return offset == null ? 0.0 : offset.GetOffset(solarAngle);
+        }
+
+        /// <summary>
         /// A world's storms carry fixed temperature offsets sized for the world as shipped: Vulcan's ash
         /// storm is -275 K by day, reasonable against 1,200 K and fatal against a terraformed 293 K, where
         /// it reads 18 K and freezes the whole atmosphere in one tick. On a world the mod has cooled, a
         /// storm's offset shrinks in the same proportion as the planet has. It is never enlarged, and on
         /// untouched air the proportion is exactly one. Returns the kelvin to add to the game's own figure.
         /// </summary>
-        private static double StormInProportion(Entry entry, float solarAngle, float solarEnergyPercent, double kelvinWithStorm)
+        private static double StormInProportion(Entry entry, float solarAngle, float solarEnergyPercent, double storm, double kelvinWithStorm)
         {
-            if (!(entry.FillGhg || entry.FillDensity) || !WeatherManager.IsWeatherEventRunning)
+            if (!(entry.FillGhg || entry.FillDensity))
             {
                 return 0.0;
             }
-            GlobalTemperatureOffsetData offset = WeatherManager.CurrentWeatherEvent?.TemperatureOffset;
-            if (offset == null)
-            {
-                return 0.0;
-            }
-            double storm = offset.GetOffset(solarAngle);
             double shipped = Shipped(entry, solarAngle, solarEnergyPercent);
             if (storm == 0.0 || double.IsNaN(storm) || !(shipped > 0.0))
             {
@@ -467,6 +500,13 @@ namespace TerraformingReloaded.Patching
         private static int _faults;
 
         /// <summary>
+        /// What the storm bounds moved the temperature by in this thread's last evaluation, so the
+        /// readout below can tell what they did to the one figure it asks for.
+        /// </summary>
+        [ThreadStatic]
+        private static double _lastBoundShift;
+
+        /// <summary>
         /// The game's debug readout adds the parts up itself and so misses the postfix above. Make the
         /// total it shows, which `terraform` and the tools read, the temperature outdoor cells get.
         /// </summary>
@@ -477,12 +517,15 @@ namespace TerraformingReloaded.Patching
                 GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
                 GlobalAtmosphereData data = WorldSetting.Current?.Data?.GlobalAtmosphereData;
                 LastAdjustment = 0.0;
+                LastStormBoundShift = 0.0;
                 if (tank == null || data == null || !Settings.Enabled)
                 {
                     return;
                 }
                 double shown = PlanetaryAtmosphereSimulation.AggregateTemperature.ToDouble();
+                _lastBoundShift = 0.0;
                 double real = tank.GetGlobalGasMixTemperature(data).ToDouble();
+                LastStormBoundShift = _lastBoundShift;
                 LastAdjustment = real - shown;
                 PlanetaryAtmosphereSimulation.AggregateTemperature = new TemperatureKelvin(real);
             }
@@ -494,6 +537,13 @@ namespace TerraformingReloaded.Patching
 
         /// <summary>Kelvin the mod added at the last planet tick, for the status readout.</summary>
         public static double LastAdjustment { get; private set; }
+
+        /// <summary>
+        /// Kelvin the storm bounds held the planet back by at the last planet tick: positive where a
+        /// floor stopped a cold storm, negative where a ceiling stopped a hot one, 0 otherwise.
+        /// Part of <see cref="LastAdjustment"/>.
+        /// </summary>
+        public static double LastStormBoundShift { get; private set; }
 
         /// <summary>
         /// Radiative equilibrium of a rotating sphere: T = (S (1 - a) / 4 sigma)^(1/4), which is

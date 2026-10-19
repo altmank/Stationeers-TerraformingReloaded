@@ -2,7 +2,7 @@
 <ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Name>Terraforming Reloaded</Name>
   <Author>XCeled</Author>
-  <Version>0.13.2</Version>
+  <Version>0.14.0</Version>
   <Description>[h1]Terraform the planet[/h1]
 The air outside is no longer bottomless. What you vent stays. What your base draws in is gone. Move enough of the right gases and the pressure, temperature, sky and weather outside change for good, saved with your world.
 
@@ -92,7 +92,9 @@ Inspired by Elmotrix's Terraforming Mod. This is a new mod written for the curre
 Developed with the use of generative AI, and tokens aren't free. Buy me a coffee:
 [url=https://ko-fi.com/xceled]ko-fi.com/xceled[/url]
   </Description>
-  <ChangeLog>v0.13.2
+  <ChangeLog>v0.14.0
+- New, off by default: a storm floor and ceiling. terraform set StormFloorKelvin &lt;K&gt; stops a storm taking the planet colder than that (StormCeilingKelvin: hotter). Only the storm's own effect is limited.
+v0.13.2
 - Fixed a crash when rain turns to snow, or snow to rain.
 v0.13.1
 - Clearer config editor text: a world setting there only applies to new worlds; change a world already started with terraform set while playing it.

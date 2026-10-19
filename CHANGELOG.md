@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.0
+
+- **New, off by default: a storm floor and ceiling.** Run `terraform set StormFloorKelvin <K>` and a
+  storm on the world you are playing never takes the planet colder than that, or `terraform set
+  StormCeilingKelvin <K>` and never hotter. Only the storm's own effect is limited: a planet that is
+  already colder than the floor without the storm stays as cold as it is, and nothing changes while
+  no storm runs. Use it when a world's storms would freeze the air out of the sky, for example a floor
+  just above 220 K keeps carbon dioxide from freezing during a cold snap. Freezing, melting and the
+  outdoor air all follow the limited temperature. It applies at once, to a storm already running too,
+  and `terraform` shows both bounds under `storms:` and how much they are holding the planet back.
+  `0` or `none` removes one. The config's `StormFloorKelvin` and `StormCeilingKelvin` (the `Storms`
+  section) set what a new world starts with. A world saved before this version has neither, whatever
+  the config says, until you set them for that world. In multiplayer the host's bounds apply to
+  everyone, and host and joining players must both run this version.
+
 ## 0.13.2
 
 - **Fixed a crash when rain turns to snow, or snow to rain.** When the clouds that make snow filled

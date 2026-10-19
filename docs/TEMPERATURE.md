@@ -84,6 +84,10 @@ starting mix and reads as shipped. A second postfix on `CacheTemperatureCurveOff
 `AggregateTemperature`, which the game's debug window, `terraform` and LiveCheck read and which the
 game adds up by itself.
 
+The same postfix applies the world's storm floor and ceiling last, on every world being played: a
+running weather event's own share of the result is held so the event never takes the planet past
+them (STORMS.md, Part four). Off by default, and a no-op with no event running.
+
 ## Adversarial review (2026-09-20) and what changed
 
 An independent pass tried to break the first draft of this rule. Findings that changed it:
