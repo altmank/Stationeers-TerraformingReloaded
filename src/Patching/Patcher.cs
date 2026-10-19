@@ -260,6 +260,8 @@ namespace TerraformingReloaded.Patching
                 harmony.Patch(Need(schedule), prefix: Body(typeof(Guards), nameof(Guards.ScheduleWeatherPrefix)));
             });
 
+            Extra(report, "weather switch on the main thread", () => WeatherSwitch.Apply(harmony));
+
             // The storm rules (docs/STORMS.md). Its own patch and its own Extra, because it is the
             // predicate the scheduler asks before it picks an event, and answering that is what
             // stops a suppressed world rolling the game's shared Random every frame for ever. The

@@ -91,6 +91,9 @@ namespace TerraformingReloaded.LiveCheck
         // reaches the defect, because the tick's own guard only steps aside for a storm or for rain.
         private static readonly uint WeatherTick = uint.TryParse(Environment.GetEnvironmentVariable("TR_LIVECHECK_WEATHER_TICK"), out uint wt) ? wt : 0u;
         private static readonly string WeatherEventId = Environment.GetEnvironmentVariable("TR_LIVECHECK_WEATHER_EVENT");
+        // WEATHER_CLOUDS=ice fills the ice clouds instead. With rain running that is the tick's one
+        // reachable switch: it stops the rain and starts snow, which the mod makes on the main thread.
+        private static readonly bool WeatherIce = Environment.GetEnvironmentVariable("TR_LIVECHECK_WEATHER_CLOUDS") == "ice";
         private int _weatherStage;
         private uint _weatherAt;
         private string _weatherIdBefore;
@@ -1006,7 +1009,7 @@ namespace TerraformingReloaded.LiveCheck
         {
             try
             {
-                GlobalGasMix clouds = (GlobalGasMix)AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), "_liquidClouds").GetValue(null);
+                GlobalGasMix clouds = (GlobalGasMix)AccessTools.Field(typeof(PlanetaryAtmosphereSimulation), WeatherIce ? "_iceClouds" : "_liquidClouds").GetValue(null);
                 if (_weatherStage == 0)
                 {
                     string wanted = string.IsNullOrEmpty(WeatherEventId) ? "Snow" : WeatherEventId;
@@ -1039,13 +1042,13 @@ namespace TerraformingReloaded.LiveCheck
                     if (filled < _weatherCloudsVolume)
                     {
                         Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
-                            "LiveCheck: weather FAIL the liquid cloud bucket would not fill: {0:0} of {1:0} L", filled, _weatherCloudsVolume));
+                            "LiveCheck: weather FAIL the {0} cloud bucket would not fill: {1:0} of {2:0} L", WeatherIce ? "ice" : "liquid", filled, _weatherCloudsVolume));
                         _weatherStage = 2;
                         return;
                     }
                     Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
-                        "LiveCheck: weather {0} running at tick {1}, length {2:0.##}, world has weather {3}, liquid clouds filled to {4:0} of {5:0} L",
-                        _weatherIdBefore, GameManager.GameTickCount, _weatherLengthBefore, Weather.WeatherManager.WorldHasWeather, filled, _weatherCloudsVolume));
+                        "LiveCheck: weather {0} running at tick {1}, length {2:0.##}, world has weather {3}, {4} clouds filled to {5:0} of {6:0} L",
+                        _weatherIdBefore, GameManager.GameTickCount, _weatherLengthBefore, Weather.WeatherManager.WorldHasWeather, WeatherIce ? "ice" : "liquid", filled, _weatherCloudsVolume));
                     _weatherAt = GameManager.GameTickCount;
                     _weatherStage = 1;
                     return;
@@ -1064,9 +1067,12 @@ namespace TerraformingReloaded.LiveCheck
                 // bucket is what proves the branch ran at all and the check is not vacuous.
                 bool emptied = left < _weatherCloudsVolume * 0.5;
                 bool kept = nowId == _weatherIdBefore && stillRunning;
+                // The switch leaves the ice clouds full; snow running in place of the rain is the proof.
+                bool switched = _weatherIdBefore == "Rain" && nowId == "Snow" && stillRunning;
+                bool pass = WeatherIce ? switched : emptied && kept;
                 Logger.LogInfo(string.Format(CultureInfo.InvariantCulture,
                     "LiveCheck: weather {0} bucket emptied {1} ({2:0} L left of {3:0}), event {4} -> {5}, running {6}, length {7:0.##} -> {8:0.##}",
-                    emptied && kept ? "PASS" : "FAIL", emptied, left, _weatherCloudsVolume, _weatherIdBefore, nowId, stillRunning,
+                    pass ? "PASS" : "FAIL", emptied, left, _weatherCloudsVolume, _weatherIdBefore, nowId, stillRunning,
                     _weatherLengthBefore, Weather.WeatherManager.WeatherEventLength));
             }
             catch (Exception e)

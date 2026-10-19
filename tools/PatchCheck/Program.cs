@@ -212,6 +212,30 @@ internal static class Program
             failures++;
         }
 
+        // Rain to snow and back. The switch the tick asks for is held and made on the main thread;
+        // the holding is checked here, the patches only bound, since the update they hook needs Unity.
+        try
+        {
+            TerraformingReloaded.Patching.WeatherSwitch.Apply(new HarmonyLib.Harmony("patchcheck.weatherswitch"));
+            Console.WriteLine("applied: weather switch on the main thread");
+        }
+        catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+        {
+            Console.WriteLine("bound:   weather switch on the main thread (target found, patch body fits; compiling it needs Unity)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  weather switch on the main thread: " + e.Message);
+            failures++;
+        }
+        string weather = TerraformingReloaded.Patching.WeatherSwitch.Check();
+        Console.WriteLine("weather switch: " + (weather ?? "held as one switch, made once, dropped when the weather it stops has ended, a later one replaces an earlier"));
+        if (weather != null)
+        {
+            Console.WriteLine("FAILED:  weather switch");
+            failures++;
+        }
+
         failures += CheckRockets();
         failures += CheckPlanetFire();
 

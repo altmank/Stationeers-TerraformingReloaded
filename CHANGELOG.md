@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.2
+
+- **Fixed a crash when rain turns to snow, or snow to rain.** When the clouds that make snow filled
+  while it was raining, or the clouds that make rain filled while it was snowing, the game stopped
+  the one and started the other from a part of the game that may not change what is on screen, and
+  the whole game closed. This could happen on a world that rains and freezes in the same night. The
+  switch now happens a moment later, at the next frame, with the same result as before: the weather
+  that was running stops and the other one starts. In multiplayer the host makes the switch and
+  everyone sees it, as with any change of weather. Nothing to do for existing worlds or configs.
+
 ## 0.13.1
 
 - **Clearer config editor text.** Every world setting used to end with "This is what a NEW world

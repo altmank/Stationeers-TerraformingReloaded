@@ -19,6 +19,9 @@ namespace TerraformingReloaded.Patching
         [ThreadStatic] private static bool _inTick;
         [ThreadStatic] private static bool _inDivide;
 
+        /// <summary>True on the thread running the planet tick, while it runs with the gate open.</summary>
+        internal static bool InTick => _inTick;
+
         private static int _rejectedGives;
         private static int _tickFaults;
         private static int _sawTick;

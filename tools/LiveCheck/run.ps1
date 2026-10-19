@@ -66,6 +66,9 @@
                snow is still the running event. With -Vanilla snow must be replaced by rain instead.
                -WeatherEvent picks what is running when the bucket fills; snow is the case that
                reaches the defect, because the game's own guard only steps aside for storm and rain.
+               -IceClouds fills the ice clouds instead; with -WeatherEvent Rain that is the tick
+               stopping rain and starting snow, which must end with snow running (made on the main
+               thread under the mod; a headless game draws no weather, so this checks the outcome).
     -Strip     The other direction: planet air taken OUT through outdoor cells, which is what a
                player with vents does and what the injection scenario does not cover. A headless run
                cannot build a vent, so the driver does what an inward ActiveVent does (clone the
@@ -212,6 +215,7 @@ param(
     [double]$StripShare = 0,
     [switch]$WalkCost,
     [string]$WeatherEvent = 'Snow',
+    [switch]$IceClouds,
     [double]$RescaleTo = 0,
     [double]$RescaleBy = 2.5,
     [string]$Storm = '',
@@ -589,7 +593,7 @@ try {
         # D6. When a cloud bucket fills, the planet tick gives it back to the air and then schedules
         # rain without asking what the weather is doing. Snow is the case that reaches it: the tick's
         # own guard only steps aside for a storm or for rain.
-        $log = Invoke-Game @('-new', $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_WEATHER_TICK = '30'; TR_LIVECHECK_WEATHER_EVENT = $WeatherEvent } `
+        $log = Invoke-Game @('-new', $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_WEATHER_TICK = '30'; TR_LIVECHECK_WEATHER_EVENT = $WeatherEvent; TR_LIVECHECK_WEATHER_CLOUDS = $(if ($IceClouds) { 'ice' } else { '' }) } `
             { param($l) @($l -match 'LiveCheck: weather (PASS|FAIL)').Count -gt 0 } 'the cloud against weather check'
         if (-not $Vanilla) { Assert-ModLive $log }
         $line = @($log -match 'LiveCheck: weather (PASS|FAIL)')[0] -replace '.*LiveCheck: ', ''
@@ -598,6 +602,11 @@ try {
             throw "LiveCheck FAILED: the check never reached a full bucket: $line"
         }
         $emptied = $Matches[1] -eq 'True'; $was = $Matches[2]; $now = $Matches[3]
+        if ($IceClouds) {
+            if ($line -notmatch '^weather PASS') { throw "LiveCheck FAILED: full ice clouds over $was should have left snow running: $line" }
+            Write-Host ("LiveCheck OK: full ice clouds stopped the running {0} and started {1}." -f $was, $now)
+            return
+        }
         if (-not $emptied) {
             throw "LiveCheck FAILED: the bucket was not emptied, so the tick never reached the code this is about: $line"
         }
