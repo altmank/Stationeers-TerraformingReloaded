@@ -5,6 +5,7 @@ using System.Text;
 using Assets.Scripts;
 using Assets.Scripts.Atmospherics;
 using Assets.Scripts.Networking;
+using TerraformingReloaded.Comets;
 using TerraformingReloaded.Patching;
 using Util.Commands;
 using Weather;
@@ -14,9 +15,9 @@ namespace TerraformingReloaded
     /// <summary>Console command: what the planet holds and what the mod is doing about it.</summary>
     public sealed class TerraformCommand : CommandBase
     {
-        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'set' lists the settings the world you are playing keeps for itself, and 'set <key> <value>' changes one for this world only; the config only decides what a new world starts with (host only). 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships and sets the gas lost to space back to 0, keeping this world's settings, which is also how to remove the mod cleanly (host only). 'gas add <gas> <mol> [<K>]' and 'gas remove <gas> <mol|all> confirm' put a gas into the planet or take it out, for testing (host only). 'curves export' and 'curves reload' are for tuning the temperature response.";
+        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'set' lists the settings the world you are playing keeps for itself, and 'set <key> <value>' changes one for this world only; the config only decides what a new world starts with (host only). 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships and sets the gas lost to space back to 0, keeping this world's settings, which is also how to remove the mod cleanly (host only). 'gas add <gas> <mol> [<K>]' and 'gas remove <gas> <mol|all> confirm' put a gas into the planet or take it out, for testing (host only). 'comet <mol> <gas>[:<share>] ...' calls a comet down where you are looking and adds its gas to the planet when it lands; 'comet' alone explains the rest (host only). 'curves export' and 'curves reload' are for tuning the temperature response.";
 
-        public override string[] Arguments => new[] { "[status | set [<key> [<value> [confirm]]] | size <share> confirm | reset confirm | gas add <gas> <mol> [<K>] | gas remove <gas> <mol|all> confirm | curves export | curves reload]" };
+        public override string[] Arguments => new[] { "[status | set [<key> [<value> [confirm]]] | size <share> confirm | reset confirm | gas add <gas> <mol> [<K>] | gas remove <gas> <mol|all> confirm | comet <mol> <gas>[:<share>] ... [turn=<deg>] [range=<m>] [K=<kelvin>] [preview] | comet stop | curves export | curves reload]" };
 
         public override bool IsLaunchCmd => false;
 
@@ -41,6 +42,9 @@ namespace TerraformingReloaded
                     return Reset(args.Length > 1 && args[1].ToLowerInvariant() == "confirm");
                 case "gas":
                     return Gas(args);
+                case "comet":
+                    return CometVerb.Run(args, typed => TryGasType(typed, out Chemistry.GasType type) ? type : (Chemistry.GasType?)null,
+                        () => string.Join(", ", TankSpecies()));
                 case "curves":
                     return Curves(args.Length > 1 ? args[1].ToLowerInvariant() : "");
                 default:

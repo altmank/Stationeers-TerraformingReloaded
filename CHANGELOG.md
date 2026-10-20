@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.15.0 (prototype)
+
+- **New: call a comet down on the planet.** `terraform comet <mol> <gas>:<share> ...` sends a comet
+  at the planet, for example `terraform comet 1e6 CarbonDioxide:60 Water:25 NitrousOxide:15`. It
+  appears high in the sky in front of you and falls for about 16 seconds. When it lands its gas goes
+  into the planet's air, `<mol>` in all (for the whole planet), each gas getting its share. The fire,
+  the mushroom cloud and the glow afterwards take the colours of the gases it brings. The sound
+  arrives a few seconds after the flash, the further away the impact the longer the wait. More moles
+  make a bigger impact. `turn=<deg>` brings it down to the right of where you are looking (negative
+  for left), `range=<m>` sets how far away, `K=<kelvin>` how hot its gas arrives (left out, at the
+  planet's own temperature, so it neither heats nor cools the planet), and `preview` shows it
+  without adding anything. `terraform comet stop` calls it off. Host only, and only the host sees
+  it: joining players get the gas but not the show.
+
 ## 0.14.0
 
 - **New, off by default: a storm floor and ceiling.** Run `terraform set StormFloorKelvin <K>` and a
