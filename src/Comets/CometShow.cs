@@ -58,6 +58,7 @@ namespace TerraformingReloaded.Comets
         private DepthTextureMode _originalDepth;
         private float _t;
         private float _joinedAt;
+        private float _lastTarget = float.NaN;
         private bool _impacted;
         private bool _late;
         private bool _roared;
@@ -712,8 +713,13 @@ namespace TerraformingReloaded.Comets
             // The clock every machine shares, followed smoothly: a client's copy is corrected by every
             // state update from the host, and a jump in it would jerk the comet across the sky.
             float dt = Time.deltaTime;
+            // The clock stands still while the game is paused, and so does the show.
             float target = (float)(CometEvent.Clock - _event.StartClock);
-            _t += dt;
+            if (target != _lastTarget)
+            {
+                _t += dt;
+            }
+            _lastTarget = target;
             float behind = target - _t;
             _t = Mathf.Abs(behind) > 1f ? target : _t + behind * Mathf.Clamp01(dt * 2f);
             if (_t < 0f)

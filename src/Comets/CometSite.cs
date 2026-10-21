@@ -85,7 +85,7 @@ namespace TerraformingReloaded.Comets
                 for (float range = first; range <= MaxRange; range += RangeStep)
                 {
                     Vector3 flat = eye + direction * range;
-                    if (!Clear(flat, eye.y, safe, obstacles))
+                    if (!Clear(flat, safe, obstacles))
                     {
                         continue;
                     }
@@ -216,7 +216,7 @@ namespace TerraformingReloaded.Comets
         }
 
         /// <summary>The impact, judged along the ground: nothing nearer than the safe distance.</summary>
-        private static bool Clear(Vector3 at, float y, float safe, List<Obstacle> obstacles)
+        private static bool Clear(Vector3 at, float safe, List<Obstacle> obstacles)
         {
             foreach (Obstacle obstacle in obstacles)
             {
