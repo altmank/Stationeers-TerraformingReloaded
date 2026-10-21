@@ -8,7 +8,11 @@
   camera on the ground at -Spot (a start location of the world by default), facing the world's
   centre unless -Yaw gives a bearing, waits for the terrain around it, moves the day on until the
   sun is at least -Sun high (WorldSunVector.y; 'any' leaves the time alone), runs
-  'terraform comet <Comet>', and saves a PNG at each of -Times seconds after it. Like
+  'terraform comet <Comet>', and saves a PNG at each of -Times seconds after it. -Times is a
+  comma-separated list, where an item may also be 'every=<s> until=<s>' with an optional
+  'from=<s>', for a shot every so many seconds over a stretch (the timeout grows to cover the
+  last shot). -Fov sets the camera's vertical field of view and -Back stands it that many metres
+  further back along its view, for the biggest comets; both leave the camera as it is at 0. Like
   tools/LiveCheck, the instance uses the game's install folder as its save root, so no real save
   or mod list is read or written; what it creates there is removed after, and a settings file
   already there is put back byte for byte.
@@ -18,6 +22,9 @@
 
 .EXAMPLE
   .\run.ps1 -Comet '1e6 CarbonDioxide:60 Water:25 NitrousOxide:15 preview'
+
+.EXAMPLE
+  .\run.ps1 -Comet '1e9 Water preview' -Times '2,8,14,every=0.5 from=15 until=20,every=5 until=345' -Fov 90 -Back 6000
 #>
 [CmdletBinding()]
 param(
@@ -35,6 +42,10 @@ param(
     [string]$Spot = 'start',
     [string]$Sun = '0.35',
     [double]$TerrainWait = 90,
+    # Vertical field of view in degrees; 0 keeps the camera's own.
+    [double]$Fov = 0,
+    # Metres to stand the camera back along its view from -Spot; 0 stands it at -Spot.
+    [double]$Back = 0,
     [string]$GameDir = $env:STATIONEERS_DIR,
     [int]$TimeoutSeconds = 420,
     # Already-built mod package (About + DLL) and driver DLL, for a machine with the game but not the SDK.
@@ -84,7 +95,17 @@ New-Item -ItemType Directory -Path $Out -Force | Out-Null
 
 $bepLog = Join-Path $GameDir 'BepInEx\LogOutput.log'
 $unityLog = Join-Path $Out 'unity.log'
-$envKeys = 'TR_COMETSHOT_ARGS', 'TR_COMETSHOT_DIR', 'TR_COMETSHOT_TIMES', 'TR_COMETSHOT_W', 'TR_COMETSHOT_H', 'TR_COMETSHOT_PITCH', 'TR_COMETSHOT_YAW', 'TR_COMETSHOT_SETTLE', 'TR_COMETSHOT_SPOT', 'TR_COMETSHOT_SUN', 'TR_COMETSHOT_TERRAIN_WAIT'
+$envKeys = 'TR_COMETSHOT_ARGS', 'TR_COMETSHOT_DIR', 'TR_COMETSHOT_TIMES', 'TR_COMETSHOT_W', 'TR_COMETSHOT_H', 'TR_COMETSHOT_PITCH', 'TR_COMETSHOT_YAW', 'TR_COMETSHOT_SETTLE', 'TR_COMETSHOT_SPOT', 'TR_COMETSHOT_SUN', 'TR_COMETSHOT_TERRAIN_WAIT', 'TR_COMETSHOT_FOV', 'TR_COMETSHOT_BACK'
+
+# The last shot, from the plain times and every until=, so a long recording is not cut off: the default
+# timeout leaves 340 s for the world, the settling and the terrain around its last shot at 80 s.
+$lastShot = 0.0
+foreach ($item in ($Times -split ',')) {
+    $item = $item.Trim()
+    if ($item -match 'until=([0-9.]+)') { $lastShot = [math]::Max($lastShot, [double]::Parse($Matches[1], [cultureinfo]::InvariantCulture)) }
+    elseif ($item -match '^[0-9.]+$') { $lastShot = [math]::Max($lastShot, [double]::Parse($item, [cultureinfo]::InvariantCulture)) }
+}
+$TimeoutSeconds = [int][math]::Max($TimeoutSeconds, $lastShot + 340)
 $game = $null
 try {
     $mods = Join-Path $GameDir 'mods'
@@ -106,6 +127,8 @@ try {
     $env:TR_COMETSHOT_SPOT = $Spot
     $env:TR_COMETSHOT_SUN = $Sun
     $env:TR_COMETSHOT_TERRAIN_WAIT = $TerrainWait.ToString([cultureinfo]::InvariantCulture)
+    $env:TR_COMETSHOT_FOV = $Fov.ToString([cultureinfo]::InvariantCulture)
+    $env:TR_COMETSHOT_BACK = $Back.ToString([cultureinfo]::InvariantCulture)
     Remove-Item $bepLog -ErrorAction SilentlyContinue
     if (Test-Path $settingFile) { Move-Item $settingFile $settingAside; $settingMoved = $true }
     $game = Start-Process $exe -WorkingDirectory $GameDir -PassThru -ArgumentList @('-batchmode', '-screen-fullscreen', '0', '-screen-width', "$Width", '-screen-height', "$Height", '-logFile', "`"$unityLog`"", '-new', $World)

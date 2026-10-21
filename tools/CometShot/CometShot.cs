@@ -25,7 +25,13 @@ namespace TerraformingReloaded.CometShot
     /// A batch-mode instance is a dedicated server, and the game leaves out everything only a player
     /// needs to see, so the driver puts those parts back for its own camera:
     ///   - terrain: meshes are built only around a registered LOD requester, normally the local
-    ///     player's body, and a server has none, so the camera registers itself as one;
+    ///     player's body, and a server has none, so the camera registers itself as one, centred on
+    ///     the nearest point of the voxel world when it stands outside it, and the driver waits
+    ///     until every terrain block that requester asks for at every level has been asked for,
+    ///     built and left alone for a second;
+    ///   - the camera controller: the sky's per-frame rebuild reads the main camera's height
+    ///     through CameraController.Instance, which the game sets only off batch mode, so the
+    ///     driver points it at the scene's own controller before it puts a sun in;
     ///   - sky and sun: the world's skybox, sun light and atmospheric scattering are set up only off
     ///     batch mode, so the driver sets them up from the world's own settings, and drives the sun's
     ///     brightness each frame through the game's own routine;
@@ -33,7 +39,7 @@ namespace TerraformingReloaded.CometShot
     ///     whole stack is rendered, into a target cleared first.
     /// Does nothing unless TR_COMETSHOT_ARGS is set.
     /// </summary>
-    [BepInPlugin("xceled.stationeers.terraformingreloaded.cometshot", "TR CometShot", "0.0.3")]
+    [BepInPlugin("xceled.stationeers.terraformingreloaded.cometshot", "TR CometShot", "0.0.4")]
     public class CometShot : BaseUnityPlugin
     {
         /// <summary>The density the game counts as solid ground (127 / 255).</summary>
@@ -52,6 +58,8 @@ namespace TerraformingReloaded.CometShot
         private string _spot;
         private float _sunHeight;
         private float _terrainWait;
+        private float _fov;
+        private float _back;
 
         private int _stage;
         private float _stageStart;
@@ -62,6 +70,14 @@ namespace TerraformingReloaded.CometShot
         private Vector3 _eye;
         private Quaternion _look;
         private CameraLodRequester _requester;
+        private bool _gaveController;
+        private List<LodGroup> _wanted;
+        private Vector3 _wantedFor = new Vector3(float.NaN, 0f, 0f);
+        private float _quietSince = -1f;
+        private string _quietMeshes;
+        private int _check;
+        private bool _asked;
+        private FieldInfo _updateQueue;
         private MethodInfo _setSolarIntensity;
         private RenderTexture _target;
         private Texture2D _readback;
@@ -77,8 +93,7 @@ namespace TerraformingReloaded.CometShot
             }
             CultureInfo c = CultureInfo.InvariantCulture;
             _outDir = Setting("TR_COMETSHOT_DIR", Path.Combine(Path.GetTempPath(), "tr-cometshot"));
-            _times = Setting("TR_COMETSHOT_TIMES", "2,8,13,15,15.6,16.05,16.3,17,19,22,26,32,45,70")
-                .Split(',').Select(s => float.Parse(s.Trim(), c)).OrderBy(t => t).ToList();
+            _times = Times(Setting("TR_COMETSHOT_TIMES", "2,8,13,15,15.6,16.05,16.3,17,19,22,26,32,45,70"));
             _width = int.Parse(Setting("TR_COMETSHOT_W", "1600"), c);
             _height = int.Parse(Setting("TR_COMETSHOT_H", "900"), c);
             _pitch = float.Parse(Setting("TR_COMETSHOT_PITCH", "-6"), c);
@@ -88,8 +103,63 @@ namespace TerraformingReloaded.CometShot
             string sun = Setting("TR_COMETSHOT_SUN", "0.35");
             _sunHeight = sun == "any" ? float.NaN : float.Parse(sun, c);
             _terrainWait = float.Parse(Setting("TR_COMETSHOT_TERRAIN_WAIT", "90"), c);
+            _fov = float.Parse(Setting("TR_COMETSHOT_FOV", "0"), c);
+            _back = float.Parse(Setting("TR_COMETSHOT_BACK", "0"), c);
             Directory.CreateDirectory(_outDir);
-            Logger.LogInfo("CometShot: armed, '" + _command + "' -> " + _outDir);
+            Logger.LogInfo(string.Format(c, "CometShot: armed, '{0}' -> {1}, {2} shots from {3:0.##} to {4:0.##} s", _command, _outDir, _times.Count,
+                _times.Count > 0 ? _times[0] : 0f, _times.Count > 0 ? _times[_times.Count - 1] : 0f));
+        }
+
+        /// <summary>
+        /// The shot times: a comma-separated list of seconds after the command, where an item may also
+        /// be 'every=<s> until=<s>' with an optional 'from=<s>' (default: one step in), for a shot every
+        /// so many seconds over a stretch. Sorted, each time once.
+        /// </summary>
+        private static List<float> Times(string spec)
+        {
+            CultureInfo c = CultureInfo.InvariantCulture;
+            SortedSet<float> times = new SortedSet<float>();
+            foreach (string item in spec.Split(','))
+            {
+                string part = item.Trim();
+                if (part.Length == 0)
+                {
+                    continue;
+                }
+                if (!part.Contains("="))
+                {
+                    times.Add(float.Parse(part, c));
+                    continue;
+                }
+                float every = float.NaN;
+                float until = float.NaN;
+                float from = float.NaN;
+                foreach (string token in part.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string[] pair = token.Split('=');
+                    float value = pair.Length == 2 ? float.Parse(pair[1], c) : float.NaN;
+                    switch (pair[0])
+                    {
+                        case "every": every = value; break;
+                        case "until": until = value; break;
+                        case "from": from = value; break;
+                        default: throw new FormatException("'" + token + "' in the shot times is not every=, until= or from=");
+                    }
+                }
+                if (float.IsNaN(from))
+                {
+                    from = every;
+                }
+                if (!(every > 0f) || float.IsNaN(until) || until < from || (until - from) / every > 5000f)
+                {
+                    throw new FormatException("'" + part + "' needs every= above 0 and until= at or past from=, and no more than 5,000 shots");
+                }
+                for (int i = 0; from + i * every <= until + 1e-4f; i++)
+                {
+                    times.Add((float)Math.Round(from + i * every, 3));
+                }
+            }
+            return times.ToList();
         }
 
         private static string Setting(string name, string fallback)
@@ -202,6 +272,10 @@ namespace TerraformingReloaded.CometShot
                     camera.targetTexture ? camera.targetTexture.name : "screen", camera.transform.parent ? camera.transform.parent.name : "none"));
             }
 
+            if (_fov > 0f)
+            {
+                _camera.fieldOfView = _fov;
+            }
             Stand();
             SkyAndSun();
             _stack = Camera.allCameras
@@ -210,7 +284,12 @@ namespace TerraformingReloaded.CometShot
                 .ToList();
             Logger.LogInfo("CometShot: rendering the stack " + string.Join(" < ", _stack.Select(x => "'" + x.name + "'")));
 
-            _requester = new CameraLodRequester(_eye);
+            _requester = new CameraLodRequester(InsideWorld(_eye));
+            if (_requester.CenterPosition != _eye)
+            {
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture, "CometShot: the camera stands outside the voxel world; terrain is asked for around its nearest point, {0}", _requester.CenterPosition));
+            }
+            _updateQueue = AccessTools.Field(typeof(LodManager), "_updateLodQueue");
             LodManager.EnqueueRequesterToUpdate(_requester);
             Pose();
             _target = new RenderTexture(_width, _height, 24, RenderTextureFormat.ARGB32);
@@ -246,11 +325,20 @@ namespace TerraformingReloaded.CometShot
                 }
             }
             float? ground = Surface(flat.x, flat.z);
-            _eye = new Vector3(flat.x, (ground ?? 300f) + EyeHeight, flat.z);
             float yaw = _yaw == "centre"
                 ? (new Vector2(flat.x, flat.z).sqrMagnitude < 1f ? 0f : Mathf.Atan2(-flat.x, -flat.z) * Mathf.Rad2Deg)
                 : float.Parse(_yaw, c);
             _look = Quaternion.Euler(_pitch, yaw, 0f);
+            if (_back > 0f)
+            {
+                // Stood back along the view, on the ground there if the voxel world reaches, else at
+                // the spot's own height: the view keeps its bearing and takes in more of the sky.
+                Vector3 behind = Quaternion.Euler(0f, yaw, 0f) * Vector3.back * _back;
+                flat += new Vector3(behind.x, 0f, behind.z);
+                ground = Surface(flat.x, flat.z) ?? ground;
+                what += string.Format(c, ", stood {0:N0} m back", _back);
+            }
+            _eye = new Vector3(flat.x, (ground ?? 300f) + EyeHeight, flat.z);
             Logger.LogInfo(string.Format(c, "CometShot: standing at {0} ({1}), voxel ground {2}, world size {3}, curvature {4}, facing yaw {5:0.0} pitch {6:0.0}",
                 _eye, what, ground.HasValue ? ground.Value.ToString("0.0", c) : "none", VoxelConstants.Size, VoxelConstants.WorldCurvature, yaw, _pitch));
         }
@@ -262,6 +350,7 @@ namespace TerraformingReloaded.CometShot
         private void SkyAndSun()
         {
             WorldSetting world = WorldSetting.Current;
+            GiveSkyAController();
             if (world.SkyBox != null)
             {
                 RenderSettings.skybox = Instantiate(world.SkyBox);
@@ -312,6 +401,37 @@ namespace TerraformingReloaded.CometShot
                 RenderSettings.skybox ? "'" + RenderSettings.skybox.name + "'" : "none", sun, scattering, OrbitalSimulation.WorldSunVector.y, time, _setSolarIntensity != null ? "found" : "missing"));
         }
 
+        /// <summary>
+        /// AtmosphericScattering.ManagerUpdate, once there is a sun, fades the sky with the height of
+        /// CameraController.Instance.MainCamera. The game sets that instance only off batch mode, so
+        /// with a sun and no instance the sky's rebuild throws every frame before it sets anything,
+        /// and the darker sky after a comet, a postfix on that rebuild, never runs. The scene's own
+        /// controller is there, only not made the instance; the driver makes it so, with this
+        /// camera as its main one if it has none.
+        /// </summary>
+        private void GiveSkyAController()
+        {
+            if (CameraController.Instance != null)
+            {
+                Logger.LogInfo("CometShot: camera controller already set by the game");
+                return;
+            }
+            CameraController controller = FindObjectOfType<CameraController>(true);
+            if (controller == null)
+            {
+                Logger.LogWarning("CometShot: no camera controller in the scene; the sky will not be rebuilt each frame");
+                return;
+            }
+            if (controller.MainCamera == null)
+            {
+                controller.MainCamera = _camera;
+            }
+            CameraController.Instance = controller;
+            _gaveController = true;
+            Logger.LogInfo("CometShot: camera controller '" + controller.name + "' made the instance for the sky, main camera '" + controller.MainCamera.name + "'"
+                + (controller.MainCamera == _camera ? " (the one shooting)" : " (not the one shooting)") + ", third-person camera " + (controller.ThirdController != null ? "there" : "missing"));
+        }
+
         /// <summary>The sun's brightness, which a batch-mode instance never sets: the game's own routine.</summary>
         private void Sunlight()
         {
@@ -321,33 +441,103 @@ namespace TerraformingReloaded.CometShot
             }
         }
 
-        /// <summary>Waits for the terrain around the camera to be built and given colliders.</summary>
+        /// <summary>
+        /// Waits for the terrain the camera's requester asks for: every block at every level the
+        /// game's own rule gives that requester (LodManager.CalculateLods) in its requested set, no
+        /// request, mesh or collider work outstanding, the mesh counts unchanged for a second, and
+        /// ground under the camera. The game's own busy flag alone is not enough: it is false while
+        /// a request is still being worked out, so meshes another requester had already built
+        /// under the camera used to pass for ready before the camera's own were asked for.
+        /// </summary>
         private bool TerrainReady()
         {
             float waited = Time.realtimeSinceStartup - _stageStart;
-            bool busy = LodManager.Instance == null || LodManager.Instance.AwaitingTerrainGeneration;
-            bool hit = GroundHit(_eye + Vector3.up * 50f, 400f, out RaycastHit ground);
-            if (!busy && hit)
+            int[] wanted = Wanted();
+            int total = wanted.Sum();
+            if (_check++ % 10 == 0 || !_asked)
             {
-                _eye = ground.point + Vector3.up * EyeHeight;
-                _requester.Move(_eye);
-                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture, "CometShot: terrain ready after {0:0.0} s: ground hit at {1} on '{2}', meshes {3}",
-                    waited, ground.point, ground.collider.name, Meshes()));
+                _asked = LodManager.Instance != null && AllAsked();
+            }
+            int queued = _updateQueue?.GetValue(null) is System.Collections.ICollection queue ? queue.Count : 0;
+            bool building = LodManager.Instance == null || LodManager.Instance.AwaitingTerrainGeneration || LodRequestWorker.IsAnyWorking() || queued > 0;
+            string meshes = Meshes();
+            bool quiet = _asked && !building;
+            if (!quiet || meshes != _quietMeshes)
+            {
+                _quietSince = quiet ? waited : -1f;
+                _quietMeshes = meshes;
+            }
+            bool settled = quiet && waited - _quietSince >= 1f;
+            bool hit = GroundHit(_eye + Vector3.up * 50f, 400f, out RaycastHit ground);
+            bool inside = _requester.CenterPosition == _eye;
+            if (settled && (hit || !inside))
+            {
+                if (hit)
+                {
+                    _eye = ground.point + Vector3.up * EyeHeight;
+                    _requester.Move(_eye);
+                }
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture, "CometShot: terrain ready after {0:0.0} s: {1}, meshes {2}, asked for {3} blocks ({4})",
+                    waited, hit ? string.Format(CultureInfo.InvariantCulture, "ground hit at {0} on '{1}'", ground.point, ground.collider.name) : "no ground under a camera outside the voxel world",
+                    meshes, total, string.Join("/", wanted)));
                 return true;
             }
             if (waited - _lastReport >= 5f)
             {
                 _lastReport = waited;
-                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture, "CometShot: waiting for terrain, {0:0} s, building {1}, ground hit {2}, meshes {3}",
-                    waited, busy, hit, Meshes()));
+                Logger.LogInfo(string.Format(CultureInfo.InvariantCulture, "CometShot: waiting for terrain, {0:0} s, asked {1}, building {2}, queued {3}, ground hit {4}, meshes {5}, wanted {6}, requested {7}",
+                    waited, _asked, building, queued, hit, meshes, string.Join("/", wanted), Requested()));
             }
             if (waited >= _terrainWait)
             {
-                Logger.LogWarning(string.Format(CultureInfo.InvariantCulture, "CometShot: NO TERRAIN after {0:0} s (building {1}, ground hit {2}, meshes {3}); shooting anyway",
-                    waited, busy, hit, Meshes()));
+                Logger.LogWarning(string.Format(CultureInfo.InvariantCulture, "CometShot: NO TERRAIN after {0:0} s (asked {1}, building {2}, ground hit {3}, meshes {4}, wanted {5}, requested {6}); shooting anyway",
+                    waited, _asked, building, hit, meshes, string.Join("/", wanted), Requested()));
                 return true;
             }
             return false;
+        }
+
+        /// <summary>The blocks at each level the game's rule gives the requester where it is now.</summary>
+        private int[] Wanted()
+        {
+            if (_wanted == null || _wantedFor != _requester.CenterPosition)
+            {
+                _wanted = Enumerable.Range(0, 6).Select(level => new LodGroup(level, new HashSet<Vector3Int>())).ToList();
+                LodManager.CalculateLods(_requester, _wanted);
+                _wantedFor = _requester.CenterPosition;
+                _asked = false;
+            }
+            return _wanted.Select(group => group.Indices.Count).ToArray();
+        }
+
+        /// <summary>Whether every block the requester wants is in the set the game has asked for on its behalf.</summary>
+        private bool AllAsked()
+        {
+            foreach (LodGroup group in _wanted)
+            {
+                HashSet<Vector3Int> requested = _requester.RequestedLods[group.Level];
+                if (requested.Count < group.Indices.Count || !group.Indices.IsSubsetOf(requested))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private string Requested() => string.Join("/", _requester.RequestedLods.Select(set => set.Count.ToString(CultureInfo.InvariantCulture)));
+
+        /// <summary>The point itself inside the voxel world, else the nearest column of it, at its ground or at the point's height.</summary>
+        private static Vector3 InsideWorld(Vector3 point)
+        {
+            float half = VoxelConstants.Offset;
+            if (point.x >= -half && point.x < half && point.z >= -half && point.z < half)
+            {
+                return point;
+            }
+            float x = Mathf.Clamp(point.x, -half + 0.5f, half - 0.5f);
+            float z = Mathf.Clamp(point.z, -half + 0.5f, half - 0.5f);
+            float? ground = Surface(x, z);
+            return new Vector3(x, ground.HasValue ? ground.Value + EyeHeight : point.y, z);
         }
 
         /// <summary>The nearest thing hit straight down, passing through the cameras (the main one carries a collider).</summary>
@@ -412,6 +602,10 @@ namespace TerraformingReloaded.CometShot
         private void Pose()
         {
             _camera.transform.SetPositionAndRotation(_eye, _look);
+            if (_fov > 0f)
+            {
+                _camera.fieldOfView = _fov;
+            }
             foreach (Camera camera in _stack)
             {
                 if (camera == _camera || camera.transform.IsChildOf(_camera.transform))
@@ -465,8 +659,8 @@ namespace TerraformingReloaded.CometShot
             _readback.Apply(false);
             string file = Path.Combine(_outDir, string.Format(CultureInfo.InvariantCulture, "shot{0:00}_t{1:000.00}.png", _shot++, since));
             File.WriteAllBytes(file, _readback.EncodeToPNG());
-            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture, "CometShot: shot t={0:0.00} -> {1} (far {2:N0}, sun height {3:0.000}, sun {4:0.00})",
-                since, file, _camera.farClipPlane, OrbitalSimulation.WorldSunVector.y, OrbitalSimulation.WorldSun ? OrbitalSimulation.WorldSun.intensity : 0f));
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture, "CometShot: shot t={0:0.00} -> {1} (far {2:N0}, fov {3:0.#}, sun height {4:0.000}, sun {5:0.00})",
+                since, file, _camera.farClipPlane, _camera.fieldOfView, OrbitalSimulation.WorldSunVector.y, OrbitalSimulation.WorldSun ? OrbitalSimulation.WorldSun.intensity : 0f));
             ImpactOnGround();
         }
 
@@ -516,6 +710,10 @@ namespace TerraformingReloaded.CometShot
             {
                 _requester.BeingDestroyed = true;
                 LodManager.EnqueueRequesterToRemove(_requester);
+            }
+            if (_gaveController)
+            {
+                CameraController.Instance = null;
             }
             BepInEx.Logging.Logger.CreateLogSource("CometShot").LogInfo("CometShot: done");
             File.WriteAllText(Path.Combine(_outDir, "done.txt"), "done");

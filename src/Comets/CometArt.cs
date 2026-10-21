@@ -14,6 +14,8 @@ namespace TerraformingReloaded.Comets
         private static Texture2D _smoke;
         private static Texture2D _smokeSheet;
         private static Texture2D _ring;
+        private static Texture2D _billowSheet;
+        private static Texture2D _fireballSheet;
         private static Texture2D _streak;
         private static Mesh _quad;
         private static AudioClip _roar;
@@ -38,6 +40,29 @@ namespace TerraformingReloaded.Comets
         /// instead of sliding.
         /// </summary>
         public static Texture2D SmokeSheet => _smokeSheet ? _smokeSheet : (_smokeSheet = MakeSmokeSheet(128));
+
+        /// <summary>
+        /// Sixteen frames, four by four, of a cauliflower of cloud: a cluster of round billows, each lit
+        /// from above as a ball is, so a puff has a bright top, a shadowed underside and dark seams
+        /// where billows meet, with wispy edges. The billows swell and roll across the frames. Grey, so
+        /// a particle's colour tints it. Drawn upright: a system using it turns its puffs very little,
+        /// so the light stays on top.
+        /// </summary>
+        public static Texture2D BillowSheet => _billowSheet ? _billowSheet : (_billowSheet = MakeBillowSheet(128));
+
+        /// <summary>
+        /// Sixteen frames, four by four, of a fireball's face: a disc darker and redder toward its limb,
+        /// as a glowing ball is, broken into boiling bright cells with dark lanes between them, the
+        /// cells churning from frame to frame, and a lumpy edge. A white-hot centre to a red limb in
+        /// colour, which the particle's or quad's colour then cools.
+        /// </summary>
+        public static Texture2D FireballSheet => _fireballSheet ? _fireballSheet : (_fireballSheet = MakeFireballSheet(128));
+
+        /// <summary>The fireball's own face, drawn before the glow and the smoke, so both cover it.</summary>
+        public const int BallQueue = 3040;
+
+        /// <summary>The bulges boiling off the fireball's face, drawn over it.</summary>
+        public const int BoilQueue = 3045;
 
         /// <summary>A thin bright ring with a soft inside, for a shock front.</summary>
         public static Texture2D Ring => _ring ? _ring : (_ring = Radial(256, r =>
@@ -202,6 +227,154 @@ namespace TerraformingReloaded.Comets
                         float alpha = Mathf.Clamp01(Mathf.Pow(falloff, 1.3f) * (0.35f + 1.1f * noise) * 1.3f);
                         byte shade = (byte)(190 + 65 * Mathf.Clamp01(noise));
                         pixels[(row * frame + y) * size + column * frame + x] = new Color32(shade, shade, shade, (byte)(alpha * 255f));
+                    }
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply(false, true);
+            return texture;
+        }
+
+        private static Texture2D MakeBillowSheet(int frame)
+        {
+            int size = frame * SheetTiles;
+            Texture2D texture = NewTexture(size);
+            Color32[] pixels = new Color32[size * size];
+            int frames = SheetTiles * SheetTiles;
+
+            // The billows, the same in every frame: a big one in the middle, the rest around and above it.
+            const int count = 9;
+            float[] cx = new float[count];
+            float[] cy = new float[count];
+            float[] radius = new float[count];
+            float[] driftX = new float[count];
+            float[] driftY = new float[count];
+            float[] depth = new float[count];
+            System.Random random = new System.Random(4127);
+            for (int i = 0; i < count; i++)
+            {
+                float angle = (float)random.NextDouble() * Mathf.PI * 2f;
+                float distance = i == 0 ? 0f : Mathf.Sqrt((float)random.NextDouble()) * 0.42f;
+                cx[i] = Mathf.Cos(angle) * distance;
+                cy[i] = Mathf.Sin(angle) * distance * 0.8f + (i == 0 ? -0.05f : 0.06f);
+                radius[i] = i == 0 ? 0.42f : 0.22f + 0.2f * (float)random.NextDouble();
+                float roll = (float)random.NextDouble() * Mathf.PI * 2f;
+                driftX[i] = Mathf.Cos(roll);
+                driftY[i] = Mathf.Sin(roll);
+                depth[i] = (float)random.NextDouble() * 0.25f;
+            }
+            Vector3 light = new Vector3(-0.35f, 0.8f, 0.5f).normalized;
+
+            for (int f = 0; f < frames; f++)
+            {
+                int column = f % SheetTiles;
+                int row = SheetTiles - 1 - f / SheetTiles;
+                float age = f / (float)(frames - 1);
+                float swell = 0.88f + 0.16f * age;
+                float turn = age * 1.4f;
+                for (int y = 0; y < frame; y++)
+                {
+                    for (int x = 0; x < frame; x++)
+                    {
+                        float u = (x + 0.5f) / frame;
+                        float v = (y + 0.5f) / frame;
+                        float px = u * 2f - 1f;
+                        float py = v * 2f - 1f;
+                        // Ragged outlines: the distance into each billow is pushed about by noise.
+                        float warp = Mathf.PerlinNoise(u * 5f + 3.1f + turn * 0.5f, v * 5f + 7.7f) - 0.5f;
+                        float front = float.NegativeInfinity;
+                        float shade = 0f;
+                        float cover = 0f;
+                        for (int i = 0; i < count; i++)
+                        {
+                            float rb = radius[i] * swell;
+                            float dx = (px - cx[i] - driftX[i] * 0.06f * age) / rb;
+                            float dy = (py - cy[i] - driftY[i] * 0.06f * age - 0.04f * age) / rb;
+                            float d2 = dx * dx + dy * dy + 0.35f * warp;
+                            if (d2 >= 1f)
+                            {
+                                continue;
+                            }
+                            cover = Mathf.Max(cover, Mathf.Clamp01((1f - d2) * 4f));
+                            float bulge = Mathf.Sqrt(1f - Mathf.Max(0f, d2));
+                            float z = depth[i] + bulge * rb;
+                            if (z > front)
+                            {
+                                front = z;
+                                Vector3 normal = new Vector3(dx, dy, bulge).normalized;
+                                float lambert = Mathf.Clamp01((Vector3.Dot(normal, light) + 0.15f) / 1.15f);
+                                shade = 0.3f + 0.7f * Mathf.Pow(lambert, 0.8f);
+                            }
+                        }
+                        if (cover <= 0f)
+                        {
+                            pixels[(row * frame + y) * size + column * frame + x] = new Color32(0, 0, 0, 0);
+                            continue;
+                        }
+                        // Billows sitting further back are in the shade of those in front of them.
+                        shade *= 0.72f + 0.28f * Mathf.Clamp01(front / 0.55f);
+                        float detail = Mathf.PerlinNoise(u * 9f + turn, v * 9f - turn * 0.5f);
+                        shade = Mathf.Clamp01(shade * (0.85f + 0.3f * detail));
+                        float border = Mathf.Clamp01((1f - Mathf.Max(Mathf.Abs(px), Mathf.Abs(py))) * 10f);
+                        float alpha = cover * (0.82f + 0.18f * detail) * border;
+                        byte grey = (byte)(shade * 255f);
+                        pixels[(row * frame + y) * size + column * frame + x] = new Color32(grey, grey, grey, (byte)(Mathf.Clamp01(alpha) * 255f));
+                    }
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply(false, true);
+            return texture;
+        }
+
+        private static Texture2D MakeFireballSheet(int frame)
+        {
+            int size = frame * SheetTiles;
+            Texture2D texture = NewTexture(size);
+            Color32[] pixels = new Color32[size * size];
+            int frames = SheetTiles * SheetTiles;
+            for (int f = 0; f < frames; f++)
+            {
+                int column = f % SheetTiles;
+                int row = SheetTiles - 1 - f / SheetTiles;
+                // The noise is moved round a circle, so the last frame runs on into the first.
+                float phase = f / (float)frames * Mathf.PI * 2f;
+                float ox = Mathf.Cos(phase) * 0.9f;
+                float oy = Mathf.Sin(phase) * 0.9f;
+                for (int y = 0; y < frame; y++)
+                {
+                    for (int x = 0; x < frame; x++)
+                    {
+                        float px = (x + 0.5f) / frame * 2f - 1f;
+                        float py = (y + 0.5f) / frame * 2f - 1f;
+                        float r = Mathf.Sqrt(px * px + py * py) + 0.06f * (Mathf.PerlinNoise(px * 3f + ox + 5f, py * 3f + oy + 9f) - 0.5f);
+                        int at = (row * frame + y) * size + column * frame + x;
+                        if (r >= 0.97f)
+                        {
+                            pixels[at] = new Color32(0, 0, 0, 0);
+                            continue;
+                        }
+                        float mu = Mathf.Sqrt(Mathf.Max(0f, 1f - r * r));
+                        // Cells crowd toward the limb, as they would on a ball seen edge-on there.
+                        float k = 1f / (0.35f + 0.65f * mu);
+                        float sx = px * k;
+                        float sy = py * k;
+                        float cells = 0f;
+                        float amplitude = 0.6f;
+                        float frequency = 3.2f;
+                        for (int octave = 0; octave < 3; octave++)
+                        {
+                            float n = Mathf.PerlinNoise(sx * frequency + ox * frequency * 0.3f + 13f, sy * frequency + oy * frequency * 0.3f + 29f);
+                            float lane = 1f - Mathf.Abs(2f * n - 1f);
+                            cells += amplitude * (1f - lane * lane * lane * lane);
+                            amplitude *= 0.5f;
+                            frequency *= 2.05f;
+                        }
+                        cells /= 1.05f;
+                        float limb = 0.35f + 0.65f * Mathf.Pow(mu, 0.55f);
+                        float b = Mathf.Clamp01(limb * (0.45f + 0.75f * cells));
+                        float alpha = Mathf.Clamp01((0.97f - r) / 0.06f);
+                        pixels[at] = new Color32((byte)(Mathf.Pow(b, 0.55f) * 255f), (byte)(Mathf.Pow(b, 1.25f) * 255f), (byte)(Mathf.Pow(b, 2.6f) * 255f), (byte)(alpha * 255f));
                     }
                 }
             }
