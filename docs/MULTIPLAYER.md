@@ -89,10 +89,12 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
   fuel, back on the clock after a load) as a mod message of its own. A joining player's game replaces its
   list with the host's whenever one arrives; its own copy only draws the map icons and answers
   `terraform comet list`. About 150 bytes a comet of one gas on a three-hop route. The list carries its own
-  layout byte: 1 for 0.18.0, 2 for 0.19.0, which adds each comet's kind, ore and Cut cycles, 3 from 0.20.0,
+  layout byte: 1 for 0.18.0, 2 for 0.19.0, which adds each comet's kind, ore and Cut cycles, 3 for 0.20.0,
   which adds after the comets the target of every payload bay on a rocket at Entry (its PositionX and
-  PositionZ, 16 bytes a bay), which the game itself neither saves nor sends; a reader that does not know the
-  byte ignores the list. While a rocket action changes a comet every tick (Cut, Fuel, Burn), or a chip moves
+  PositionZ, 16 bytes a bay), which the game itself neither saves nor sends, and 4 from 0.21.0, in which a
+  bay's target may be NaN (a bay aiming untracked) and after the targets come the comets brought down and still
+  falling: each comet's id, kind, size, where it lands and its fall on the shared clock, 61 bytes a fall. A
+  reader that does not know the byte ignores the list. While a rocket action changes a comet every tick (Cut, Fuel, Burn), or a chip moves
   a bay's target, the host sends the list at most every 2 s.
 - **The comet in the sky.** Every machine, the dedicated server included, puts a comet parked at Entry into
   its own sky as a body circling the planet, from the list it already has: the orbit comes from the comet's
@@ -102,6 +104,11 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
   game's own bodies; its logic values, and the payload bay's comet readouts, are read on the host, where
   logic runs. The Map motherboard's two icons and the glow in the sky are drawn by each player's game from
   its own copy of the comets and the bays' targets.
+- **A comet brought down falls the same on every machine.** The host's burn takes the comet off the list and puts
+  its fall on it, sent at once; each machine warns its own player from its own copy, with that player's own
+  distance, on its own console, once, and again after a load. The impact is the comet event above, sent the same
+  way. Only the host changes the planet's air at the end of the fall; the joining players get the new air with
+  the planet sync. The body leaves each machine's sky at that machine's own game tick main-thread moment.
 - **The comet actions run on the host.** A rocket's mode reaches every player as the game sends any mode, a
   raw byte the game does not check, so a joining player's panel and buttons show Cut, Fuel, Burn and Launch
   from it, and the comet's line from that player's own copy of the comets. The miner's cycles, the deploy, the

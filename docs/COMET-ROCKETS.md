@@ -4,9 +4,10 @@ Design for how a player makes a comet and brings it down, on branch `comet-impac
 show, the pressure wave, structures, players, sound, sky) is `COMET.md`. Built so far: the settings and
 the pure rules (stage 2 of *Proof as it is built*, 0.17.0), the comet as an object on the space map that
 flies to Entry by the rocket rule, saved with the world and sent to every player (stage 3, 0.18.0), the
-rocket actions that make it and send it: Cut, Rig, Fuel, Burn and Launch (stage 4, 0.19.0), and the parked
+rocket actions that make it and send it: Cut, Rig, Fuel, Burn and Launch (stage 4, 0.19.0), the parked
 comet in the game's own sky, aimed by a rocket at Entry, seen by the Ground Telescope and shown on the Map
-motherboard (stage 5, 0.20.0).
+motherboard (stage 5, 0.20.0), and the deorbit and the landing: a rocket at Entry brings the comet down, every
+player is warned, and the impact brings its gas or takes air away (stage 6, 0.21.0).
 
 Game facts below are from the decompile; file and line references are kept out of this public repo.
 
@@ -324,7 +325,8 @@ Calculated, not measured.
 - **The Rocket Celestial Tracker** reaches only the first twelve bodies of the sky's list; the comet comes
   after the world's own, so on Mars (twelve bodies) it cannot track it, and on a world with fewer it can. When
   the list changes anywhere but at its end, every tracker pointing at or past the change goes back to the first
-  body, so none points past the end of a shorter list.
+  body, so none points past the end of a shorter list. A list made shorter waits for the game tick's own
+  main-thread moment (stage 6, below), so no tracker can count the old list and index the new.
 
 ### Warning and gas
 
@@ -343,6 +345,74 @@ of the gas left after the trip arrives; the rest burns up on entry (configurable
 
 The `COMET.md` rule that a comet never lands near a structure stays for the console command only. A rocket
 comet lands wherever it is brought down.
+
+### As built (stage 6, 0.21.0)
+
+- **Deorbit is a rocket action at Entry**, rocket mode 13, the next byte the game's `RocketMode` leaves free, with a
+  button beside the other comet actions on the rocket map screen. It is offered at Entry while a comet is parked
+  there and in the sky, and while no other comet is coming down or still has its show playing: one comet comes
+  down at a time, because the impact event is one at a time. It fires once and puts the rocket back to idle, as
+  Launch does.
+- **The burn** is for the comet the rocket's payload bay aims (stage 5's aim: the first parked comet in the sky,
+  by id; the rocket's first bay, by id, that aims it). The comet lands exactly where the bay's readout said in the
+  frame the burn used, the aim of the last frame (`CometAim`): the sky point from the direction the game's sky
+  shows the comet in (`Celestial.WorldVector`), moved toward the bay's PositionX and PositionZ by the reach of the
+  fuel it parked with, capped by the engines' thrust over `EntryWindowSeconds`, inside the disc
+  (`CelestialRules.Descend`). The burn spends the fuel that steer takes: the Δv of the metres steered at
+  `CorrectionMetresPerDeltaV`, by the rocket equation from the comet's mass with all its fuel aboard, never more
+  than the engines burn in the fall (`CelestialRules.SteerFuelMoles`, the inverse of the reach: steering the
+  whole reach spends exactly what the reach was worked out from). Leaving orbit costs nothing more. What fuel is
+  left goes down with the comet and is not delivered: it is not the comet's gas.
+- **Untracked.** A bay whose PositionX or PositionZ is not a number (a chip writes NaN) aims untracked: the comet
+  comes down at the sky point alone, spending nothing on steering, in the disc around the launch pad nearest the
+  world's origin. A bay nobody has set reads 0, 0, the payload drop's own default target, so it aims at the
+  world's origin, as a payload drop would. On the Map motherboard an untracked bay has only the "lands here" icon.
+- **It leaves the map at once and the sky at the game tick's own main-thread moment.** The Rocket Celestial
+  Tracker counts the sky's list of every body and then indexes it, in two reads, from the logic tick
+  (`RocketCelestialTracker.OnLogicTick`, `OrbitalSimulation.GetCelestialCount` then `GetCelestial`), and a chip
+  reading its CelestialHash does the same; a list made shorter between the two reads is indexed past its end.
+  The logic tick runs only in the part of the game tick that leaves the main thread
+  (`GameManager.GameTick`: `UniTask.SwitchToThreadPool`, then `LogicStack.LogicStackTick`, then
+  `UniTask.SwitchToMainThread`), and the game tick is one loop, started once per world
+  (`GameManager.StartGameTick`), that awaits each switch, so none of its off-thread work overlaps the main-thread
+  moment just before it leaves, where it sets the sea's level (`GlobalAtmosphereLiquid.UpdateLiquid`). A list
+  that would be shorter waits for a postfix there (`CometSkyBodies`), with the trackers past the change set back
+  to the first body first. Everything else that reads the list either runs on the main thread (tooltips, the
+  tracker's buttons and its setter) or only goes through the list it holds (the telescope's occlusion thread),
+  which is never changed in place. The part is refused unless the game tick's own code still has those four
+  calls in that order (`CometSkyBodies.SafePointOrder`, at load from the runtime's view of the method and in
+  `tools/PatchCheck` from Mono.Cecil's). A list made no shorter, a comet joining the sky, is published at once.
+- **It falls for `EntryWindowSeconds`** (50 s), and its impact is the console comet's event (`COMET.md`, the same
+  show, wave, breaks, pushes and sound), timed so the comet first shows 15 s before the end of the fall and lands
+  at the end. Nothing decides where it lands but the burn: no safe distance, no turn. It comes in along the
+  comet's bearing from the pad, outward, at the console comet's 24 degrees. Its size is the moles that arrive for
+  an ice comet, and for a mineral comet the moles of air it takes, worked out from the air at the burn (on a
+  world with no air, the carbon dioxide its mass would be). A mineral comet shows no reaction; its plume takes the
+  colours of the air it throws up.
+- **The warning.** Each machine warns its own player once, on the console as the game prints a chat message
+  (`ConsoleWindow.Print`), the moment it learns of the fall: "Comet 3 is coming down in 50 s, 1,234 m from you, to
+  the north-east. It brings 70,000 mol." A machine with no player, a dedicated server, says where it lands
+  instead. The host's log also names every player it knows of with their distance. The game has no warning of its
+  own to every player: a storm's only warnings are a weather station's logic value and its sound alert. A player
+  who joins during a fall is warned when the comet list reaches them, and everyone again after a load.
+- **The gas**, on the host, at the end of the fall, in one call on the main thread under the tank lock. An ice
+  comet adds `GasArrivingShare` of each of its gases, after anything Burn turned into fuel, at the planet's own
+  temperature, so the stored heat in kelvin is kept (`Planet.AddGas`). A mineral comet takes `MineralRemovalPerKg`
+  times its mass before `CometMassScale` (its ore units times `MineralKgPerUnit`) of the planet's air, from every
+  gas the tank holds as a gas in its share, over the air's mean molar mass by the game's figures
+  (`CelestialRules.MineralRemoval`), with the stored heat kept in kelvin (`Planet.RemoveGas`); the air is read as
+  it is at the impact. A sea, liquid in the tank, is not air and stays. The show delivers nothing for a rocket
+  comet. The falling comet is gone in the same call, so the gas is in exactly when the comet is gone.
+- **A save during the fall** keeps it, in the comets entry (version 3), as the seconds it had fallen. At the load,
+  once the game has put its clock back, it falls on from there and lands at the same clock time, and its impact
+  event is made again: the game saves no event. A save between the Deorbit order and the burn, one server tick,
+  keeps neither: the game's own save has the rocket idle, and the mod does not put Deorbit back, since the bay's
+  target it would aim by is not kept by the game either.
+- **Every player** gets the falls with the comet list (layout 4, `MULTIPLAYER.md`): the comet, its kind, where and
+  when it lands and its size. The event reaches them as the console comet's does; only the host changes the air.
+- `terraform comet make <site> <units> Ore engines=<n> fuel=<mol>` makes a mineral comet (debug), and
+  `terraform comet list` shows each fall. `terraform comet stop` ends a rocket comet's show but not its fall: it
+  still lands, and its gas still arrives.
 
 ## Near the impact
 
@@ -620,6 +690,29 @@ Fuel, Burn) sends the list to every player at most every 2 s.
 | The Ground Telescope's Vertical is the angle down from straight up, not the height | the game's dish: Vertical 0 points up and 90 along the horizon (`LargeRotatable.SetDishRotation`) | The design's "height": a chip set by it would point at the wrong part of the sky |
 | `-CometSky` aims the telescope every frame by its own Horizontal and Vertical at the rule's bearing of the body's direction | the proof judges the telescope's own lock and readings, and that the bearing is what the dish takes | Aiming once at a predicted direction: the dish takes its direction a step late (`LargeRotatable`), so a single long slew ends off by that step |
 
+### Stage 6, as built (0.21.0)
+
+| Decision | Goal served | Alternative, and why it lost |
+|---|---|---|
+| Deorbit is a new rocket mode (13) offered at Entry, fired once like Launch | 4, the game's own action machinery; saves stay loadable by the stage 4 guard | Deploy at Entry with a flag: Deploy at Entry is the game's own payload drop |
+| The landing is the aim of the last frame, the same values the bay reads out | the readout a player or a chip timed the burn by is where it lands | Working the sky point out again at the burn: it would differ from the readout by however far the comet moved since |
+| The burn spends what the steer takes, by the rocket equation; leaving orbit costs nothing more; leftover fuel is not delivered | the design's "fuel left at Entry steers it"; "every mole burned is a mole the planet never gets" | A deorbit Δv of its own: no figure in the design to derive it from. Delivering the leftover premix: the comet's gas is what was cut |
+| A steer toward a target past the disc is charged for the whole steer, though the landing stops at the edge | the burn burnt toward the target; the disc is the landing's rule, not the burn's | Charging only to the edge: the burn would know where the landing rule will stop it |
+| Untracked is a target that is not a number; a bay nobody has set aims at the world's origin, 0, 0 | 4, the payload drop's own default target; a chip clears a target with NaN | Remembering whether a chip ever wrote the target: the game neither saves nor sends it, so another state to keep and send |
+| An untracked disc is centred on the pad nearest the world's origin | the same pad on every machine; 3, it stays near a pad | The rocket's own pad: the game keeps none for a rocket in space |
+| One comet comes down at a time, until its show has ended | the impact event is one at a time: a second would end the first's show and its wave | Several events at once: a director of many, for no goal |
+| A shorter sky list waits for the game tick's main-thread moment, a postfix on `GlobalAtmosphereLiquid.UpdateLiquid`, refused unless the tick's own code still orders it before the logic tick | closes stage 5's window: no tracker indexes past a shorter list | A lock: the game's readers take none. Never shortening (a dead body left in the list): the Celestial Scanner draws every body, through the ground |
+| The fall is `EntryWindowSeconds`, and the show starts 15 s before its end, as the console comet's does; for the first 35 s the comet is in neither the sky nor a show | 4, 5: the console comet's show unchanged | A show as long as the fall: the show's timeline is built around its 15 s approach |
+| The gas is delivered by the fall, at the end of it, not by the show | the gas is in exactly when the comet is gone, whatever a save or a late-joining show does | The show's delivery: dropped at a save during the show, and skipped by a show that starts late |
+| A fall survives a save and lands at the same clock time; its event is made again | the comet is a real object until it lands; LU's "no rescue": a comet brought down comes down | Dropping it, as a save drops a console comet's event: the gas would be lost |
+| Deorbit is not put back after a load | the bay's target it aims by is not kept by the game | Putting it back: it would fire at the world's origin before a chip set the target again |
+| Each machine warns its own player on the console, as a chat message is printed | "every player, their own distance"; 6, the game's own message route | The game's alert window: it blocks the screen. One chat message from the host: one text, so no player's own distance |
+| A mineral comet's size is the moles of air it takes, its air read at the impact | the wave and the zones go by moles; an ice comet of the same mass is the same size; the air it takes is the air there when it lands | Its ore mass: not a size the wave rule takes. The air at the burn: it can change in the 50 s |
+| The air a mineral comet takes is every gas in the tank, not its liquids | the design's "air"; a sea is not blasted away | The whole tank: a sea would lose its water to a comet |
+| A comet's id is never given again in the same session | the sky body's hash, the warnings and the landings are by id | The lowest free id: a comet made during a fall would share its id |
+| `terraform comet stop` ends a rocket comet's show and not its fall | LU's "no rescue": it is a debug verb for the show | Calling the fall off too: a comet brought down could be taken back |
+| The impact comes in along the comet's bearing from the pad, at the console comet's 24 degrees | it comes from the side of the sky it was in | A random side: unrelated to where the comet was |
+
 ## Proof as it is built
 
 LU, 2026-10-21: prove each mechanic works as it is built, and that it still works once joined to the rest.
@@ -647,6 +740,16 @@ Build order, each stage proven before the next starts:
 | 6 | the deorbit and the landing | landings land where the rule says, with and without reserve, and an untracked burn lands in the disc |
 | 7 | the impact zones | structures at measured distances end as the table says |
 | 8 | multiplayer | a dedicated server and a rendered client on bt see the same comet, icon and impact |
+
+Stage 6 is in 0.21.0, proof (1) and (2) written, (2) not yet run: `CelestialRules.SteerFuelMoles`, `Descend`,
+`ArrivingGas` and `MineralRemoval` are checked at load and by `tools/PatchCheck`, which hands the check seven more
+wrong rules it must catch (a burn that spends the whole reserve whatever it steers, one worked as thrust over the
+full mass, an untracked burn steered toward the pad, a steer charged only up to the disc's edge, an ice comet
+whose gas arrives whole, a mineral comet that takes all its air from one gas, and one that takes the same moles
+of every gas); `CometSkyBodies.SafePointOrder` is fed the game tick's own calls from Mono.Cecil, and four wrong
+orders it must refuse; the warning has its own check; the save's check carries two falls through a save and a
+load to the same clock time. `tools/LiveCheck/run.ps1 -CometLand` is the in-game proof (`VERIFICATION.md`), for
+bt. What a player reads on their own console needs a run with players, stage 8.
 
 Stage 5 is in 0.20.0, proof (1) and (2) written, (2) not yet run: `CometSkyRules` (Unity's rotations worked
 in doubles, the day's angle, the scene rotation, a body seen from the planet, a round orbit's place, the
@@ -690,7 +793,8 @@ rules it must catch and reads the game's own molar masses and burn ratio under t
 - The default planet size. K follows it now, so it no longer decides whether the third-of-a-planet rule holds.
 - `CometMassScale` (0.39) and the disc following the planet's size were decided in stage 4 (above); both are
   LU's to revisit.
-- What a mineral comet's impact leaves (a mound of ore) is still to come; its removal of air is stage 6's.
+- What a mineral comet's impact leaves (a mound of ore) is still to come; its removal of air is built (stage 6).
+- Between a comet's burn and its show, 35 s, nothing of it is seen; the warning says when it lands.
 - A map icon of its own for a comet: it borrows an asteroid picture from the game's map icons.
 - That a Ground Telescope built facing north looks north at Horizontal 0 and straight up at Vertical 0 is read
   from the code; how the dish sits in its model is prefab data. `-CometSky` aims one by the rule and must lock.

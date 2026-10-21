@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.21.0 (prototype)
+
+- **Bring a comet down.** A new action on the rocket map screen, **Deorbit**, for a rocket at the planet's orbit
+  while a comet waits there in the sky. It fires the comet's burn at once: the comet comes down where the
+  rocket's payload bay says it would land at that moment (its TargetX and TargetZ readouts), steered toward the
+  bay's PositionX and PositionZ as far as the comet's spare fuel allows, and the steering uses up that fuel.
+  Time the burn by the bay's readouts, or by eye: a comet nearly overhead comes down near the launch pad.
+- **No target, no steering.** Write NaN to the bay's PositionX or PositionZ and the burn is untracked: the comet
+  comes down under where it is in the sky, near the launch pad nearest the middle of the map, with no fuel spent
+  on steering. A bay whose target was never set aims at the middle of the map, as a payload drop would.
+- **Everyone is warned.** The moment a comet is brought down, every player's console says when it lands and how
+  far away from them, and which way. It falls for 50 seconds (`EntryWindowSeconds`), leaving the sky and the
+  space map at once, and is seen coming in for the last 15 of them.
+- **The landing.** It is the same impact as `terraform comet`, with its wave, its sound and its darker sky, but
+  nothing keeps it away from a base: a comet lands where it is brought down, your own base included. An ice comet
+  brings 70 % of its gas to the planet (`GasArrivingShare`). A mineral comet blasts the planet's own air away, 0.7
+  kg of air for each kilogram of ore (`MineralRemovalPerKg`), every gas in the same share, so the mix stays as it
+  was. Either way the planet's stored heat stays as it was: the new air arrives at the planet's own temperature.
+- **One comet at a time.** Deorbit waits until the last comet has landed and its show is over.
+- **Saves.** A save while a comet is falling keeps it, and after loading it lands at the time it would have. A
+  save loads without the mod as before, the falling comet simply gone.
+- `terraform comet make <site> <units> Ore engines=<n> fuel=<mol>` makes a mineral comet for testing, and
+  `terraform comet list` shows comets on their way down. `terraform comet stop` ends a comet's show, but a comet
+  brought down by rocket still lands.
+
+Nothing in an existing config or save needs changing. A save from this version cannot be opened by 0.20.0 and
+earlier with its comets: they would be left out.
+
 ## 0.20.0 (prototype)
 
 - **A comet in orbit is in the sky.** Once a comet reaches the planet's orbit it circles the planet as a moon

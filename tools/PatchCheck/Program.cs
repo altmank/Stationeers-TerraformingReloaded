@@ -816,7 +816,7 @@ internal static class Program
     {
         int failures = 0;
         string save = TerraformingReloaded.Comets.CometMap.CheckSave();
-        failures += Judge(save == null, "comet map save: " + (save ?? "comets waiting, in flight and stranded read back from the save to the last bit, a flight stands where it was saved whenever its load puts it back on the clock, and every node a comet refers to moves to the id the load gives it"));
+        failures += Judge(save == null, "comet map save: " + (save ?? "comets waiting, in flight and stranded read back from the save to the last bit, a flight stands where it was saved whenever its load puts it back on the clock, every node a comet refers to moves to the id the load gives it, and a comet falling at the save lands at the same clock time after its load"));
         var parts = new (string Name, Action<HarmonyLib.Harmony> Apply)[]
         {
             ("comet map save", TerraformingReloaded.Comets.CometMapPatches.ApplySave),

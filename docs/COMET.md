@@ -55,7 +55,8 @@ same numbers against a clock they share.
 Pushing has to run on the player's own machine. The game lets each client move its own body and overwrites
 any force the host puts on someone else's.
 
-A save in the middle of an event drops it. The gas is in or it is not.
+A save in the middle of an event drops it. The gas is in or it is not. A comet brought down by rocket is the
+exception: its fall is saved, and its event is made again at the load (below, and `COMET-ROCKETS.md`, stage 6).
 
 ## 2. Where it lands
 
@@ -350,3 +351,21 @@ sky.
 - The rig does not time frames itself. The show logs its own frame time, mean and worst, for the
   approach, the first 10 s after the impact and the rest, when it ends, and the rig's log carries that line.
 - The head is the prototype's glow, not a model.
+
+## Comets brought down by rocket (0.21.0)
+
+A rocket at Entry brings a parked comet down with Deorbit (`COMET-ROCKETS.md`, "As built (stage 6)"). Its
+impact is this event, with these differences:
+
+- **Where it lands** is the burn's landing. Section 2's safe distance, its search and its approach check are the
+  console command's alone: a rocket comet can land on a base, the player's own included (LU's decision).
+- **When**: the burn starts a fall of `EntryWindowSeconds`; the event starts 15 s before its end, so the comet
+  shows and lands as the console comet does, and every player was warned at the burn.
+- **The way in** is along the comet's bearing from the pad, outward, at the console comet's 24 degrees.
+- **Its size** is the moles that reach the planet for an ice comet, and the moles of air it takes for a mineral
+  comet, which shows no reaction.
+- **The gas** is not the show's: the fall delivers it on the host at its end, an ice comet's gas in and a mineral
+  comet's air out, and the falling comet is gone in the same call. The show adds nothing.
+- **A save during the fall** keeps it; at the load it falls on to land at the same clock time, and this event is
+  made again for it. A save after the impact holds the gas and no fall.
+- `terraform comet stop` ends a rocket comet's show and not its fall: the comet still lands and its gas arrives.
