@@ -299,6 +299,9 @@ namespace TerraformingReloaded.LiveCheck
         private object _cometLand;
         private object _cometLandVanilla;
 
+        // -CometZones (CometZones.cs): the same way.
+        private object _cometZones;
+
         private void Awake()
         {
             _instance = this;
@@ -340,6 +343,10 @@ namespace TerraformingReloaded.LiveCheck
             else if (land != null)
             {
                 StartCometLand();
+            }
+            if (Environment.GetEnvironmentVariable("TR_LIVECHECK_COMETZONES") != null)
+            {
+                StartCometZones();
             }
             // Sample at the top of the planet tick: it runs on the simulation thread after the
             // previous tick's atmosphere workers have been joined and before this tick's start, so
@@ -485,6 +492,18 @@ namespace TerraformingReloaded.LiveCheck
         private void StepCometLand()
         {
             ((CometLandCheck)_cometLand).Step();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StartCometZones()
+        {
+            _cometZones = CometZonesCheck.FromEnvironment(Logger, RunCommand);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StepCometZones()
+        {
+            ((CometZonesCheck)_cometZones).Step();
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -648,6 +667,10 @@ namespace TerraformingReloaded.LiveCheck
             if (_cometLandVanilla != null)
             {
                 StepCometLandVanilla();
+            }
+            if (_cometZones != null)
+            {
+                StepCometZones();
             }
             if (RainSave.Length > 0 && !_rainDone && GameManager.GameTickCount >= 15)
             {
