@@ -19,8 +19,11 @@ param(
     [int]$Width = 1600,
     [int]$Height = 900,
     [double]$Pitch = -6,
-    [double]$Yaw = 0,
+    [string]$Yaw = 'centre',
     [double]$Settle = 20,
+    [string]$Spot = 'start',
+    [string]$Sun = '0.35',
+    [double]$TerrainWait = 90,
     [string]$Out = (Join-Path $env:TEMP ('tr-cometshot\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))),
     [string]$RemoteGameDir = 'G:\SteamLibrary\steamapps\common\Stationeers',
     [string]$RemoteDir = 'C:\Users\LU\AppData\Local\Temp\tr-cometshot-rig'
@@ -50,7 +53,8 @@ $go = @"
 `$ErrorActionPreference = 'Stop'
 & '$RemoteDir\rig\run.ps1' -GameDir '$RemoteGameDir' -ModPackage '$RemoteDir\mod' -ShotDll '$RemoteDir\rig\TRCometShot.dll' ``
     -Out '$RemoteDir\out' -Comet '$($Comet -replace "'", "''")' -World '$World' -Times '$Times' ``
-    -Width $Width -Height $Height -Pitch $($Pitch.ToString($c)) -Yaw $($Yaw.ToString($c)) -Settle $($Settle.ToString($c))
+    -Width $Width -Height $Height -Pitch $($Pitch.ToString($c)) -Yaw '$Yaw' -Settle $($Settle.ToString($c)) ``
+    -Spot '$Spot' -Sun '$Sun' -TerrainWait $($TerrainWait.ToString($c))
 "@
 Set-Content -Path (Join-Path $stage 'go.ps1') -Value $go -Encoding UTF8
 

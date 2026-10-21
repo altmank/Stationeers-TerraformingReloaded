@@ -5,10 +5,13 @@
 .DESCRIPTION
   Starts Stationeers in batch mode with graphics on (no window, but cameras still render), on a
   new throwaway world, with this build of the mod and the TR CometShot driver. The driver stands a
-  camera on the ground, runs 'terraform comet <Comet>', and saves a PNG at each of -Times seconds
-  after it. Like tools/LiveCheck, the instance uses the game's install folder as its save root, so
-  no real save or mod list is read or written; what it creates there is removed after, and a
-  settings file already there is put back byte for byte.
+  camera on the ground at -Spot (a start location of the world by default), facing the world's
+  centre unless -Yaw gives a bearing, waits for the terrain around it, moves the day on until the
+  sun is at least -Sun high (WorldSunVector.y; 'any' leaves the time alone), runs
+  'terraform comet <Comet>', and saves a PNG at each of -Times seconds after it. Like
+  tools/LiveCheck, the instance uses the game's install folder as its save root, so no real save
+  or mod list is read or written; what it creates there is removed after, and a settings file
+  already there is put back byte for byte.
 
   Meant to run on bt (run-bt.ps1 copies the builds over and runs this there), not beside the
   owner's game.
@@ -25,8 +28,13 @@ param(
     [int]$Width = 1600,
     [int]$Height = 900,
     [double]$Pitch = -6,
-    [double]$Yaw = 0,
+    # A bearing in degrees, or 'centre' to face the middle of the world from -Spot.
+    [string]$Yaw = 'centre',
     [double]$Settle = 20,
+    # 'start' (the world's first start location), a start location id, or 'x,z'.
+    [string]$Spot = 'start',
+    [string]$Sun = '0.35',
+    [double]$TerrainWait = 90,
     [string]$GameDir = $env:STATIONEERS_DIR,
     [int]$TimeoutSeconds = 420,
     # Already-built mod package (About + DLL) and driver DLL, for a machine with the game but not the SDK.
@@ -70,7 +78,7 @@ New-Item -ItemType Directory -Path $Out -Force | Out-Null
 
 $bepLog = Join-Path $GameDir 'BepInEx\LogOutput.log'
 $unityLog = Join-Path $Out 'unity.log'
-$envKeys = 'TR_COMETSHOT_ARGS', 'TR_COMETSHOT_DIR', 'TR_COMETSHOT_TIMES', 'TR_COMETSHOT_W', 'TR_COMETSHOT_H', 'TR_COMETSHOT_PITCH', 'TR_COMETSHOT_YAW', 'TR_COMETSHOT_SETTLE'
+$envKeys = 'TR_COMETSHOT_ARGS', 'TR_COMETSHOT_DIR', 'TR_COMETSHOT_TIMES', 'TR_COMETSHOT_W', 'TR_COMETSHOT_H', 'TR_COMETSHOT_PITCH', 'TR_COMETSHOT_YAW', 'TR_COMETSHOT_SETTLE', 'TR_COMETSHOT_SPOT', 'TR_COMETSHOT_SUN', 'TR_COMETSHOT_TERRAIN_WAIT'
 $game = $null
 try {
     $mods = Join-Path $GameDir 'mods'
@@ -87,8 +95,11 @@ try {
     $env:TR_COMETSHOT_W = "$Width"
     $env:TR_COMETSHOT_H = "$Height"
     $env:TR_COMETSHOT_PITCH = $Pitch.ToString([cultureinfo]::InvariantCulture)
-    $env:TR_COMETSHOT_YAW = $Yaw.ToString([cultureinfo]::InvariantCulture)
+    $env:TR_COMETSHOT_YAW = $Yaw
     $env:TR_COMETSHOT_SETTLE = $Settle.ToString([cultureinfo]::InvariantCulture)
+    $env:TR_COMETSHOT_SPOT = $Spot
+    $env:TR_COMETSHOT_SUN = $Sun
+    $env:TR_COMETSHOT_TERRAIN_WAIT = $TerrainWait.ToString([cultureinfo]::InvariantCulture)
     Remove-Item $bepLog -ErrorAction SilentlyContinue
     $game = Start-Process $exe -WorkingDirectory $GameDir -PassThru -ArgumentList @('-batchmode', '-screen-fullscreen', '0', '-screen-width', "$Width", '-screen-height', "$Height", '-logFile', "`"$unityLog`"", '-new', $World)
     Write-Host "Started off-screen instance, PID $($game.Id), on a new $World"

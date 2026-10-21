@@ -2,7 +2,7 @@
 <ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Name>TR CometShot</Name>
   <Author>XCeled</Author>
-  <Version>0.0.1</Version>
+  <Version>0.0.2</Version>
   <Description>Screenshot driver for Terraforming Reloaded's comet. Not for play. Only acts when its environment variable is set.</Description>
   <WorkshopHandle>0</WorkshopHandle>
   <Tags />
