@@ -80,6 +80,7 @@ function Set-LaunchPad([string]$install, [string]$data, [bool]$server) {
     Set-Cfg $cfg 'Startup' 'AutoUpdateOnStart' 'false'
     Set-Cfg $cfg 'Startup' 'AutoLoadCountdown' '0'
     Set-Cfg $cfg 'Startup' 'AutoStartCountdown' '0'
+    Set-Cfg $cfg 'Startup' 'DevMode' 'true'
     Set-Cfg $cfg 'Mod Repos' 'RepoCheckUpdates' 'false'
     Set-Cfg $cfg 'News' 'NewsCheckOnStart' 'false'
     Set-Cfg $cfg 'Server Packs' 'Enabled' 'false'

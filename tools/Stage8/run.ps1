@@ -45,6 +45,8 @@ param(
     # Other servers on this machine whose setting.xml are read (never written) so the port chosen is not theirs.
     [string[]]$OtherServerRoots = @('G:\StationeersDedicated'),
     [int]$JoinMinutes = 20,
+    # A client launch that has not got through StationeersLaunchPad's mod loading by then is tried once more.
+    [int]$ArmMinutes = 6,
     [int]$PhaseMinutes = 120,
     # For a first probe of whether a client draws at all over ssh; the judged run needs the desktop.
     [switch]$AllowSessionZero
@@ -223,6 +225,94 @@ function Start-Server([string]$phase) {
     Say "server ($phase) started, PID $($script:server.Id)"
 }
 
+function Set-Cfg([string]$path, [string]$section, [string]$key, [string]$value) {
+    $lines = New-Object 'System.Collections.Generic.List[string]'
+    if (Test-Path $path) { $lines.AddRange([string[]]@(Get-Content $path)) }
+    $start = $lines.IndexOf("[$section]")
+    if ($start -lt 0) {
+        $lines.Add(''); $lines.Add("[$section]"); $lines.Add("$key = $value")
+    } else {
+        $end = $lines.Count
+        for ($i = $start + 1; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '^\[') { $end = $i; break } }
+        $found = $false
+        for ($i = $start + 1; $i -lt $end; $i++) { if ($lines[$i] -match "^\s*$([regex]::Escape($key))\s*=") { $lines[$i] = "$key = $value"; $found = $true } }
+        if (-not $found) { $lines.Insert($end, "$key = $value") }
+    }
+    Set-Content -Path $path -Value $lines -Encoding UTF8
+}
+
+# Every launch of the client starts from the StationeersLaunchPad state of the first. The first launch makes a mod
+# pack of the mods it finds ("My Mods", <client-data>\profiles) and names it in its config ([Internal] ModProfile);
+# a later launch then starts with that pack active, and anything about it SLP wants to ask (a mod outside the pack,
+# a missing one) is a dialog on the splash that stops the countdown with nothing logged, which is where bt's second
+# launch stopped (its log ends at 'Mod Config Initialized', SLP's last line before that wait). DevMode: no
+# countdowns, animations or news.
+function Reset-ClientLaunchPad {
+    $cfg = Join-Path $clientDir 'BepInEx\config\stationeers.launchpad.cfg'
+    $state = @(Get-ChildItem $clientData -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ', '
+    Say "client data before the launch: $state"
+    foreach ($leftover in 'profiles', 'clientside-mods.xml') {
+        $path = Join-Path $clientData $leftover
+        if (Test-Path $path) { Remove-Item $path -Recurse -Force; Say "removed $path, left by an earlier launch" }
+    }
+    Set-Cfg $cfg 'Internal' 'ModProfile' ''
+    Set-Cfg $cfg 'Startup' 'DevMode' 'true'
+    Set-Cfg $cfg 'Startup' 'AutoLoadOnStart' 'true'
+}
+
+# Nothing of an earlier client launch may still run: the client and anything it started from its own folder (the
+# crash handler), found by path under <Root>\client, stopped by PID.
+function Wait-ClientGone {
+    $deadline = (Get-Date).AddSeconds(30)
+    while ($true) {
+        $left = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $p = $null; try { $p = $_.Path } catch { }; $p -and $p.StartsWith($clientDir + '\', [StringComparison]::OrdinalIgnoreCase) })
+        if ($left.Count -eq 0) { return }
+        if ((Get-Date) -gt $deadline) {
+            foreach ($p in $left) { Say "stopping $($p.ProcessName) PID $($p.Id), left from an earlier client launch ($($p.Path))"; Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Seconds 2
+            return
+        }
+        Start-Sleep -Seconds 1
+    }
+}
+
+function Save-Desktop([string]$file) {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+        $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+        $bitmap.Save($file, [System.Drawing.Imaging.ImageFormat]::Png)
+        $graphics.Dispose(); $bitmap.Dispose()
+        Say "desktop saved to $file"
+    } catch { Say "could not save the desktop: $($_.Exception.Message)" }
+}
+
+# A client launch, and a second try if it does not get through mod loading in -ArmMinutes: the desktop is saved
+# first, to show what it stopped on.
+function Start-ClientArmed([string]$phase) {
+    for ($try = 1; $try -le 2; $try++) {
+        Wait-ClientGone
+        Reset-ClientLaunchPad
+        Remove-Handshake @('client.armed')
+        Start-Client $phase
+        $deadline = (Get-Date).AddMinutes($ArmMinutes)
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+            if (Test-Path (Join-Path $Out 'client.armed')) { Say "client ($phase) through mod loading"; return }
+            if ($script:client.HasExited) { break }
+            if ($script:server -and $script:server.HasExited) { throw "The server exited while the client ($phase) was loading." }
+        }
+        Save-Desktop (Join-Path $Out "client-$phase-stuck-$try.png")
+        $unity = Join-Path $Out "client-$phase-unity.log"
+        if (Test-Path $unity) { Copy-Item $unity (Join-Path $Out "client-$phase-stuck-$try-unity.log") -Force }
+        Stop-Mine $script:client 'client' $clientDir "$phase-stuck-$try"
+        Say "client ($phase) did not get through mod loading in $ArmMinutes minutes (try $try)"
+    }
+    throw "The client ($phase) did not get through mod loading twice; see client-$phase-stuck-*.png and its logs."
+}
+
 function Start-Client([string]$phase) {
     Remove-Item (Join-Path $clientDir 'BepInEx\LogOutput.log') -ErrorAction SilentlyContinue
     Clear-Env
@@ -362,7 +452,7 @@ $expected = @(
     'client joined', 'client planet sync', 'client host settings', 'client shared clock', 'client comet list', 'client rocket map icon', 'client sky body',
     'client map motherboard icons', 'client fall A', 'client impact event A', 'client pushed A', 'client suit damage A', 'client structures', 'client sky dim',
     'client console event', 'client console straight ahead', 'client pushed B', 'client joined late', 'client late join', 'client joined again',
-    'client fall after rejoin', 'client impact after rejoin',
+    'client fall after rejoin', 'client impact after rejoin', 'client stood A', 'client stood B',
     'server mod live', 'client mod live', 'server warning A', 'client warning A', 'client show drawn A', 'client thrown A', 'client thrown B',
     'server suit line A', 'server suit line once', 'server console site line', 'server late site line', 'client late show line', 'server landed line', 'no errors'
 )
@@ -438,12 +528,12 @@ try {
     # -- phase make, with the client's first and late joins
     Start-Server 'make'
     Wait-For @('server.ready') ($JoinMinutes * 60) 'the server to come up' @($script:server)
-    Start-Client 'first'
+    Start-ClientArmed 'first'
     Wait-For @('client.first-done') ($PhaseMinutes * 60) 'the client''s first visit: comet A by rocket and console comet B' @($script:server, $script:client)
     Stop-Mine $script:client 'client' $clientDir 'first'
     Wait-For @('server.late-fired') 600 'the late comet, called with nobody online' @($script:server)
     Remove-Handshake @('client.ready', 'client.pos')
-    Start-Client 'late'
+    Start-ClientArmed 'late'
     Wait-For @('client.late-done') ($JoinMinutes * 60) 'the client joining during the late comet' @($script:server, $script:client)
     Stop-Mine $script:client 'client' $clientDir 'late'
     Wait-For @('server.make-done') ($PhaseMinutes * 60) 'comet D brought down and the world saved in its fall' @($script:server)
@@ -454,7 +544,7 @@ try {
     Remove-Handshake @('server.ready', 'client.ready', 'client.pos', 'server.clock', 'client.clock')
     Start-Server 'load'
     Wait-For @('server.ready') ($JoinMinutes * 60) 'the server to load the save' @($script:server)
-    Start-Client 'rejoin'
+    Start-ClientArmed 'rejoin'
     Wait-For @('client.rejoin-done', 'server.load-done') ($JoinMinutes * 60) 'the client joining the loaded world and comet D landing' @($script:server, $script:client)
     Stop-Mine $script:client 'client' $clientDir 'rejoin'
     Stop-Mine $script:server 'server' $serverDir 'load'

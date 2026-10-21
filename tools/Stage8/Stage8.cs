@@ -47,6 +47,8 @@ namespace TerraformingReloaded.Stage8
             SyncDigest.Install(harmony, role == "server");
             _driver = role == "server" ? new ServerDriver(phase) : (IDriver)new ClientDriver(phase);
             Bus.Info("armed, phase " + phase + ", out " + outDir + ", batch mode " + GameManager.IsBatchMode);
+            // For run.ps1: this launch got through StationeersLaunchPad's mod loading.
+            Bus.Write(role + ".armed", new Dictionary<string, string> { { "phase", phase }, { "utc", DateTime.UtcNow.Ticks.ToString(Bus.C) } });
         }
 
         private void Update()

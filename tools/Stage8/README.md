@@ -159,6 +159,7 @@ From the client driver:
 | `client sky body` | comet A's direction at the server's clock, worked out here from this game's own body, within 1e-6 of the server's; the game's body within 0.01 degrees of the rule now |
 | `client map motherboard icons` | the bay's aim at the server's clock worked out here: sky point and landing within 1e-6 m of the server's; this game's live aim the rule's from its own direction; and the Map motherboard's panel draws both comet icons (target and landing) at those positions |
 | `client fall A` | this game's copy of A's fall: the same landing point, clock and moles as the server's |
+| `client stood A`, `client stood B` | the player was moved to the spot for A (the wave's 300 kPa) and for B (a corner of the world) and turned the way asked, and within 30 s both this game (within 2 m, the body and the camera within 3 degrees) and the server (its copy of the body within 3 m and 5 degrees, from what this game sends) have it there. The move is the one `Human.ForceSetPosition` makes on a host, on the player's own game (the place, the transform, the rigidbody, no momentum, the interpolation reset); the turn is the camera controller's `RotationY`, as the game's scripted spawns set it. A line that fails says the player's state, the rigidbody's and the camera's. B is called only after its line |
 | `client impact event A` | this game's event for A: the server's sequence, point, clock and moles, its show playing and drawn 10 s before the impact |
 | `client pushed A`, `client pushed B` | this game threw its own player across the wave's arrival (A over 200 kPa, B between 50 and 200) |
 | `client suit damage A` | this game's copy of the suit and helmet damage is the server's, and more than before |
@@ -193,6 +194,15 @@ From `run.ps1`, out of the logs:
 wave's 300 kPa), `console-t...` (B from 2,500 m), `late-joined` and `late-playing` (C picked up late), and
 `rejoin-t...` (D landing after the load). Each shot's line in the client's log gives its clock, the sky's dimming
 and where the player stood.
+
+## A client launched more than once
+
+Before every client launch `run.ps1` waits until nothing runs from `G:\TRStage8\client` (stopping, by PID, what
+an earlier launch left), removes the mod pack StationeersLaunchPad made on the first launch
+(`client-data\profiles`, `clientside-mods.xml`) and clears `[Internal] ModProfile`, so every launch starts as the
+first did, and sets `[Startup] DevMode` (no countdowns, animations or news). A launch whose driver has not armed
+(`client.armed`) within `-ArmMinutes` (6) has the desktop saved (`client-<phase>-stuck-<n>.png`) and its logs
+kept, and is tried once more.
 
 ## Not known before the first run
 
