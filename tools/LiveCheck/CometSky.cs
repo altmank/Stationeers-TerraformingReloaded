@@ -46,7 +46,9 @@ namespace TerraformingReloaded.LiveCheck
     {
         private const uint StartTick = 20;
         private const double StageSeconds = 900.0;
-        private const double TrackSeconds = 15.0;
+        private const double ArrivedDegrees = 1.0;
+        private const double SettleSeconds = 2.0;
+        private const double TurnMarginSeconds = 30.0;
         private const double LowestTracked = 3.0;
         private const double AfterSave = 30.0;
         private const double PassWindow = 20.0;
@@ -72,6 +74,9 @@ namespace TerraformingReloaded.LiveCheck
 
         // The telescope, tracked while the comet is up.
         private double _trackedSince = double.NaN;
+        private double _arrivedSince = double.NaN;
+        private double _offAtStart = double.NaN;
+        private bool _aimedLogged;
         private bool _lockJudged;
 
         // The next highest, predicted by the bay and seen in the game's sky.
@@ -423,7 +428,15 @@ namespace TerraformingReloaded.LiveCheck
             }
         }
 
-        /// <summary>While the comet is up, the telescope aimed at it by its own logic values; the action once it has tracked long enough.</summary>
+        /// <summary>
+        /// While the comet is up, the telescope aimed at it by its own logic values; the action once the dish, by
+        /// its own Horizontal and Vertical, has been within <see cref="ArrivedDegrees"/> of the comet for
+        /// <see cref="SettleSeconds"/>. The dish turns at the game's own rate (RotatableBehaviour: a ratio of
+        /// 180 / range x the telescope's MovementSpeed a second, so 180 x MovementSpeed degrees a second on each
+        /// axis), read from the telescope, so the longest turn it can be asked for, half way round, sets how long
+        /// it is given: twice that, for a comet moving while it turns, and a margin. A comet that sets first is
+        /// followed again from its next rising.
+        /// </summary>
         private void Track(Action judge)
         {
             CometSkyBodies.Shown shown = CometSkyBodies.For(_cometId);
@@ -431,23 +444,66 @@ namespace TerraformingReloaded.LiveCheck
             {
                 return;
             }
-            Bearing bearing = CometSkyRules.Shipped.BearingOf(Seen(shown.Body));
+            SkyVector comet = Seen(shown.Body);
+            Bearing bearing = CometSkyRules.Shipped.BearingOf(comet);
             if (bearing.Height < LowestTracked)
             {
                 _trackedSince = double.NaN;
+                _arrivedSince = double.NaN;
                 return;
             }
             TelescopeAim aim = CometSkyRules.Shipped.AimFor(bearing);
             _telescope.SetLogicValue(LogicType.Horizontal, aim.Horizontal);
             _telescope.SetLogicValue(LogicType.Vertical, aim.Vertical);
+            double horizontalRate = 180.0 * _telescope.MovementSpeedHorizontal;
+            double verticalRate = 180.0 * _telescope.MovementSpeedVertical;
+            double longest = Math.Max(180.0 / horizontalRate, 90.0 / verticalRate);
+            double allowed = 2.0 * longest + TurnMarginSeconds;
+            double off = DishOff(comet);
+            double now = Clock;
             if (double.IsNaN(_trackedSince))
             {
-                _trackedSince = Clock;
+                _trackedSince = now;
+                _offAtStart = off;
+                _arrivedSince = double.NaN;
             }
-            if (Clock - _trackedSince >= TrackSeconds)
+            if (off <= ArrivedDegrees)
             {
-                judge();
+                if (double.IsNaN(_arrivedSince))
+                {
+                    _arrivedSince = now;
+                }
+                if (now - _arrivedSince >= SettleSeconds)
+                {
+                    if (!_aimedLogged)
+                    {
+                        _aimedLogged = true;
+                        Info(string.Format(CultureInfo.InvariantCulture,
+                            "aimed | the dish turns {0:0.###} deg/s across and {1:0.###} deg/s up and down (MovementSpeed {2:R}, {3:R}) | it started {4:0.###} deg off the comet and was within {5} deg after {6:0.###} s, then held {7} s | allowed {8:0.#} s",
+                            horizontalRate, verticalRate, _telescope.MovementSpeedHorizontal, _telescope.MovementSpeedVertical, _offAtStart, ArrivedDegrees,
+                            _arrivedSince - _trackedSince, SettleSeconds, allowed));
+                    }
+                    judge();
+                }
+                return;
             }
+            _arrivedSince = double.NaN;
+            if (now - _trackedSince > allowed)
+            {
+                Fail(string.Format(CultureInfo.InvariantCulture,
+                    "the telescope did not come within {0} deg of the comet in {1:0.#} s (it turns {2:0.###} and {3:0.###} deg/s; it started {4:0.###} deg off and is {5:0.###} deg off now, Horizontal {6:0.###} Vertical {7:0.###} for {8:0.###} and {9:0.###})",
+                    ArrivedDegrees, allowed, horizontalRate, verticalRate, _offAtStart, off, _telescope.GetLogicValue(LogicType.Horizontal), _telescope.GetLogicValue(LogicType.Vertical),
+                    aim.Horizontal, aim.Vertical));
+            }
+        }
+
+        /// <summary>How far the dish looks from the comet, in degrees, by the telescope's own Horizontal and Vertical.</summary>
+        private double DishOff(SkyVector comet)
+        {
+            double azimuth = _telescope.GetLogicValue(LogicType.Horizontal) * Math.PI / 180.0;
+            double height = (90.0 - _telescope.GetLogicValue(LogicType.Vertical)) * Math.PI / 180.0;
+            SkyVector dish = new SkyVector(Math.Sin(azimuth) * Math.Cos(height), Math.Sin(height), Math.Cos(azimuth) * Math.Cos(height));
+            return SkyVector.AngleDegrees(dish, comet);
         }
 
         /// <summary>The telescope locked onto the comet, within 2 degrees, reading back the orbit the rule set.</summary>
