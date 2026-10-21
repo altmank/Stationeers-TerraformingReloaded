@@ -158,6 +158,10 @@ namespace TerraformingReloaded.Comets
         public MapComet BackOnClock(double clock) =>
             new MapComet(Id, State, Gases, Moles, CometKg, Engines, Fuel, FuelKgPerMole, SiteId, Route, Hops, clock, MarkFlown);
 
+        /// <summary>The same comet with its site and route given as other node ids, after a load renumbered them.</summary>
+        public MapComet WithNodes(long siteId, long[] route) =>
+            new MapComet(Id, State, Gases, Moles, CometKg, Engines, Fuel, FuelKgPerMole, siteId, route, Hops, MarkClock, MarkFlown);
+
         /// <summary>The flight over: parked at Entry, or stranded where its fuel ran out.</summary>
         public MapComet Settled(bool arrived) =>
             new MapComet(Id, arrived ? MapCometState.Arrived : MapCometState.Stranded, Gases, Moles, CometKg, Engines, Fuel, FuelKgPerMole,

@@ -30,8 +30,9 @@ namespace TerraformingReloaded.Comets
             MethodInfo gather = AccessTools.DeclaredMethod(typeof(XmlSaveLoad), "GetWorldData");
             MethodInfo zip = AccessTools.DeclaredMethod(typeof(SaveHelper), "AddZipFile", new[] { typeof(ZipOutputStream), typeof(System.IO.Stream), typeof(string) });
             MethodInfo load = AccessTools.DeclaredMethod(typeof(SpaceMap), "LoadGameSave");
+            MethodInfo site = AccessTools.DeclaredMethod(typeof(SpaceMapNode), "Create", new[] { typeof(SiteNodeReference) });
             MethodInfo clock = AccessTools.DeclaredMethod(typeof(OrbitalSimulation), "DeserializeSave");
-            if (gather == null || zip == null || load == null || clock == null)
+            if (gather == null || zip == null || load == null || clock == null || site == null)
             {
                 throw new MissingMethodException("the save no longer gathers, zips, rebuilds the space map or restores its clock where the comets expect");
             }
@@ -43,6 +44,9 @@ namespace TerraformingReloaded.Comets
             // compile it, and the three before it are then still checked there. Until all four are in,
             // no comet is made.
             harmony.Patch(zip, postfix: Body(nameof(ZipPostfix)));
+            // A site comes back without the id it was saved with whenever the low-orbit hub, which takes a
+            // fresh id at every load, took that id first; so each rebuilt site is noted by its saved id.
+            harmony.Patch(site, postfix: Body(nameof(SitePostfix)));
             harmony.Patch(load, postfix: Body(nameof(LoadPostfix)));
             harmony.Patch(clock, postfix: Body(nameof(ClockPostfix)));
             harmony.Patch(gather, postfix: Body(nameof(GatherPostfix)));
@@ -92,7 +96,9 @@ namespace TerraformingReloaded.Comets
 
         private static void ZipPostfix(ZipOutputStream zipStream, string fileName) => CometMap.WriteZipEntry(zipStream, fileName);
 
-        private static void LoadPostfix() => CometMap.LoadFromSave();
+        private static void SitePostfix(SiteNodeReference saveData, SpaceMapNode __result) => CometMap.SiteRebuilt(saveData?.Id ?? 0L, __result);
+
+        private static void LoadPostfix(SpaceMapSaveData spaceMapData) => CometMap.LoadFromSave(spaceMapData);
 
         private static void ClockPostfix()
         {

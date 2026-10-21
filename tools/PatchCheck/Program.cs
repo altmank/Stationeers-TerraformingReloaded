@@ -813,7 +813,7 @@ internal static class Program
     {
         int failures = 0;
         string save = TerraformingReloaded.Comets.CometMap.CheckSave();
-        failures += Judge(save == null, "comet map save: " + (save ?? "comets waiting, in flight and stranded read back from the save to the last bit, and a flight stands where it was saved whenever its load puts it back on the clock"));
+        failures += Judge(save == null, "comet map save: " + (save ?? "comets waiting, in flight and stranded read back from the save to the last bit, a flight stands where it was saved whenever its load puts it back on the clock, and every node a comet refers to moves to the id the load gives it"));
         var parts = new (string Name, Action<HarmonyLib.Harmony> Apply)[]
         {
             ("comet map save", TerraformingReloaded.Comets.CometMapPatches.ApplySave),

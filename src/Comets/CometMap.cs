@@ -44,6 +44,18 @@ namespace TerraformingReloaded.Comets
         private static volatile byte[] _saveBytes;
         private static int _faults;
 
+        /// <summary>
+        /// The sites the load being run has rebuilt, by the id their save gave them
+        /// (SpaceMapNode.Create(SiteNodeReference)). That id is not theirs again: see <see cref="LoadFromSave"/>.
+        /// </summary>
+        private static readonly Dictionary<long, SpaceMapNode> RebuiltSites = new Dictionary<long, SpaceMapNode>();
+
+        /// <summary>
+        /// After a load, until every node the loaded comets refer to has the id the game finally gives it:
+        /// each node by the id the save knew it by. Null when no comet waits for that.
+        /// </summary>
+        private static Dictionary<long, SpaceMapNode> _savedNodes;
+
         private static readonly Lazy<XmlSerializer> Serializer = new Lazy<XmlSerializer>(() => new XmlSerializer(typeof(CometSaveFile)));
 
         /// <summary>Every comet now on the map, one consistent list.</summary>
@@ -63,7 +75,65 @@ namespace TerraformingReloaded.Comets
             {
                 _comets = new MapComet[0];
                 _saveBytes = null;
+                _savedNodes = null;
+                RebuiltSites.Clear();
             }
+        }
+
+        /// <summary>SpaceMapNode.Create(SiteNodeReference), during a load: the site the save knew by this id.</summary>
+        internal static void SiteRebuilt(long savedId, SpaceMapNode site)
+        {
+            if (site != null && savedId != 0L)
+            {
+                RebuiltSites[savedId] = site;
+            }
+        }
+
+        /// <summary>
+        /// A node by an identity that survives a load, for logs and tools/LiveCheck: Entry and the low-orbit
+        /// hub by their role, a static node by its template, a site by its template and its parent's identity.
+        /// The game's ReferenceId does not survive a load (<see cref="LoadFromSave"/>).
+        /// </summary>
+        public static string Identity(SpaceMapNode node)
+        {
+            SpaceMap map = SpaceMap.Current;
+            if (node == null)
+            {
+                return "?";
+            }
+            if (map != null && node == map.EntryNode)
+            {
+                return "Entry";
+            }
+            if (map != null && node == map.LowOrbitHubNode)
+            {
+                return "LowOrbitHub";
+            }
+            switch (node.NodeType)
+            {
+                case NodeType.Static:
+                    return "Static " + node.Data?.Id;
+                case NodeType.Generated:
+                    return "Site " + node.Data?.Id + " under " + Identity(node.ParentConnection?.Parent);
+                default:
+                    return node.NodeType.ToString();
+            }
+        }
+
+        /// <summary>The identities of a comet's site and route, for tools/LiveCheck: "site X | route A -> B -> Entry".</summary>
+        public static string RouteIdentities(int id)
+        {
+            MapComet comet = Find(id);
+            if (comet == null)
+            {
+                return "none";
+            }
+            StringBuilder text = new StringBuilder("site ").Append(Identity(SpaceMapNode.Get(comet.SiteId))).Append(" | route ");
+            for (int i = 0; i < comet.Route.Length; i++)
+            {
+                text.Append(i == 0 ? "" : " -> ").Append(Identity(RouteNode(comet, i)));
+            }
+            return text.ToString();
         }
 
         /// <summary>The sites a comet can be made at, in the order the console lists them: every discovered site on the map.</summary>
@@ -274,6 +344,7 @@ namespace TerraformingReloaded.Comets
             {
                 return;
             }
+            Relink();
             ClockRestored();
             double now = Clock;
             bool settled = false;
@@ -327,6 +398,7 @@ namespace TerraformingReloaded.Comets
         /// </summary>
         internal static void ClockRestored()
         {
+            Relink();
             MapComet[] comets = _comets;
             bool waiting = false;
             foreach (MapComet comet in comets)
@@ -504,9 +576,11 @@ namespace TerraformingReloaded.Comets
         /// the comets that save holds. A flight comes back where it was, off the clock until
         /// <see cref="ClockRestored"/>. A comet whose site or route is gone is dropped, by name.
         /// </summary>
-        internal static void LoadFromSave()
+        internal static void LoadFromSave(SpaceMapSaveData map)
         {
             List<MapComet> loaded = new List<MapComet>();
+            Dictionary<long, SpaceMapNode> saved = SavedNodes(map);
+            RebuiltSites.Clear();
             try
             {
                 string folder = XmlSaveLoad.Instance?.CurrentWorldSave?.RootDir?.FullName;
@@ -533,7 +607,7 @@ namespace TerraformingReloaded.Comets
                         Log.Warn("[TR comet map] Comet " + record?.Id + " in this save was not loaded: it has " + refused + ".");
                         continue;
                     }
-                    string missing = MissingNode(comet);
+                    string missing = MissingNode(comet, saved);
                     if (missing != null)
                     {
                         Log.Warn("[TR comet map] Comet " + comet.Id + " in this save was not loaded: " + missing + ".");
@@ -545,7 +619,6 @@ namespace TerraformingReloaded.Comets
                         continue;
                     }
                     loaded.Add(comet);
-                    Log.Info("[TR comet map] loaded " + Describe(comet, 0.0));
                 }
             }
             catch (Exception e)
@@ -558,6 +631,7 @@ namespace TerraformingReloaded.Comets
                 lock (Changes)
                 {
                     Publish(loaded.ToArray());
+                    _savedNodes = loaded.Count > 0 ? saved : null;
                 }
             }
             if (loaded.Count > 0)
@@ -566,11 +640,71 @@ namespace TerraformingReloaded.Comets
             }
         }
 
-        private static string MissingNode(MapComet comet)
+        /// <summary>
+        /// Every node a save knew, by the id it knew it by, found again on the rebuilt map without that id:
+        /// Entry and the low-orbit hub by their role, a static node by its template, a site as the load
+        /// rebuilt it from its record (<see cref="SiteRebuilt"/>).
+        /// </summary>
+        private static Dictionary<long, SpaceMapNode> SavedNodes(SpaceMapSaveData data)
+        {
+            Dictionary<long, SpaceMapNode> saved = new Dictionary<long, SpaceMapNode>();
+            SpaceMap map = SpaceMap.Current;
+            if (data?.Nodes == null || map?.EntryNode == null)
+            {
+                return saved;
+            }
+            foreach (MapNodeReference reference in data.Nodes)
+            {
+                if (reference == null || reference.Id == 0L)
+                {
+                    continue;
+                }
+                SpaceMapNode node = null;
+                if (reference is SiteNodeReference)
+                {
+                    RebuiltSites.TryGetValue(reference.Id, out node);
+                }
+                else if (reference is TemplateNodeReference template)
+                {
+                    node = template.TemplateId == map.EntryNode.Data?.Id ? map.EntryNode
+                        : map.LowOrbitHubNode != null && template.TemplateId == map.LowOrbitHubNode.Data?.Id ? map.LowOrbitHubNode
+                        : StaticNamed(map.EntryNode, template.TemplateId);
+                }
+                if (node != null)
+                {
+                    saved[reference.Id] = node;
+                }
+            }
+            return saved;
+        }
+
+        /// <summary>The static node of this template, found by walking the map from Entry, whatever id it has.</summary>
+        private static SpaceMapNode StaticNamed(SpaceMapNode from, string templateId)
+        {
+            if (from == null || string.IsNullOrEmpty(templateId))
+            {
+                return null;
+            }
+            if (from.NodeType == NodeType.Static && from.Data?.Id == templateId)
+            {
+                return from;
+            }
+            foreach (NodeConnection connection in from.ChildConnections)
+            {
+                SpaceMapNode found = connection?.Child?.NodeType == NodeType.Static ? StaticNamed(connection.Child, templateId) : null;
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+            return null;
+        }
+
+        private static string MissingNode(MapComet comet, Dictionary<long, SpaceMapNode> saved)
         {
             if (comet.State == MapCometState.Waiting)
             {
-                return SpaceMapNode.Get(comet.SiteId) == null ? "the site it waits at is not on the map" : null;
+                return saved.ContainsKey(comet.SiteId) ? null : "the site it waits at is not on the map";
             }
             if (SpaceMap.Current?.EntryNode == null)
             {
@@ -582,12 +716,97 @@ namespace TerraformingReloaded.Comets
             }
             for (int i = 0; i < comet.Route.Length - 1; i++)
             {
-                if (SpaceMapNode.Get(comet.Route[i]) == null)
+                if (!saved.ContainsKey(comet.Route[i]))
                 {
                     return "a node on its route is not on the map";
                 }
             }
             return null;
+        }
+
+        /// <summary>
+        /// After a load, once the game has given every node the loaded comets refer to its id for this
+        /// session (a site whose saved id the low-orbit hub took is given a new one in
+        /// Referencable.AssignNewIdToDuplicates, near the end of the load): every comet's site and route
+        /// renumbered from the ids the save knew to those. Then each comet's line, to compare with its line
+        /// at the save. Main thread; safe to call again.
+        /// </summary>
+        internal static void Relink()
+        {
+            Dictionary<long, SpaceMapNode> saved = _savedNodes;
+            if (saved == null || NetworkManager.IsClient || GameManager.GameState != GameState.Running)
+            {
+                return;
+            }
+            Dictionary<long, long> ids = new Dictionary<long, long>();
+            foreach (KeyValuePair<long, SpaceMapNode> node in saved)
+            {
+                if (node.Value.ReferenceId == 0L || SpaceMapNode.Get(node.Value.ReferenceId) != node.Value)
+                {
+                    continue;
+                }
+                ids[node.Key] = node.Value.ReferenceId;
+            }
+            MapComet[] relinked;
+            lock (Changes)
+            {
+                List<MapComet> list = new List<MapComet>();
+                foreach (MapComet comet in _comets)
+                {
+                    MapComet renumbered = Renumbered(comet, ids, out string missing);
+                    if (renumbered == null)
+                    {
+                        Log.Warn("[TR comet map] Comet " + comet.Id + " in this save was not loaded: " + missing + ".");
+                        continue;
+                    }
+                    list.Add(renumbered);
+                }
+                relinked = list.ToArray();
+                Publish(relinked);
+                _savedNodes = null;
+            }
+            double now = Clock;
+            foreach (MapComet comet in relinked)
+            {
+                Log.Info("[TR comet map] loaded " + Describe(comet, now));
+            }
+            CometNet.BroadcastMap();
+        }
+
+        /// <summary>
+        /// A comet with its site and route renumbered from one set of node ids to another, or null with why
+        /// not. A comet that is waiting needs its site, one that has set off and not arrived every node of
+        /// its route but Entry, which is always found by its role; a node a parked comet no longer needs
+        /// becomes 0.
+        /// </summary>
+        internal static MapComet Renumbered(MapComet comet, IDictionary<long, long> ids, out string missing)
+        {
+            missing = null;
+            bool needsSite = comet.State == MapCometState.Waiting;
+            bool needsRoute = comet.State == MapCometState.Flying || comet.State == MapCometState.Stranded;
+            if (!ids.TryGetValue(comet.SiteId, out long site))
+            {
+                if (needsSite)
+                {
+                    missing = "the site it waits at is not on the map";
+                    return null;
+                }
+                site = 0L;
+            }
+            long[] route = new long[comet.Route.Length];
+            for (int i = 0; i < route.Length; i++)
+            {
+                if (ids.TryGetValue(comet.Route[i], out long node))
+                {
+                    route[i] = node;
+                }
+                else if (needsRoute && i < route.Length - 1)
+                {
+                    missing = "a node on its route is not on the map";
+                    return null;
+                }
+            }
+            return comet.WithNodes(site, route);
         }
 
         /// <summary>One comet, its state and where it stands, with every number round-trip exact: how a save and its load are compared.</summary>
@@ -597,13 +816,13 @@ namespace TerraformingReloaded.Comets
             if (comet.State == MapCometState.Waiting)
             {
                 return string.Format(c, "comet {0} {1} | site {2} | fuel {3:R} | mol {4:R} | kg {5:R} | engines {6}",
-                    comet.Id, comet.State, comet.SiteId, comet.Fuel, comet.TotalMoles, comet.CometKg, comet.Engines);
+                    comet.Id, comet.State, Identity(SpaceMapNode.Get(comet.SiteId)), comet.Fuel, comet.TotalMoles, comet.CometKg, comet.Engines);
             }
             RoutePosition position = comet.At(now);
             return string.Format(c, "comet {0} {1} | flown {2:R} | hop {3} | progress {4:R} | fuel {5:R} | mol {6:R} | kg {7:R} | engines {8} | node {9}",
                 comet.Id, comet.State, comet.State == MapCometState.Flying ? comet.FlownAt(now) : position.BurnSeconds, position.Stop.Hop, position.Stop.Progress,
                 position.FuelLeft, comet.TotalMoles, comet.CometKg, comet.Engines,
-                position.Arrived ? "Entry " + (SpaceMap.Current?.EntryNode?.DisplayName ?? "?") : RouteNode(comet, position.Stop.Hop)?.DisplayName ?? "?");
+                Identity(position.Arrived ? SpaceMap.Current?.EntryNode : RouteNode(comet, position.Stop.Hop)));
         }
 
         /// <summary>
@@ -676,6 +895,39 @@ namespace TerraformingReloaded.Comets
                             was.Id, atSave.Stop.Hop, atSave.Stop.Progress, atLoad.Stop.Hop, atLoad.Stop.Progress, later);
                     }
                 }
+            }
+
+            // A load gives nodes new ids: the low-orbit hub takes a fresh one first, so a site saved as 42 comes
+            // back as 43 while the hub is now 42. Every node a comet refers to must move to its new id, none may
+            // keep the old one, and a flight must stand where it stood.
+            Dictionary<long, long> moved = new Dictionary<long, long> { { 42L, 43L }, { 17L, 17L }, { 5L, 6L }, { 3L, 1L } };
+            foreach (MapComet was in before)
+            {
+                MapComet renumbered = Renumbered(was, moved, out string missing);
+                long[] expected = Array.ConvertAll(was.Route, id => moved[id]);
+                if (renumbered == null || renumbered.SiteId != 43L || renumbered.Route.Length != expected.Length
+                    || !Array.TrueForAll(expected, id => Array.IndexOf(renumbered.Route, id) >= 0) || Array.IndexOf(renumbered.Route, 42L) >= 0)
+                {
+                    return "comet " + was.Id + " is not moved to the ids its nodes have after a load" + (missing != null ? ": " + missing : "");
+                }
+                if (was.State != MapCometState.Waiting)
+                {
+                    RoutePosition a = was.At(saved);
+                    RoutePosition b = renumbered.At(saved);
+                    if (a.Stop.Hop != b.Stop.Hop || a.Stop.Progress != b.Stop.Progress || a.FuelLeft != b.FuelLeft)
+                    {
+                        return "comet " + was.Id + " moves along its route when its nodes are renumbered";
+                    }
+                }
+            }
+            Dictionary<long, long> gone = new Dictionary<long, long> { { 42L, 43L }, { 5L, 6L }, { 3L, 1L } };
+            if (Renumbered(flying, gone, out _) != null || Renumbered(new MapComet(4, MapCometState.Waiting, gases, moles, 1.0, 1, 1.0, 0.016, 99L, null, null, double.NaN, 0.0), moved, out _) != null)
+            {
+                return "a comet whose route or site is no longer on the map after a load is kept";
+            }
+            if (Renumbered(flying.Settled(true), gone, out _) == null)
+            {
+                return "a comet parked at Entry is dropped because a node it no longer needs is gone";
             }
             return null;
         }

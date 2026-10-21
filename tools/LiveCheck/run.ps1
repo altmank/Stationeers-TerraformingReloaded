@@ -969,7 +969,7 @@ try {
         $keptMake = Join-Path $env:TEMP 'tr-livecheck-cometflight-make.log'
         $made | Set-Content $keptMake
         Stop-Game
-        $first = @($made -match 'LiveCheck: comet ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' }
+        $first = @(@($made -match 'LiveCheck: comet ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' })
         $first | Write-Host
         Write-Host "  the whole log is in $keptMake"
         $failed = @($first -match '^comet FAIL')
@@ -993,7 +993,7 @@ try {
         $keptLoad = Join-Path $env:TEMP 'tr-livecheck-cometflight-load.log'
         $log | Set-Content $keptLoad
         Stop-Game
-        $second = @($log -match 'LiveCheck: comet ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' }
+        $second = @(@($log -match 'LiveCheck: comet ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' })
         $second | Write-Host
         Write-Host "  the whole log is in $keptLoad"
         $failed = @($second -match '^comet FAIL')
@@ -1019,23 +1019,31 @@ try {
         $flownLoaded = if ($onClock.Count -gt 0 -and $onClock[0] -match ', (\S+) s into its flight') { $Matches[1] } else { 'not logged' }
         $judged += "comet resumed $(if ($flownSaved -eq $flownLoaded) { 'PASS' } else { 'FAIL' }) | comet $c saved $flownSaved s into its flight, back on the clock at $flownLoaded s"
         # A keeps the fuel it arrived with; B stays at the hop and progress it stopped at.
-        $arrivedFuel = @($first -match "^comet arrive PASS \| comet $($ids[0]) ") | ForEach-Object { if ($_ -match 'fuel left (\S+) \(rule') { $Matches[1] } }
-        $parkedFuel = @($second -match "^comet parked PASS \| comet $($ids[0]) ") | ForEach-Object { if ($_ -match 'fuel left (\S+)$') { $Matches[1] } }
-        $judged += "comet parked fuel $(if ($arrivedFuel.Count -eq 1 -and $arrivedFuel[0] -eq $parkedFuel) { 'PASS' } else { 'FAIL' }) | comet $($ids[0]) arrived with $arrivedFuel mol, parked after the load with $parkedFuel"
-        $stoppedAt = @($first -match "^comet strand PASS \| comet $($ids[1]) ") | ForEach-Object { if ($_ -match ' hop (\d+) at (\S+) \(rule hop') { "hop $($Matches[1]) at $($Matches[2])" } }
-        $strandedAt = @($second -match "^comet stranded PASS \| comet $($ids[1]) ") | ForEach-Object { if ($_ -match '\| hop (\d+) at (\S+) \|') { "hop $($Matches[1]) at $($Matches[2])" } }
-        $judged += "comet stranded place $(if ($stoppedAt.Count -eq 1 -and $stoppedAt[0] -eq $strandedAt) { 'PASS' } else { 'FAIL' }) | comet $($ids[1]) stopped at $stoppedAt, after the load at $strandedAt"
+        $arrivedFuel = @(@($first -match "^comet arrive PASS \| comet $($ids[0]) ") | ForEach-Object { if ($_ -match 'fuel left (\S+) \(rule') { $Matches[1] } })
+        $parkedFuel = @(@($second -match "^comet parked PASS \| comet $($ids[0]) ") | ForEach-Object { if ($_ -match 'fuel left (\S+)$') { $Matches[1] } })
+        $judged += "comet parked fuel $(if ($arrivedFuel.Count -eq 1 -and $parkedFuel.Count -eq 1 -and $arrivedFuel[0] -eq $parkedFuel[0]) { 'PASS' } else { 'FAIL' }) | comet $($ids[0]) arrived with $arrivedFuel mol, parked after the load with $parkedFuel"
+        $stoppedAt = @(@($first -match "^comet strand PASS \| comet $($ids[1]) ") | ForEach-Object { if ($_ -match ' hop (\d+) at (\S+) \(rule hop.*\| between (.+)$') { "hop $($Matches[1]) at $($Matches[2]) between $($Matches[3])" } })
+        $strandedAt = @(@($second -match "^comet stranded PASS \| comet $($ids[1]) ") | ForEach-Object { if ($_ -match '\| hop (\d+) at (\S+) \|.*\| between (.+)$') { "hop $($Matches[1]) at $($Matches[2]) between $($Matches[3])" } })
+        $judged += "comet stranded place $(if ($stoppedAt.Count -eq 1 -and $strandedAt.Count -eq 1 -and $stoppedAt[0] -eq $strandedAt[0]) { 'PASS' } else { 'FAIL' }) | comet $($ids[1]) stopped at $stoppedAt, after the load at $strandedAt"
+        # Every node a comet refers to, by an identity a load cannot change (the game's ids are not kept by a
+        # load): each comet's site and route at the save and after the load.
+        foreach ($id in $ids) {
+            $before = @(@($first -match "^comet route \| comet $id \| ") | ForEach-Object { $_ -replace '^comet route \| comet \d+ \| ', '' })
+            $after = @(@($second -match "^comet route \| comet $id \| ") | ForEach-Object { $_ -replace '^comet route \| comet \d+ \| ', '' })
+            $same = $before.Count -eq 1 -and $after.Count -eq 1 -and $before[0] -eq $after[0]
+            $judged += "comet route $(if ($same) { 'PASS' } else { 'FAIL' }) | comet $id | saved: $($before -join ' / ') | loaded: $($after -join ' / ')"
+        }
         $judged | Write-Host
 
         $problems = @($judged -match ' FAIL ')
         foreach ($want in '^comet guard PASS', '^comet arrive PASS', '^comet strand PASS') {
             if (@($first -match $want).Count -ne 1) { $problems += "the first instance did not print one '$($want.TrimStart('^'))' line" }
         }
-        foreach ($want in '^comet parked PASS', '^comet stranded PASS', '^comet resume arrive PASS') {
+        foreach ($want in '^comet parked PASS', '^comet stranded PASS', '^comet nodes PASS', '^comet resume arrive PASS') {
             if (@($second -match $want).Count -ne 1) { $problems += "the second instance did not print one '$($want.TrimStart('^'))' line" }
         }
         if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join ' / ')" }
-        Write-Host 'LiveCheck OK: a comet flew the game''s route from a real site to Entry in the rule''s time, one short of fuel stopped where the rule says and stayed, the site a comet held stayed on the map, and a save in the middle of a flight loaded with every comet where it was: one parked at Entry with its fuel, one stranded at the same place, and one flying on from the same second to arrive on time.'
+        Write-Host 'LiveCheck OK: a comet flew the game''s route from a real site to Entry in the rule''s time, one short of fuel stopped where the rule says and stayed, the site a comet held stayed on the map, and a save in the middle of a flight loaded with every comet where it was: one parked at Entry with its fuel, one stranded at the same place, and one flying on from the same second to arrive on time, every node each refers to the same after the load.'
         return
     }
 

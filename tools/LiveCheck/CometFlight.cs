@@ -330,6 +330,7 @@ namespace TerraformingReloaded.LiveCheck
                 _savedClock = now;
                 _stage = Stage.Saving;
                 Info(string.Format(CultureInfo.InvariantCulture, "saving | at clock {0:R} | comet {1} at {2:0.000} of its route, hop {3} at {4:0.0000}", now, _c, c.RouteShare, c.Hop, c.Progress));
+                Routes();
                 Util.Commands.CommandLine.Process("file save");
             }
             else if (c.RouteShare > SaveTo)
@@ -366,9 +367,9 @@ namespace TerraformingReloaded.LiveCheck
             bool stayed = now.Hop == _bStopped.Hop && now.Progress == _bStopped.Progress && now.State == MapCometState.Stranded && now.FuelLeft <= 1e-9;
             bool pass = where && when && stayed;
             Info(string.Format(CultureInfo.InvariantCulture,
-                "strand {0} | comet {1} stopped {2:0.000} s after it was sent (rule {3:0.000} s) at {4:R} of the route (rule {5:R}), hop {6} at {7:R} (rule hop {8} at {9:R}) | {10} {11:0} s later | fuel left {12:R}",
+                "strand {0} | comet {1} stopped {2:0.000} s after it was sent (rule {3:0.000} s) at {4:R} of the route (rule {5:R}), hop {6} at {7:R} (rule hop {8} at {9:R}) | {10} {11:0} s later | fuel left {12:R} | between {13} and {14}",
                 pass ? "PASS" : "FAIL", now.Id, stoppedAfter, rule.Seconds, now.RouteShare, rule.Share, now.Hop, now.Progress, expected.Hop, expected.Progress,
-                stayed ? "still there" : "MOVED", HoldSeconds, now.FuelLeft));
+                stayed ? "still there" : "MOVED", HoldSeconds, now.FuelLeft, Identity(now.FromNode), Identity(now.ToNode)));
             if (!pass)
             {
                 Fail("comet " + now.Id + " did not stop for good where the rule says");
@@ -417,12 +418,22 @@ namespace TerraformingReloaded.LiveCheck
                 Info(string.Format(CultureInfo.InvariantCulture, "parked {0} | comet {1} {2} at {3} | fuel left {4:R}",
                     parkedOk ? "PASS" : "FAIL", parked.Id, parked.State, parked.AtNode == map.EntryNode.ReferenceId ? "Entry " + map.EntryNode.DisplayName : "a node that is NOT Entry", parked.FuelLeft));
                 bool strandedOk = stranded.State == MapCometState.Stranded && stranded.AtNode == 0L;
-                Info(string.Format(CultureInfo.InvariantCulture, "stranded {0} | comet {1} {2} | hop {3} at {4:R} | {5:R} of the route | fuel left {6:R}",
-                    strandedOk ? "PASS" : "FAIL", stranded.Id, stranded.State, stranded.Hop, stranded.Progress, stranded.RouteShare, stranded.FuelLeft));
+                Info(string.Format(CultureInfo.InvariantCulture, "stranded {0} | comet {1} {2} | hop {3} at {4:R} | {5:R} of the route | fuel left {6:R} | between {7} and {8}",
+                    strandedOk ? "PASS" : "FAIL", stranded.Id, stranded.State, stranded.Hop, stranded.Progress, stranded.RouteShare, stranded.FuelLeft,
+                    Identity(stranded.FromNode), Identity(stranded.ToNode)));
+                // Every node a comet refers to, by an identity a load cannot change: each comet's site must be the
+                // one site the load brought back, and its route must start there. run.ps1 compares each comet's
+                // whole route with phase make's.
+                Routes();
+                string site = "site " + CometMap.Identity(_site) + " | route " + CometMap.Identity(_site) + " -> ";
+                bool nodesOk = new[] { _a, _b, _c }.All(id => CometMap.RouteIdentities(id).StartsWith(site, StringComparison.Ordinal))
+                    && Identity(stranded.FromNode).StartsWith("Site ", StringComparison.Ordinal) == (stranded.Hop == 0);
+                Info(string.Format(CultureInfo.InvariantCulture, "nodes {0} | every comet's site and first node is {1} (id {2}), the site the load brought back | comet {3} stands between {4} and {5}",
+                    nodesOk ? "PASS" : "FAIL", CometMap.Identity(_site), _site.ReferenceId, stranded.Id, Identity(stranded.FromNode), Identity(stranded.ToNode)));
                 CometView flying = Find(_c);
                 Info(string.Format(CultureInfo.InvariantCulture, "resumed | comet {0} {1} | flown {2:0.000} s | hop {3} at {4:0.0000} | {5:0.000} of the route | set off at clock {6:R}",
                     flying.Id, flying.State, flying.FlownSeconds, flying.Hop, flying.Progress, flying.RouteShare, flying.StartClock));
-                if (!parkedOk || !strandedOk || flying.State != MapCometState.Flying || double.IsNaN(flying.StartClock))
+                if (!parkedOk || !strandedOk || !nodesOk || flying.State != MapCometState.Flying || double.IsNaN(flying.StartClock))
                 {
                     Fail("the comets did not come back parked, stranded and flying on the clock");
                 }
@@ -545,6 +556,18 @@ namespace TerraformingReloaded.LiveCheck
                 }
             }
             return 0;
+        }
+
+        /// <summary>A node by the identity the mod gives it across loads; the game's ids are not kept by a load.</summary>
+        private static string Identity(long referenceId) => CometMap.Identity(SpaceMapNode.Get(referenceId));
+
+        /// <summary>Each comet's site and route by node identity, one line a comet.</summary>
+        private void Routes()
+        {
+            foreach (int id in new[] { _a, _b, _c })
+            {
+                Info("route | comet " + id.ToString(CultureInfo.InvariantCulture) + " | " + CometMap.RouteIdentities(id));
+            }
         }
 
         private static CometView Find(int id)
