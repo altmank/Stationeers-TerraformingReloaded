@@ -74,11 +74,13 @@ namespace TerraformingReloaded
             mod.Networking.Required = false;
             mod.Networking.JoinSuffixSerializer = sync;
             mod.Networking.UpdateSuffixSerializer = sync;
-            Comets.CometDirector.Install();
             // On its own: a LaunchPadBooster without mod messages costs the instant comet delivery,
-            // not the planet sync, which carries the comet too.
+            // not the planet sync, which carries the comet too. The director is made here so it is
+            // there for a comet that arrives with the planet sync; failing that, the first comet
+            // command makes it.
             try
             {
+                Comets.CometDirector.Install();
                 Comets.CometNet.Register(mod);
             }
             catch (Exception e)
