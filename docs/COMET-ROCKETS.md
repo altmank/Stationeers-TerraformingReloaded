@@ -386,6 +386,21 @@ in *What it is judged against*.
 | All thirteen values ride the planet sync, not only those a client computes with | 5, one rule rather than a choice per setting; 108 bytes a planet update | Sending only the orbit and the disc: each later stage would have to revisit the list |
 | No `terraform comet sky` command in this stage | 5, no shipped code without a use | A console readout of the sky rule: its proof in the game comes with the sky body, stage 5, where a telescope reading gives it real inputs |
 
+### Stages 3 and 4 (from reference/comet-map-actions.md)
+
+| Decision | Goal served | Alternative, and why it lost |
+|---|---|---|
+| The comet is the mod's own map object that copies the rocket travel step, not a real `Rocket` | 4, 5 | A real `Rocket` with no parts: an empty rocket network is never saved and is deregistered (the comet vanishes on load), thrust and mass come from real engine devices, and every list of rockets (map icons, Transfer, panels, launch mounts) would pick it up |
+| No avionics unit on the comet. Its destination is always Entry. The rocket at the site starts its flight with a Launch action, and a rocket at Entry aims it with its own payload bay's PositionX/PositionZ and fires the burn with a Deorbit action | 4, 5 | An avionics unit fitted at Rig: the game has no avionics item, only the kit that builds the device, so the unit would be mod state with no logic surface of its own. The payload bay already has PositionX/Z, the drop's own aim |
+| Engines are Rigged by carrying Pumped Gas engine kits inside a Payload Delivery Container and using the game's Deploy action at the comet's site | 4, 5 | A new Rig action and a new payload item: Deploy never exists at a site in the game, so reusing it there is unambiguous and needs one prefix |
+| Cut is a subclass of the game's mining action; the yield goes into the comet instead of ice | 4 | A separate Cut cycle: it would have to copy the miner's timing and head wear, which the game ties to the mining action |
+| The comet's state lives in an extra file inside the `.save` zip, not in the per-world sidecar | 5, and saves stay consistent | The sidecar is one file per world, so loading an older autosave would pair a newer comet with an older site. The game extracts and then deletes unknown entries without the mod, and the file rolls back with its save |
+| New rocket modes are saved as a game mode, with the real mode in the mod's save file | saves stay loadable | Saving an undefined mode throws after the save file is opened, so the save fails; loading an unknown mode name without the mod fails the whole save |
+| Clients compute the comet's map position from the departure event (start time on the shared clock, route, mass, thrust, fuel), sent once by the instant message and in the planet sync for joiners | 5, multiplayer | Sending its progress every frame: the travel rule is deterministic, so one event is enough |
+| Fuel is taken on the host from the rocket's tanks and pipe networks, never the engine chamber, in a postfix on the rocket's atmosphere step | 4 | Taking it elsewhere races the engines drawing propellant |
+| The size multiplier K follows the planet size: 5 at Standard (1/20), times the world's size over 1/20, never under 1 (Short 1, Long 25) | LU's rule that one site never delivers a third of a planet, on every size: what a planet needs scales with its size, so K must too | One K for every size: on Short a K = 5 comet brings more than the whole planet needs |
+| Fuel per trip is judged in stage 4, when a rocket's real fuel capacity is measured. A 248 t water comet needs about 323,000 mol from Frozen Vapors with two engines; if that is more trips than the work of Cut, the comet's mass gets a configurable scale with a derived default, as the game already leaves mined cargo weightless | 4 and the player's experience: the Fuel stage must be work, not a wall | Deciding a scale now: there is no measured fuel capacity yet to derive it from |
+
 ## Proof as it is built
 
 LU, 2026-10-21: prove each mechanic works as it is built, and that it still works once joined to the rest.
