@@ -545,10 +545,32 @@ a bigger comet is drawn with bigger puffs, not more of them. `CometArt` makes tw
 | Cap underside | the same ring 0.14 lower, darker shades, its tint warm while the fireball glows below it and cooling with it | as the top | 150 |
 | Base surge | `BillowSheet` puffs rolling out along the ground at the speed of sound to the dust's reach | 0.2 to 0.38 R, growing to twice that, so never higher than the fireball; at most 0.45 of the screen each | 220 |
 
-- **Lit puffs.** `BillowSheet` is a cluster of round billows each lit from above as a ball is: a bright top, a
-  shadowed underside, dark seams where billows meet, wispy edges. Systems using it turn their puffs at most a
-  quarter radian, so the light stays on top. Every cloud layer picks each puff's colour from the gas bands split
-  into shades (darker and more opaque, lighter and thinner), so the cloud is in masses rather than one alpha.
+- **Soft, lit puffs.** `BillowSheet` is drawn by `src/Comets/CometBillow.cs`, plain arithmetic with its own
+  noise, so the check measures the very texture the game draws. A puff is one mass: about forty billows whose
+  densities add (so they merge, never meeting at a line), thinning over most of its radius, with noise eating
+  into the thin edge so it frays. It is lit by the cloud between each point and the light above it, plus a
+  little for each billow's face turned to the light, so the top is bright, the underside in shadow and the
+  billows read inside it. Each frame differs from the next by under 0.02 in mean opacity, since a particle steps
+  through them without blending them, and the last runs on into the first. 192 texels a frame, 768 square with
+  mipmaps, worked out on a worker thread from the comet's first sight and made into a texture at the impact.
+  The 0.16 sheet was nine hard-edged balls, each lit as a sphere, with the front one's shading taken whole at
+  every texel: a crisp outline, a hard seam wherever two balls crossed, stepped at 128 texels a frame, and a
+  jump where its frames wrapped. Seen at 2.5 km, where a puff spans most of the screen, that is the pile of
+  balls the rig showed.
+- **Puffs blend.** A cloud puff is drawn at 0.55 over the middle of its life (0.16: 0.95, fading over the whole
+  of it), in over its first 8 to 10 % and out from 60 %. At its middle that is 0.45 opaque at night and 0.58 in
+  full day, where 0.16's was 0.81 and fully opaque, so the puff behind still shows through and where many lie behind
+  each other the cloud is dense. Systems using it turn their puffs at most a quarter radian and mirror half of
+  them left to right, so neighbours differ and the light stays on top. Every cloud layer picks each puff's
+  colour from the gas bands split into shades (darker and more opaque, lighter and thinner), so the cloud is in
+  masses rather than one alpha.
+- **The cloud stands to the end.** The stem and the cap are fed in full until 60 s before the show ends, taper to
+  nothing 30 s before it, and the whole cloud fades out over the last 30 s (`CometLook.CloudFade`,
+  `CloudFeed`). Before, feeding tapered from 80 s before the cap's longest puff could fade and every puff faded
+  over its whole life, so the cloud thinned from about 220 s and was gone before 300 s, at 86 % of its height,
+  against a show meant to run to 330 s.
+- **Not soft particles.** The puffs neither write depth nor fade against each other: the legacy particle
+  shaders fade only against the ground and the buildings in the depth buffer. The seams were in the texture.
 - **The cap grows as one.** Its two rings are drawn at a radius of one in a frame the cap's radius scales each
   frame, so a puff made when the cap was the fireball's width grows with it to the full cap.
 - **Screen share.** Each layer's puffs are held to a share of the screen's height (0.8 for the stem and cap, 0.45
@@ -579,6 +601,8 @@ a bigger comet is drawn with bigger puffs, not more of them. `CometArt` makes tw
   screen. Puffs hundreds of metres across turn more slowly, and fade into the ground over a tenth of their
   size rather than the art's 30 m. The show logs its frame time, mean and worst, at its end, and the rig's log
   carries the line.
+- **The puff's texture:** 768 by 768 with mipmaps, 3.1 MB, against 0.16's 512 by 512 without, 1 MB. Made once
+  a session, on a worker thread, so the frame the cloud first appears in does not wait for it.
 - **Length:** 345 s from first sight, against 115. A second console comet waits until then; the event in force
   already lasted until 330 s after the impact.
 
@@ -594,9 +618,20 @@ a bigger comet is drawn with bigger puffs, not more of them. `CometArt` makes tw
   zone) full grown at t, flash peak, cloud top, cap across, dust, rocks, show s after the impact, head scale;
   the show ends s after first sight`; the show's own line adds the far clip it set.
 - `CometLook.Check` runs at load beside the yield's, chained into the same verdict, and in `tools/PatchCheck`,
-  which hands it five wrong looks it must catch: a flash fading over a second, a thermal pulse that holds the
+  which hands it eleven wrong looks it must catch: a flash fading over a second, a thermal pulse that holds the
   view white, stem puffs half as wide again as the stem, a surge whose puffs may fill the screen, cap puffs
-  drawn from the fireball rather than the cap. PatchCheck prints the layers at 1e5, 1e7 and 1e9 mol.
+  drawn from the fireball rather than the cap, cloud puffs as opaque as 0.16's, a puff cut out as a disc, a puff
+  full to its rim with nothing eaten from its edge, a puff lit from below, a puff whose frames jump where they
+  wrap, and a cloud that fades over the show's last 90 s. PatchCheck prints the layers at 1e5, 1e7 and 1e9 mol
+  and what it measures of the puff.
+- The puff is measured at 64 texels a frame over all sixteen frames, against these, which are the look's own
+  and not measured from anything: inside a fifth of its radius at least 0.75 opaque (shipped 0.86); from 90 %
+  to 10 % of that over at least a third of the radius (0.36 to 0.71); nothing at the rim of its circle or
+  outside it; opacity changing by at most 11 per radius and shade by at most 6, in all but the steepest 1 % of
+  texels (7.5 and 2.1; a port of the 0.16 sheet, with a stand-in for Unity's noise, measures 18.4 and 7.4, and the edge 0.40 to 0.69); the top half
+  at least 0.06 lighter than the bottom (0.24); at most 0.02 from one frame to the next (0.015) and no more than
+  1.5 times that from the last to the first (0.012). One puff at its middle is at most 0.7 opaque in full day and
+  at least 0.3 at night, and the cloud stands in full for the first 80 % of the show and is gone at its end.
 - `tools/CometShot` makes the scene's camera controller the game's instance before it puts a sun in. Without it
   the sky's per-frame rebuild (`AtmosphericScattering.ManagerUpdate`, which reads the main camera's height
   through `CameraController.Instance`, set only off batch mode) threw every frame from the rig's sun on, before

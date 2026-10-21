@@ -42,13 +42,28 @@ namespace TerraformingReloaded.Comets
         public static Texture2D SmokeSheet => _smokeSheet ? _smokeSheet : (_smokeSheet = MakeSmokeSheet(128));
 
         /// <summary>
-        /// Sixteen frames, four by four, of a cauliflower of cloud: a cluster of round billows, each lit
-        /// from above as a ball is, so a puff has a bright top, a shadowed underside and dark seams
-        /// where billows meet, with wispy edges. The billows swell and roll across the frames. Grey, so
-        /// a particle's colour tints it. Drawn upright: a system using it turns its puffs very little,
-        /// so the light stays on top.
+        /// Sixteen frames, four by four, of a puff of cloud (<see cref="CometBillow"/>): a soft mass that
+        /// thins over most of its radius into a ragged, wispy edge, lit by the light it lets through
+        /// from above, so it has a bright top and a shadowed underside with its billows reading inside
+        /// it and no line where one part meets another. The frames roll on into each other and the
+        /// last into the first. Grey, so a particle's colour tints it. Drawn upright: a system using it
+        /// turns its puffs very little, and mirrors them only left to right, so the light stays on top.
         /// </summary>
-        public static Texture2D BillowSheet => _billowSheet ? _billowSheet : (_billowSheet = MakeBillowSheet(128));
+        public static Texture2D BillowSheet => _billowSheet ? _billowSheet : (_billowSheet = MakeBillowSheet());
+
+        private static System.Threading.Tasks.Task<byte[]> _billowBytes;
+
+        /// <summary>
+        /// Starts working out <see cref="BillowSheet"/>'s texels on a worker thread, so the texture is
+        /// ready, without holding up a frame, by the time the cloud first needs it.
+        /// </summary>
+        public static void PrepareBillow()
+        {
+            if (!_billowSheet && _billowBytes == null)
+            {
+                _billowBytes = System.Threading.Tasks.Task.Run(() => CometBillow.Shipped.Sheet(CometBillow.GameFrame));
+            }
+        }
 
         /// <summary>
         /// Sixteen frames, four by four, of a fireball's face: a disc darker and redder toward its limb,
@@ -235,95 +250,22 @@ namespace TerraformingReloaded.Comets
             return texture;
         }
 
-        private static Texture2D MakeBillowSheet(int frame)
+        private static Texture2D MakeBillowSheet()
         {
-            int size = frame * SheetTiles;
-            Texture2D texture = NewTexture(size);
+            PrepareBillow();
+            byte[] bytes = _billowBytes.Result;
+            _billowBytes = null;
+            int size = CometBillow.GameFrame * CometBillow.Tiles;
             Color32[] pixels = new Color32[size * size];
-            int frames = SheetTiles * SheetTiles;
-
-            // The billows, the same in every frame: a big one in the middle, the rest around and above it.
-            const int count = 9;
-            float[] cx = new float[count];
-            float[] cy = new float[count];
-            float[] radius = new float[count];
-            float[] driftX = new float[count];
-            float[] driftY = new float[count];
-            float[] depth = new float[count];
-            System.Random random = new System.Random(4127);
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < pixels.Length; i++)
             {
-                float angle = (float)random.NextDouble() * Mathf.PI * 2f;
-                float distance = i == 0 ? 0f : Mathf.Sqrt((float)random.NextDouble()) * 0.42f;
-                cx[i] = Mathf.Cos(angle) * distance;
-                cy[i] = Mathf.Sin(angle) * distance * 0.8f + (i == 0 ? -0.05f : 0.06f);
-                radius[i] = i == 0 ? 0.42f : 0.22f + 0.2f * (float)random.NextDouble();
-                float roll = (float)random.NextDouble() * Mathf.PI * 2f;
-                driftX[i] = Mathf.Cos(roll);
-                driftY[i] = Mathf.Sin(roll);
-                depth[i] = (float)random.NextDouble() * 0.25f;
+                pixels[i] = new Color32(bytes[4 * i], bytes[4 * i + 1], bytes[4 * i + 2], bytes[4 * i + 3]);
             }
-            Vector3 light = new Vector3(-0.35f, 0.8f, 0.5f).normalized;
-
-            for (int f = 0; f < frames; f++)
-            {
-                int column = f % SheetTiles;
-                int row = SheetTiles - 1 - f / SheetTiles;
-                float age = f / (float)(frames - 1);
-                float swell = 0.88f + 0.16f * age;
-                float turn = age * 1.4f;
-                for (int y = 0; y < frame; y++)
-                {
-                    for (int x = 0; x < frame; x++)
-                    {
-                        float u = (x + 0.5f) / frame;
-                        float v = (y + 0.5f) / frame;
-                        float px = u * 2f - 1f;
-                        float py = v * 2f - 1f;
-                        // Ragged outlines: the distance into each billow is pushed about by noise.
-                        float warp = Mathf.PerlinNoise(u * 5f + 3.1f + turn * 0.5f, v * 5f + 7.7f) - 0.5f;
-                        float front = float.NegativeInfinity;
-                        float shade = 0f;
-                        float cover = 0f;
-                        for (int i = 0; i < count; i++)
-                        {
-                            float rb = radius[i] * swell;
-                            float dx = (px - cx[i] - driftX[i] * 0.06f * age) / rb;
-                            float dy = (py - cy[i] - driftY[i] * 0.06f * age - 0.04f * age) / rb;
-                            float d2 = dx * dx + dy * dy + 0.35f * warp;
-                            if (d2 >= 1f)
-                            {
-                                continue;
-                            }
-                            cover = Mathf.Max(cover, Mathf.Clamp01((1f - d2) * 4f));
-                            float bulge = Mathf.Sqrt(1f - Mathf.Max(0f, d2));
-                            float z = depth[i] + bulge * rb;
-                            if (z > front)
-                            {
-                                front = z;
-                                Vector3 normal = new Vector3(dx, dy, bulge).normalized;
-                                float lambert = Mathf.Clamp01((Vector3.Dot(normal, light) + 0.15f) / 1.15f);
-                                shade = 0.3f + 0.7f * Mathf.Pow(lambert, 0.8f);
-                            }
-                        }
-                        if (cover <= 0f)
-                        {
-                            pixels[(row * frame + y) * size + column * frame + x] = new Color32(0, 0, 0, 0);
-                            continue;
-                        }
-                        // Billows sitting further back are in the shade of those in front of them.
-                        shade *= 0.72f + 0.28f * Mathf.Clamp01(front / 0.55f);
-                        float detail = Mathf.PerlinNoise(u * 9f + turn, v * 9f - turn * 0.5f);
-                        shade = Mathf.Clamp01(shade * (0.85f + 0.3f * detail));
-                        float border = Mathf.Clamp01((1f - Mathf.Max(Mathf.Abs(px), Mathf.Abs(py))) * 10f);
-                        float alpha = cover * (0.82f + 0.18f * detail) * border;
-                        byte grey = (byte)(shade * 255f);
-                        pixels[(row * frame + y) * size + column * frame + x] = new Color32(grey, grey, grey, (byte)(Mathf.Clamp01(alpha) * 255f));
-                    }
-                }
-            }
+            // Mipmapped, so a cloud seen from far off is not a shimmer of undersampled frames; every
+            // frame is clear at its border, so the smaller levels do not bleed one into the next.
+            Texture2D texture = NewTexture(size, mipmaps: true);
             texture.SetPixels32(pixels);
-            texture.Apply(false, true);
+            texture.Apply(true, true);
             return texture;
         }
 
@@ -401,9 +343,9 @@ namespace TerraformingReloaded.Comets
             return texture;
         }
 
-        private static Texture2D NewTexture(int size)
+        private static Texture2D NewTexture(int size, bool mipmaps = false)
         {
-            return new Texture2D(size, size, TextureFormat.RGBA32, false)
+            return new Texture2D(size, size, TextureFormat.RGBA32, mipmaps)
             {
                 wrapMode = TextureWrapMode.Clamp,
                 filterMode = FilterMode.Bilinear,

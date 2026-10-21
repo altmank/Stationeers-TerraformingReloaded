@@ -172,6 +172,69 @@ namespace TerraformingReloaded.Comets
         /// <summary>The most of the screen one surge puff may cover, so the sky shows past the wall as it rolls over the eye.</summary>
         public virtual double SurgeScreenShare => 0.45;
 
+        // ------------------------------------------------------------------ the cloud's puffs
+
+        /// <summary>The puff every layer of the cloud is drawn with (<see cref="CometBillow"/>).</summary>
+        public virtual CometBillow Billow => CometBillow.Shipped;
+
+        /// <summary>
+        /// A cloud puff's opacity over the middle of its life, before its shade's own (the darker
+        /// masses up to <see cref="ShadeAlphaMax"/>): low enough that puffs crossing each other blend
+        /// into one mass, and the cloud is dense where many lie behind each other.
+        /// </summary>
+        public virtual double PuffAlpha => 0.55;
+
+        /// <summary>The most opaque of the shades a cloud layer picks its puffs' colours from.</summary>
+        public const double ShadeAlphaMax = 0.95;
+
+        /// <summary>The share of its life a puff takes to appear, and the share from which it fades to nothing at its end.</summary>
+        public const double PuffFadeIn = 0.08;
+
+        public const double PuffFadeFrom = 0.6;
+
+        /// <summary>Smoke is drawn this much more opaque in full day than at night, so it reads against a bright sky.</summary>
+        public const double DaySmoke = 1.28;
+
+        /// <summary>The legacy particle shader doubles the tint and vertex colour it is given; the show tints its smoke at half.</summary>
+        public const double ShaderGain = 2.0;
+
+        public const double SmokeTint = 0.5;
+
+        /// <summary>
+        /// One puff at its middle is at most this opaque in full day, so the one behind it still shows
+        /// through and their outlines do not cut each other, and at least this opaque at night, so a
+        /// few of them make a cloud.
+        /// </summary>
+        public const double PuffOpacityAtMost = 0.7;
+
+        public const double PuffOpacityAtLeast = 0.3;
+
+        /// <summary>
+        /// One puff's opacity at its middle in the middle of its life: the shader's gain, the tint by
+        /// night or day, the darkest shade, the puff's own, and <paramref name="textureCore"/>, its
+        /// texture's at the middle (<see cref="CometBillow.Measures.Core"/>).
+        /// </summary>
+        public double PuffOpacity(bool day, double textureCore)
+        {
+            return ShaderGain * SmokeTint * (day ? DaySmoke : 1.0) * ShadeAlphaMax * PuffAlpha * textureCore;
+        }
+
+        /// <summary>
+        /// The cloud stops being fed <see cref="CloudFeedEndsSeconds"/> before the show ends, tapering
+        /// over the <see cref="CloudFadeSeconds"/> before that, and the whole of it fades out over the
+        /// show's last <see cref="CloudFadeSeconds"/>, so it stands near its full height until then and
+        /// is gone when the show ends.
+        /// </summary>
+        public const double CloudFadeSeconds = 30.0;
+
+        public const double CloudFeedEndsSeconds = 30.0;
+
+        /// <summary>How much of the cloud is drawn this long after the impact, 1 to 0, in a show <paramref name="showSeconds"/> long.</summary>
+        public virtual double CloudFade(double seconds, double showSeconds) => Clamp01((showSeconds - seconds) / CloudFadeSeconds);
+
+        /// <summary>How strongly the cloud is fed with new puffs this long after the impact, 1 to 0.</summary>
+        public virtual double CloudFeed(double seconds, double showSeconds) => Clamp01((showSeconds - CloudFeedEndsSeconds - seconds) / CloudFadeSeconds);
+
         // ------------------------------------------------------------------ the layers
 
         /// <summary>The fireball's surface and every layer of the cloud, at its full size.</summary>
@@ -234,6 +297,23 @@ namespace TerraformingReloaded.Comets
             CultureInfo c = CultureInfo.InvariantCulture;
             CometYield yield = CometYield.Shipped;
             const double step = 0.002;
+
+            // ---- the puff: a soft, lit mass, and thin enough that puffs blend where they cross.
+            CometBillow.Measures puff = CometBillow.Measure(look.Billow);
+            string billow = CometBillow.Judge(puff);
+            if (billow != null)
+            {
+                return billow;
+            }
+            double byDay = look.PuffOpacity(true, puff.Core), byNight = look.PuffOpacity(false, puff.Core);
+            if (byDay > PuffOpacityAtMost)
+            {
+                return string.Format(c, "a cloud puff is {0:0.##} opaque at its middle in full day, over {1}: puffs crossing each other cover rather than blend, and their outlines cut each other", byDay, PuffOpacityAtMost);
+            }
+            if (byNight < PuffOpacityAtLeast)
+            {
+                return string.Format(c, "a cloud puff is {0:0.##} opaque at its middle at night, under {1}: the cloud is a haze", byNight, PuffOpacityAtLeast);
+            }
             foreach (double moles in new[] { 1e3, 1e5, 1e6, 1e7, 3.6e7, 1e8, 1e9 })
             {
                 CometSizes sizes = yield.For(moles, CelestialTuning.Defaults);
@@ -289,6 +369,25 @@ namespace TerraformingReloaded.Comets
                 if (previous > 0.05)
                 {
                     return string.Format(c, "a comet of {0:0.#E+0} mol still glows at {1:0.###} when its show ends", moles, previous);
+                }
+
+                // ---- the cloud: standing in full for most of the show, and gone when it ends.
+                double show = sizes.ShowSeconds;
+                double fadePrevious = 2.0;
+                for (double s = 0.0; s <= show + 1e-9; s += 0.5)
+                {
+                    double fade = look.CloudFade(s, show), feed = look.CloudFeed(s, show);
+                    if (fade > fadePrevious + 1e-12 || fade < 0.0 || fade > 1.0 || feed < 0.0 || feed > 1.0
+                        || (s <= 0.8 * show && (fade < 1.0 || feed < 1.0)) || (s >= show - CloudFeedEndsSeconds && feed > 0.0))
+                    {
+                        return string.Format(c, "a comet of {0:0.#E+0} mol draws {1:0.###} of its cloud, fed at {2:0.###}, {3:0.#} s into a show of {4:0.#} s: the cloud must stand in full for the first 80 % of it, stop being fed before it fades, and fade only once",
+                            moles, fade, feed, s, show);
+                    }
+                    fadePrevious = fade;
+                }
+                if (look.CloudFade(show, show) > 0.0)
+                {
+                    return string.Format(c, "a comet of {0:0.#E+0} mol still draws {1:0.###} of its cloud when its show ends", moles, look.CloudFade(show, show));
                 }
 
                 // ---- the layers: each sized to the part of the cloud it draws.
