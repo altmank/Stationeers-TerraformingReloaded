@@ -442,9 +442,14 @@ function Judge-Logs {
     Add-Judged 'client thrown A' ($nearA.Count -ge 1 -and $expA -gt 200) "the mod's own line on the client, thrown at $($thrown -join ', ') kPa; comet A expected about $expA kPa"
     Add-Judged 'client thrown B' ($nearB.Count -ge 1 -and $expB -lt 200) "comet B expected about $expB kPa"
 
-    $suitUnity = @(Get-Content (Join-Path $Out 'server-make-unity.log') -ErrorAction SilentlyContinue | Where-Object { $_ -match '\[TR comet\] the wave damaged the suit of ' })
-    Add-Judged 'server suit line A' (@($suitUnity | Where-Object { $_.Contains($name) }).Count -ge 1) "the host's own line: $($suitUnity | Select-Object -First 1)"
-    Add-Judged 'server suit line once' ($suitUnity.Count -eq 1) "suit damage lines in the server's log: $($suitUnity.Count) (comet A at 300 kPa, none for comet B under 200)"
+    # Since 0.22.3 the comet's lines go to LogOutput.log through the mod's logger; a game may also copy them into its
+    # Unity log, so each log is counted on its own and the larger count is the number of lines the mod wrote.
+    $suitCounts = @(foreach ($f in 'server-make-LogOutput.log', 'server-make-unity.log') {
+        @(Get-Content (Join-Path $Out $f) -ErrorAction SilentlyContinue | Where-Object { $_ -match '\[TR comet\] the wave damaged the suit of ' }).Count })
+    $suitLines = @($sMake | Where-Object { $_ -match '\[TR comet\] the wave damaged the suit of ' })
+    $suitCount = ($suitCounts | Measure-Object -Maximum).Maximum
+    Add-Judged 'server suit line A' (@($suitLines | Where-Object { $_.Contains($name) }).Count -ge 1) "the host's own line: $($suitLines | Select-Object -First 1)"
+    Add-Judged 'server suit line once' ($suitCount -eq 1) "suit damage lines in the server's LogOutput.log and Unity log: $($suitCounts -join ' and ') (comet A at 300 kPa, none for comet B under 200)"
 
     $site = @($sMake -match 'Site: looking from ')
     $consoleSite = @($site | Where-Object { $_ -match [regex]::Escape("(player $name, who ran the command)") })
@@ -488,6 +493,12 @@ function Write-Verdict([string]$problem) {
     foreach ($f in Get-ChildItem $Out -Filter '*-LogOutput.log' -ErrorAction SilentlyContinue) {
         $lines += @(Get-Content $f.FullName | Where-Object { $_ -match 'Stage8: (server|client) judged ' } | ForEach-Object { $_ -replace '^.*?Stage8: ', 'Stage8: ' })
     }
+    # The drivers' own unbuffered copies: a game stopped by its PID can lose the end of LogOutput.log.
+    foreach ($role in 'server', 'client') {
+        $copy = Join-Path $Out "$role-judged.txt"
+        if (Test-Path $copy) { $lines += @(Get-Content $copy | Where-Object { $_ -match '^judged ' } | ForEach-Object { "Stage8: $role $_" }) }
+    }
+    $lines = @($lines | Select-Object -Unique)
     $lines += @($script:judged)
     $names = @{}
     $failed = @()

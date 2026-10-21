@@ -195,7 +195,28 @@ namespace TerraformingReloaded.Stage8
             string line = "judged " + name + " " + (pass ? "PASS" : "FAIL") + " | " + details + " | clock " + R(Clock);
             _log.LogInfo("Stage8: " + _role + " " + line);
             Append(_role + "-judged.txt", line);
+            FlushLogs();
             return pass;
+        }
+
+        /// <summary>
+        /// BepInEx writes LogOutput.log through a buffer, and run.ps1 stops a game by its PID, which loses what the
+        /// buffer still held (bt: the late client's last judged line). Flushed after every judged line and marker.
+        /// </summary>
+        public static void FlushLogs()
+        {
+            try
+            {
+                foreach (ILogListener listener in BepInEx.Logging.Logger.Listeners)
+                {
+                    PropertyInfo writer = listener?.GetType().GetProperty("LogWriter", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    (writer?.GetValue(listener) as TextWriter)?.Flush();
+                }
+            }
+            catch (Exception)
+            {
+                // The judged copy in <role>-judged.txt is written without a buffer.
+            }
         }
 
         /// <summary>The run cannot go on from here; the orchestrator stops on the file this leaves.</summary>
@@ -223,6 +244,7 @@ namespace TerraformingReloaded.Stage8
 
         public static void Write(string name, Dictionary<string, string> values)
         {
+            FlushLogs();
             StringBuilder text = new StringBuilder();
             foreach (KeyValuePair<string, string> pair in values)
             {

@@ -16,6 +16,7 @@ using Objects.Rockets;
 using Objects.Rockets.UI;
 using TerraformingReloaded.Comets;
 using TerraformingReloaded.Patching;
+using TerrainSystem;
 using UI.Motherboard;
 using UnityEngine;
 
@@ -97,6 +98,7 @@ namespace TerraformingReloaded.Stage8
         private bool _consoleJudged;
         private float _consoleReadyAt = -1f;
         private bool _consolePushJudged;
+        private Dictionary<string, string> _serverAtSend;
         private double _consoleArrival;
         private Vector3 _consoleBefore;
 
@@ -325,6 +327,9 @@ namespace TerraformingReloaded.Stage8
             }
             me.ResetInterpolation();
             Physics.SyncTransforms();
+            // Held there until the terrain the move asked for has its colliders (KeepSupported).
+            _supported = true;
+            _supportedSince = Time.realtimeSinceStartup;
             Face();
             Bus.Info(string.Format(Bus.C, "stood at {0}, facing {1:0.#} deg ({2}) | {3}", _standAt, _yaw, why, Describe()));
         }
@@ -375,6 +380,7 @@ namespace TerraformingReloaded.Stage8
                 return;
             }
             Face();
+            KeepSupported();
             if (_placeJudge == null)
             {
                 return;
@@ -420,12 +426,15 @@ namespace TerraformingReloaded.Stage8
             double seen = Flat(there, _standAt);
             double seenTurn = server == null ? double.NaN : Math.Abs(Mathf.DeltaAngle((float)Bus.D(server, "yaw"), _yaw));
             bool free = Bus.S(server, "slot") == "none";
-            bool pass = here < 2.0 && turned < 3.0 && looks < 3.0 && seen < 3.0 && seenTurn < 5.0 && age < 3.0 && free;
+            float? surface = Surface(at.x, at.z);
+            bool grounded = !_supported && surface.HasValue && Math.Abs(at.y - surface.Value) < 3.0;
+            bool pass = here < 2.0 && turned < 3.0 && looks < 3.0 && seen < 3.0 && seenTurn < 5.0 && age < 3.0 && free && grounded;
             if (pass || now - _placedAt > 45f)
             {
                 Bus.Judge(_placeJudge, pass, string.Format(Bus.C,
-                    "asked ({0:0.#}, {1:0.#}) facing {2:0.#} deg | here {3:0.###} m off, turned {4:0.#} deg off, the camera {5:0.#} deg off | the server has the body {6:0.###} m off, turned {7:0.#} deg off, in {11} ({8:0.#} s old) | {9:0.#} s after asking | {10}",
-                    _standAt.x, _standAt.z, _yaw, here, turned, looks, seen, seenTurn, age, now - _placedAt, Describe(), Bus.S(server, "slot") ?? "?"));
+                    "asked ({0:0.#}, {1:0.#}) facing {2:0.#} deg | here {3:0.###} m off, turned {4:0.#} deg off, the camera {5:0.#} deg off, standing at height {12:0.##} on voxel ground {13}, {14} | the server has the body {6:0.###} m off, turned {7:0.#} deg off, in {11} ({8:0.#} s old) | {9:0.#} s after asking | {10}",
+                    _standAt.x, _standAt.z, _yaw, here, turned, looks, seen, seenTurn, age, now - _placedAt, Describe(), Bus.S(server, "slot") ?? "?", at.y,
+                    surface.HasValue ? surface.Value.ToString("0.##", Bus.C) : "none", _supported ? "still held up, no terrain collider under it" : "on terrain colliders"));
                 _placeJudge = null;
                 return;
             }
@@ -437,6 +446,85 @@ namespace TerraformingReloaded.Stage8
         }
 
         private static double Flat(Vector3 a, Vector3 b) => Math.Sqrt((a.x - b.x) * (a.x - b.x) + (a.z - b.z) * (a.z - b.z));
+
+        private bool _supported;
+        private float _supportedSince;
+
+        /// <summary>
+        /// After a move the terrain around the new place is built for the player's own requester over the next
+        /// frames, colliders last (bt: a body moved 1.3 km fell 328 m through ground with none yet). Until a collider
+        /// is under the spot the body is held there, still; once one is, it is set on it.
+        /// </summary>
+        private void KeepSupported()
+        {
+            if (!_supported || Me.ParentSlot != null)
+            {
+                return;
+            }
+            Human me = Me;
+            if (GroundUnder(me, _standAt, out RaycastHit ground))
+            {
+                _supported = false;
+                Vector3 on = ground.point + Vector3.up * 0.05f;
+                if (Math.Abs(on.y - _standAt.y) > 0.3f)
+                {
+                    _standAt = on;
+                    Hover(me);
+                }
+                Bus.Info(string.Format(Bus.C, "terrain under the player at {0} on '{1}', {2:0.0} s after the move; voxel ground there {3}", ground.point, ground.collider.name,
+                    Time.realtimeSinceStartup - _supportedSince, Surface(_standAt.x, _standAt.z)?.ToString("0.##", Bus.C) ?? "none"));
+                return;
+            }
+            Vector3 at = me.transform.position;
+            if ((at - _standAt).sqrMagnitude > 0.04f)
+            {
+                Hover(me);
+            }
+        }
+
+        private void Hover(Human me)
+        {
+            me.ThingTransformPosition = _standAt;
+            Rigidbody body = me.ActiveRigidbody;
+            if (body != null)
+            {
+                body.position = _standAt;
+                if (!body.isKinematic)
+                {
+                    body.velocity = Vector3.zero;
+                    body.angularVelocity = Vector3.zero;
+                }
+            }
+        }
+
+        /// <summary>A terrain or structure collider under a point, within 5 m above and 10 m below it, not the player's own.</summary>
+        private static bool GroundUnder(Human me, Vector3 point, out RaycastHit ground)
+        {
+            Rigidbody own = me.ActiveRigidbody;
+            ground = Physics.RaycastAll(point + Vector3.up * 5f, Vector3.down, 15f, ~0, QueryTriggerInteraction.Ignore)
+                .Where(h => h.collider != null && (own == null || h.collider.attachedRigidbody != own) && h.collider.GetComponentInParent<Human>() != me)
+                .OrderBy(h => h.distance)
+                .FirstOrDefault();
+            return ground.collider != null;
+        }
+
+        /// <summary>The top of the voxel ground at a point, read down the column as the game's spawn reads it (as tools/CometShot does); null outside the voxel world.</summary>
+        private static float? Surface(float x, float z)
+        {
+            int half = VoxelConstants.Offset;
+            if (float.IsNaN(x) || float.IsNaN(z) || x < -half || x >= half || z < -half || z >= half)
+            {
+                return null;
+            }
+            for (int y = 1023; y >= 0; y--)
+            {
+                if (VoxelTerrain.GetDensityAtSize(new Vector3(x, y, z), 1) >= 0.49803922f)
+                {
+                    return y + 1f;
+                }
+            }
+            return null;
+        }
 
         private static float YawTo(Vector3 from, Vector3 to)
         {
@@ -889,8 +977,12 @@ namespace TerraformingReloaded.Stage8
                     double moved = Vector3.Distance(Me.transform.position, _beforeWave);
                     double distance = Vector3.Distance(new Vector3(_beforeWave.x, 0f, _beforeWave.z), new Vector3(impact.x, 0f, impact.z));
                     double peak = CometRules.Shipped.PeakKPa(Bus.D(_fall, "moles"), distance);
-                    Bus.Judge("client pushed A", moved > 1.0 && peak > 200.0, string.Format(Bus.C, "outdoors {0:0.#} m from the impact, the wave {1:0.#} kPa there: this game threw its own player {2:0.###} m, from {3} to {4}",
-                        distance, peak, moved, _beforeWave, Me.transform.position));
+                    float? surface = Surface(_beforeWave.x, _beforeWave.z);
+                    bool onGround = surface.HasValue && Math.Abs(_beforeWave.y - surface.Value) < 3.0;
+                    Bus.Judge("client pushed A", moved > 1.0 && peak > 200.0 && onGround, string.Format(Bus.C,
+                        "outdoors {0:0.#} m from the impact, the wave {1:0.#} kPa there: this game threw its own player {2:0.###} m, from {3} to {4} | before the wave at height {5:0.##}, the voxel ground {6}: {7}",
+                        distance, peak, moved, _beforeWave, Me.transform.position, _beforeWave.y, surface.HasValue ? surface.Value.ToString("0.##", Bus.C) : "none",
+                        onGround ? "on the ground" : "NOT on the ground"));
                 }
             }
             if (!_suitJudged && Bus.Has("server.suit"))
@@ -1016,7 +1108,9 @@ namespace TerraformingReloaded.Stage8
             Vector3 at = Me.transform.position;
             Bus.Write("client.console-at", new Dictionary<string, string> { { "x", Bus.R(at.x) }, { "z", Bus.R(at.z) }, { "yaw", Bus.R(_yaw) } });
             string command = Bus.S(_want, "command");
-            Bus.Info("console: " + command);
+            // The console comet is aimed from the server's copy of this player, so it is judged against that copy.
+            _serverAtSend = Bus.Read("server.body");
+            Bus.Info("console: " + command + " | the server has the player at (" + Bus.S(_serverAtSend, "x") + ", " + Bus.S(_serverAtSend, "z") + ") facing " + Bus.S(_serverAtSend, "yaw"));
             Util.Commands.CommandLine.Process(command);
             Bus.Write("client.console-sent", new Dictionary<string, string> { { "x", Bus.R(at.x) }, { "z", Bus.R(at.z) }, { "yaw", Bus.R(_yaw) }, { "clock", Bus.R(Clock) } });
             _consoleBefore = at;
@@ -1047,10 +1141,18 @@ namespace TerraformingReloaded.Stage8
                 Bus.Judge("client console event", same && playing, string.Format(Bus.C, "event {0} here lands {1} at clock {2:R}, {3:R} mol; the server's ({4}, {5}) at {6} | show playing and drawn {7}",
                     seq, eventImpact, eventClock, moles, Bus.S(_consoleEvent, "x"), Bus.S(_consoleEvent, "z"), Bus.S(_consoleEvent, "clock"), playing));
                 Vector3 me = Me.transform.position;
-                Vector3 ahead = new Vector3(me.x, 0f, me.z) + Quaternion.Euler(0f, _yaw, 0f) * Vector3.forward * 2500f;
+                // Straight ahead as the server had this player when the command was sent (the site is worked out there,
+                // from the body and turn this game sends), within the 40 m a 2,500 m range allows for the turn moving
+                // in the moment between; and, for the record, as this game has it.
+                Vector3 seenAt = new Vector3((float)Bus.D(_serverAtSend, "x"), 0f, (float)Bus.D(_serverAtSend, "z"));
+                float seenYaw = (float)Bus.D(_serverAtSend, "yaw");
+                Vector3 ahead = seenAt + Quaternion.Euler(0f, seenYaw, 0f) * Vector3.forward * 2500f;
                 double off = Vector3.Distance(ahead, new Vector3(impact.x, 0f, impact.z));
-                Bus.Judge("client console straight ahead", off < 40.0, string.Format(Bus.C, "this player at ({0:0.#}, {1:0.#}) faces {2:0.#} deg; 2,500 m straight ahead is ({3:0.#}, {4:0.#}); the comet lands {5:0.#} m from there",
-                    me.x, me.z, _yaw, ahead.x, ahead.z, off));
+                Vector3 ownAhead = new Vector3(me.x, 0f, me.z) + Quaternion.Euler(0f, _yaw, 0f) * Vector3.forward * 2500f;
+                double ownOff = Vector3.Distance(ownAhead, new Vector3(impact.x, 0f, impact.z));
+                Bus.Judge("client console straight ahead", off < 40.0, string.Format(Bus.C,
+                    "the server had this player at ({0:0.#}, {1:0.#}) facing {2:0.#} deg when the command went; 2,500 m straight ahead of that is ({3:0.#}, {4:0.#}); the comet lands {5:0.#} m from there | this game has the player facing {6:0.#} deg ({7:0.#} deg from the server's), straight ahead of which it lands {8:0.#} m off",
+                    seenAt.x, seenAt.z, seenYaw, ahead.x, ahead.z, off, _yaw, Mathf.DeltaAngle(seenYaw, _yaw), ownOff));
                 Schedule(impactClock, ConsoleShots, "console");
                 double distance = Vector3.Distance(new Vector3(me.x, 0f, me.z), new Vector3(impact.x, 0f, impact.z));
                 _consoleArrival = impactClock + CometRules.Shipped.ArrivalSeconds(distance);
