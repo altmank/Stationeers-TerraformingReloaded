@@ -876,6 +876,35 @@ internal static class Program
             string caught = TerraformingReloaded.Comets.CometGround.Check(wrong.Ground);
             failures += Judge(caught != null, "comet ground check fails " + wrong.What + (caught != null ? ": " + caught : ""));
         }
+        string viewpoint = TerraformingReloaded.Comets.CometViewpoint.Check(TerraformingReloaded.Comets.CometViewpoint.Shipped);
+        failures += Judge(viewpoint == null, "comet viewpoint: " + (viewpoint ?? "a console comet is aimed from the player who ran it, a dedicated server's first player online and never its undrawn scene camera, the rig's camera, a played game's own view"));
+        var wrongViewpoints = new (string What, TerraformingReloaded.Comets.CometViewpoint Rule)[]
+        {
+            ("the camera first wherever there is one, as 0.22.0 had it", new CameraFirstViewpoint()),
+            ("the first player online before the one who ran the command", new OnlineBeforeInvoker()),
+            ("a dedicated server's undrawn camera with nobody online", new UndrawnCameraViewpoint()),
+            ("the rig's drawn camera passed over for the world origin", new NoRigCamera()),
+            ("a hosting game's own view before the joined player who ran the command", new HostBeforeInvoker()),
+        };
+        foreach (var wrong in wrongViewpoints)
+        {
+            string caught = TerraformingReloaded.Comets.CometViewpoint.Check(wrong.Rule);
+            failures += Judge(caught != null, "comet viewpoint check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        try
+        {
+            TerraformingReloaded.Comets.CometInvoker.Apply(new HarmonyLib.Harmony("patchcheck.comet.invoking.player"));
+            Console.WriteLine("applied: comet invoking player");
+        }
+        catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+        {
+            Console.WriteLine("bound:   comet invoking player (the serverrun message and the client it names found; compiling it needs Unity)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  comet invoking player: " + e.Message);
+            failures++;
+        }
         string reactions = TerraformingReloaded.Comets.CometReactions.Check();
         failures += Judge(reactions == null, "comet reactions: " + (reactions ?? "steam, burning, dry ice, toxic and ionised each as strong as their share, fuel burning only with an oxidiser"));
         try
@@ -930,6 +959,40 @@ internal static class Program
             }
         }
         return failures;
+    }
+
+    /// <summary>The camera, wherever there is one, before anyone: what a dedicated server did before 0.22.1.</summary>
+    private sealed class CameraFirstViewpoint : TerraformingReloaded.Comets.CometViewpoint
+    {
+        public override TerraformingReloaded.Comets.ViewSource Choose(TerraformingReloaded.Comets.ViewFacts f) =>
+            f.HasCamera ? TerraformingReloaded.Comets.ViewSource.Camera : base.Choose(f);
+    }
+
+    private sealed class OnlineBeforeInvoker : TerraformingReloaded.Comets.CometViewpoint
+    {
+        public override TerraformingReloaded.Comets.ViewSource Choose(TerraformingReloaded.Comets.ViewFacts f) =>
+            f.BatchMode && f.HasOnlinePlayer ? TerraformingReloaded.Comets.ViewSource.OnlinePlayer : base.Choose(f);
+    }
+
+    private sealed class UndrawnCameraViewpoint : TerraformingReloaded.Comets.CometViewpoint
+    {
+        public override TerraformingReloaded.Comets.ViewSource Choose(TerraformingReloaded.Comets.ViewFacts f) =>
+            f.BatchMode && !f.HasInvoker && !f.HasOnlinePlayer && f.HasCamera ? TerraformingReloaded.Comets.ViewSource.Camera : base.Choose(f);
+    }
+
+    private sealed class NoRigCamera : TerraformingReloaded.Comets.CometViewpoint
+    {
+        public override TerraformingReloaded.Comets.ViewSource Choose(TerraformingReloaded.Comets.ViewFacts f)
+        {
+            TerraformingReloaded.Comets.ViewSource chosen = base.Choose(f);
+            return f.BatchMode && chosen == TerraformingReloaded.Comets.ViewSource.Camera ? TerraformingReloaded.Comets.ViewSource.WorldOrigin : chosen;
+        }
+    }
+
+    private sealed class HostBeforeInvoker : TerraformingReloaded.Comets.CometViewpoint
+    {
+        public override TerraformingReloaded.Comets.ViewSource Choose(TerraformingReloaded.Comets.ViewFacts f) =>
+            !f.BatchMode && f.HasCamera ? TerraformingReloaded.Comets.ViewSource.Camera : base.Choose(f);
     }
 
     private sealed class StridedGround : TerraformingReloaded.Comets.CometGround

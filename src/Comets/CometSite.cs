@@ -6,12 +6,13 @@ using Assets.Scripts.Inventory;
 using Assets.Scripts.Objects;
 using Assets.Scripts.Objects.Entities;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace TerraformingReloaded.Comets
 {
     /// <summary>
     /// Where a comet comes down and the way it comes in (docs/COMET.md section 2). It starts from
-    /// where the host is looking, turned and at the range asked for, and must be at least the safe
+    /// where whoever called it is looking (<see cref="CometViewpoint"/>), turned and at the range asked for, and must be at least the safe
     /// distance from every structure and every player in the world. A point too close moves outward
     /// along the same bearing, then tries other bearings; the approach path is held to the same
     /// distance, so the comet never passes low over a base.
@@ -134,49 +135,87 @@ namespace TerraformingReloaded.Comets
         public static float PathLength(float scale) => 13000f + 2000f * scale;
 
         /// <summary>
-        /// Where the host is looking from and toward, flat. The camera when this machine has one; on a
-        /// dedicated server the first player online, then the world origin facing north.
+        /// Where the comet is aimed from and toward, flat, by <see cref="CometViewpoint"/>: the player who ran the
+        /// command; on a machine a person plays, its camera, then its own character; on a dedicated server the
+        /// first player online, then a camera only where frames are drawn, then the world origin facing north. A
+        /// player faces where their character looks: the rotation their own game sends with their position.
         /// </summary>
         private static void Look(out Vector3 eye, out Vector3 forward, out string from)
         {
             Camera camera = CameraController.CurrentCamera ? CameraController.CurrentCamera : Camera.main;
-            Transform view = null;
-            from = "camera";
-            if (camera != null)
+            Human own = InventoryManager.ParentHuman;
+            ulong caller = CometInvoker.Current;
+            Human invoker = caller != 0UL ? FindPlayer(h => h.OwnerClientId == caller) : null;
+            Human online = FindPlayer(h => true);
+            ViewFacts facts = new ViewFacts(GameManager.IsBatchMode, SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null, camera != null, own != null,
+                invoker != null, online != null);
+            Vector3 position;
+            Quaternion rotation;
+            switch (CometViewpoint.Shipped.Choose(facts))
             {
-                view = camera.transform;
+                case ViewSource.Camera:
+                    position = camera.transform.position;
+                    rotation = camera.transform.rotation;
+                    from = "camera";
+                    break;
+                case ViewSource.OwnCharacter:
+                    position = own.transform.position;
+                    rotation = Facing(own);
+                    from = "your character";
+                    break;
+                case ViewSource.Invoker:
+                    position = invoker.transform.position;
+                    rotation = Facing(invoker);
+                    from = "player " + invoker.DisplayName + ", who ran the command";
+                    break;
+                case ViewSource.OnlinePlayer:
+                    position = online.transform.position;
+                    rotation = Facing(online);
+                    from = "player " + online.DisplayName;
+                    break;
+                default:
+                    eye = CometTerrain.Ground(Vector3.zero, 0f, out _) + Vector3.up * 1.7f;
+                    forward = Vector3.forward;
+                    from = "the world origin";
+                    return;
             }
-            else if (InventoryManager.ParentHuman != null)
-            {
-                view = InventoryManager.ParentHuman.transform;
-                from = "your character";
-            }
-            else
-            {
-                foreach (Human human in Human.AllHumans)
-                {
-                    if (human != null && human.OrganBrain != null && human.OrganBrain.IsOnline && !human.IsDead)
-                    {
-                        view = human.transform;
-                        from = "player " + human.DisplayName;
-                        break;
-                    }
-                }
-            }
-            if (view == null)
-            {
-                eye = CometTerrain.Ground(Vector3.zero, 0f, out _) + Vector3.up * 1.7f;
-                forward = Vector3.forward;
-                from = "the world origin";
-                return;
-            }
-            eye = view.position;
-            forward = Vector3.ProjectOnPlane(view.forward, Vector3.up);
+            eye = position;
+            forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
             if (forward.sqrMagnitude < 1e-4f)
             {
-                forward = Vector3.ProjectOnPlane(view.up, Vector3.up);
+                forward = Vector3.ProjectOnPlane(rotation * Vector3.up, Vector3.up);
             }
             forward = forward.sqrMagnitude < 1e-4f ? Vector3.forward : forward.normalized;
+        }
+
+        /// <summary>The first player online, alive, that <paramref name="match"/> accepts, or null.</summary>
+        private static Human FindPlayer(Func<Human, bool> match)
+        {
+            foreach (Human human in Human.AllHumans)
+            {
+                if (human != null && human.OrganBrain != null && human.OrganBrain.IsOnline && !human.IsDead && match(human))
+                {
+                    return human;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Where a character looks. A character's own body is kept upright and unturned by its game, which turns
+        /// a child of it instead; the game sends that turn with the character's position, and a machine that
+        /// does not own the character turns the body by it. EntityRotation is the one on either machine.
+        /// </summary>
+        private static Quaternion Facing(Human human)
+        {
+            try
+            {
+                return human.EntityRotation;
+            }
+            catch (Exception)
+            {
+                return human.transform.rotation;
+            }
         }
 
         /// <summary>Every structure, by square, and every player, online or not.</summary>

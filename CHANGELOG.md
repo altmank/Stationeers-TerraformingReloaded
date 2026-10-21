@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.1 (prototype)
+
+- **On a dedicated server, `terraform comet` comes down in front of a player.** It is aimed from the player who
+  ran it, when a player sends it from their own game with `serverrun` (both games need the same
+  `ServerAuthSecret` in `setting.xml`), and otherwise from the first player online: where they stand and the way
+  they face. Before, a dedicated server could aim it from a camera of its own that nobody sees, so `turn=` and
+  `range=` meant nothing to the players. The safe distance from every player and every structure is unchanged.
+
 ## 0.22.0 (prototype)
 
 - **Close to an impact, a comet does more than its pressure wave.** Worked out once, at the impact, for every

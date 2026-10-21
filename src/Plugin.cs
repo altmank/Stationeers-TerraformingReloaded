@@ -14,7 +14,7 @@ namespace TerraformingReloaded
     {
         public const string PluginGuid = "xceled.stationeers.terraformingreloaded";
         public const string PluginName = "Terraforming Reloaded";
-        public const string PluginVersion = "0.22.0";
+        public const string PluginVersion = "0.22.1";
 
         /// <summary>The game build the patches were last checked against. Advisory only.</summary>
         private const string TestedGameVersion = "0.2.6428.27798";
@@ -84,7 +84,7 @@ namespace TerraformingReloaded
             string comets = Comets.CometRules.Verdict ?? Comets.CometGround.Verdict;
             if (comets == null)
             {
-                Logger.LogInfo("Comet rules checked: the safe distance, the wave, the push, the sound, the sky, the show drawn from its yield, the zones near the impact, the ground under an impact and its drop on curved worlds.");
+                Logger.LogInfo("Comet rules checked: the safe distance, the wave, the push, the sound, the sky, the show drawn from its yield, the zones near the impact, whose view a console comet is aimed from, the ground under an impact and its drop on curved worlds.");
             }
             else
             {

@@ -272,8 +272,15 @@ one pass, `CometZonePass.cs` (0.22.0); `CometSound.cs` section 7; `CometShow.cs`
   counts, online or not.
 - The approach is judged from the impact back up the path, every 100 m, using the height above the impact's
   ground, until the path is higher than the safe distance. Both sides it can come in from are tried.
-- A dedicated server has no view: it looks from the first player online, else from the world origin facing
-  north.
+- Whose view it starts from (`CometViewpoint`, 0.22.1): the player who ran the command, when a joined player
+  sent it with the game's `serverrun`; on a game a person plays, its camera, then its own character; on a
+  dedicated server, the first player online, then a camera only where frames are drawn (the screenshot rig's),
+  then the world origin facing north. A player faces where their character looks, the turn their own game sends
+  with their position. Until 0.22.1 a dedicated server took its scene's main camera first: the game keeps that
+  camera in a batch-mode scene, never drawn and standing wherever the scene left it (the screenshot rig's log
+  finds it as `Camera.main` in batch mode), so a console comet on a dedicated server would be aimed from there
+  and not from the player; read from the code, not yet seen on a `-nographics` server. The rule is checked at
+  load with the comet rules and by `tools/PatchCheck`, which hands it five wrong rules it must catch.
 
 **The ground (0.16.1).** `src/Comets/CometGround.cs` holds the rule, `CometTerrain.cs` feeds it from the game.
 - **Height.** The host reads the impact's height from the voxel terrain, the way the game's own spawn point

@@ -429,6 +429,9 @@ namespace TerraformingReloaded.Patching
             // Deorbit (stage 6): a rocket at Entry brings the comet its bay aims down. Nothing of its own is
             // patched; refused unless the rocket actions, the comets' save, the sky body and its safe point are in.
             Extra(report, "comet deorbit", () => Comets.CometLand.Apply());
+            // A console comet called by a joined player through the game's serverrun is aimed from that player;
+            // without this part a dedicated server aims it from the first player online.
+            Extra(report, "comet invoking player", () => Comets.CometInvoker.Apply(harmony));
 
             return report;
         }

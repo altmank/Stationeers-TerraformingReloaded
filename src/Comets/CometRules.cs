@@ -234,7 +234,7 @@ namespace TerraformingReloaded.Comets
         {
             try
             {
-                return Check(Shipped) ?? CometYield.Verdict ?? CometLook.Verdict ?? CometZones.Verdict;
+                return Check(Shipped) ?? CometYield.Verdict ?? CometLook.Verdict ?? CometZones.Verdict ?? CometViewpoint.Verdict;
             }
             catch (Exception e)
             {
@@ -245,7 +245,8 @@ namespace TerraformingReloaded.Comets
         /// <summary>
         /// The shipped rules' own check, the show's sizes from the yield the wave implies
         /// (<see cref="CometYield"/>), how its cloud and flash are drawn from them (<see cref="CometLook"/>)
-        /// and what it does near the impact (<see cref="CometZones"/>), run once: null when they hold, else the
+        /// what it does near the impact (<see cref="CometZones"/>) and whose view a console comet is aimed from
+        /// (<see cref="CometViewpoint"/>), run once: null when they hold, else the
         /// first case that does not.
         /// </summary>
         public static string Verdict => ShippedVerdict.Value;

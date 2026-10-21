@@ -109,6 +109,10 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
   distance, on its own console, once, and again after a load. The impact is the comet event above, sent the same
   way. Only the host changes the planet's air at the end of the fall; the joining players get the new air with
   the planet sync. The body leaves each machine's sky at that machine's own game tick main-thread moment.
+- **A console comet called by a joined player** with the game's `serverrun terraform comet ...` (which needs the
+  same `ServerAuthSecret` in both games' `setting.xml`) is aimed from that player: where they stand and the way
+  their character faces, as their game sends it. Called from the host's own console on a dedicated server, it is
+  aimed from the first player online (`docs/COMET.md` section 2).
 - **The comet actions run on the host.** A rocket's mode reaches every player as the game sends any mode, a
   raw byte the game does not check, so a joining player's panel and buttons show Cut, Fuel, Burn and Launch
   from it, and the comet's line from that player's own copy of the comets. The miner's cycles, the deploy, the
