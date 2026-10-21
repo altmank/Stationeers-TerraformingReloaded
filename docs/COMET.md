@@ -2,8 +2,8 @@
 
 Design for the comet feature on branch `comet-impact`. The prototype (0.15.0) is a console-called comet that
 adds its gas at impact and plays a show for the host only. This document is the next step: what the impact
-does to the world, how every player sees and hears it, and how it is checked. How comets are found and sent
-(the rocket side) is not designed yet.
+does to the world, how every player sees and hears it, and how it is checked. How comets are made and
+brought down by rocket is `COMET-ROCKETS.md`.
 
 ## What LU asked for (2026-10-20)
 
