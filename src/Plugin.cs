@@ -90,6 +90,15 @@ namespace TerraformingReloaded
             {
                 Logger.LogWarning("Comets are off: their rules did not pass their own check (" + comets + ").");
             }
+            string celestial = Comets.CelestialRules.Verdict;
+            if (celestial == null)
+            {
+                Logger.LogInfo("Celestial terraforming rules checked: flight by the rocket rule, what Cut makes, the sky rule and its reach, the orbit, the impact zones, the losses, and the defaults' derivations.");
+            }
+            else
+            {
+                Logger.LogWarning("Celestial terraforming rules did not pass their own check (" + celestial + ").");
+            }
 
             try
             {
@@ -300,6 +309,16 @@ namespace TerraformingReloaded
             Bind("Trace gases", "PlanetKeepsTraceGas", Settings.PlanetKeepsTraceGas,
                 "Off by default. The game deletes any gas an outdoor cell holds less than 0.00001 mol of, so a gas the planet's air holds so little of that one outdoor cell's draw of it falls under that is drawn and deleted every tick by every outdoor cell beside open ground, until it is gone. On, the planet keeps such a gas instead of handing it out: nothing is deleted, and none of it reaches the outdoor air. A world saved without this setting takes the config's.",
                 v => Settings.PlanetKeepsTraceGas = v, null, "The planet keeps gas too thin for outdoor air", 63, world: true);
+
+            // Celestial terraforming. One section for every tuning number of comets made and brought
+            // down by rocket, each declared once with its default and range (Comets.CelestialSettings).
+            foreach (Comets.CelestialSetting setting in Comets.CelestialSettings.All)
+            {
+                Comets.CelestialSetting one = setting;
+                Bind(Comets.CelestialSettings.Section, one.Key, one.Default, one.Description,
+                    v => Settings.Celestial = Settings.Celestial.With(one, v),
+                    Bounds(one.Range), one.Label, Comets.CelestialSettings.FirstOrder + one.Index, one.Format, world: true);
+            }
 
             Bind("Multiplayer", "SyncIntervalSeconds", Settings.SyncIntervalSeconds,
                 "How often the host sends the planet state to clients.",

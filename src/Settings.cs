@@ -126,6 +126,13 @@ namespace TerraformingReloaded
 
         /// <summary>Write the terraform status to the log this often. 0 is off.</summary>
         public static double StatusLogSeconds = 0.0;
+
+        /// <summary>
+        /// The Celestial terraforming section: every tuning number of comets made and brought down by
+        /// rocket, one whole set (docs/COMET-ROCKETS.md). Each one's key, default and range are declared
+        /// once, in <see cref="Comets.CelestialSettings"/>.
+        /// </summary>
+        public static Comets.CelestialTuning Celestial = Comets.CelestialTuning.Defaults;
     }
 
     /// <summary>
@@ -391,6 +398,18 @@ namespace TerraformingReloaded
         public static bool PlanetAirBurns = false;
         public static bool PlanetHoldsBackWhileIgnitable = false;
         public static bool PlanetKeepsTraceGas = false;
+
+        private static volatile Comets.CelestialTuning _celestial = Comets.CelestialTuning.Defaults;
+
+        /// <summary>
+        /// The Celestial terraforming values in force, one whole set, so code on any thread reads one
+        /// consistent set. Never null: assigning null is the defaults.
+        /// </summary>
+        public static Comets.CelestialTuning Celestial
+        {
+            get => _celestial;
+            set => _celestial = value ?? Comets.CelestialTuning.Defaults;
+        }
     }
 
     /// <summary>

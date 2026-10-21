@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -251,7 +252,7 @@ namespace TerraformingReloaded
         /// Every setting a world keeps its own copy of, in the order the config editor shows them.
         /// Adding one to the world file means adding it here too, or it has no way to change.
         /// </summary>
-        private static readonly WorldKey[] WorldKeys =
+        private static readonly WorldKey[] WorldKeys = WithCelestial(new[]
         {
             Switch("DynamicSky", "Sky follows the air", () => Effective.DynamicSky, () => Settings.DynamicSky, v => Effective.DynamicSky = v),
             Number("GhgResponseScale", "Greenhouse strength", "", Limits.GhgResponseScale,
@@ -326,7 +327,20 @@ namespace TerraformingReloaded
                 () => Effective.PlanetHoldsBackWhileIgnitable, () => Settings.PlanetHoldsBackWhileIgnitable, v => Effective.PlanetHoldsBackWhileIgnitable = v),
             Switch("PlanetKeepsTraceGas", "The planet keeps gas too thin for outdoor air",
                 () => Effective.PlanetKeepsTraceGas, () => Settings.PlanetKeepsTraceGas, v => Effective.PlanetKeepsTraceGas = v),
-        };
+        });
+
+        /// <summary>The keys above, then every Celestial terraforming setting, from its one declaration.</summary>
+        private static WorldKey[] WithCelestial(WorldKey[] keys)
+        {
+            List<WorldKey> all = new List<WorldKey>(keys);
+            foreach (Comets.CelestialSetting setting in Comets.CelestialSettings.All)
+            {
+                Comets.CelestialSetting one = setting;
+                all.Add(Number(one.Key, one.Label, one.Unit, one.Range,
+                    () => Effective.Celestial[one], () => Settings.Celestial[one], v => Effective.Celestial = Effective.Celestial.With(one, v)));
+            }
+            return all.ToArray();
+        }
 
         /// <summary>
         /// terraform set [&lt;key&gt; [&lt;value&gt; [confirm]]]: shows or changes a setting of the

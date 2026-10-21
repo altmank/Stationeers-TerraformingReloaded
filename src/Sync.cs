@@ -35,10 +35,14 @@ namespace TerraformingReloaded
     /// Then come the host's storm floor and ceiling, which the temperature formula applies, so a
     /// client evaluating it during a storm reads what the host reads.
     ///
-    /// Last comes the comet event in force on the host, if any (docs/COMET.md section 1). The host
+    /// Then comes the comet event in force on the host, if any (docs/COMET.md section 1). The host
     /// also sends it the moment it is called, as its own message; this copy is for a player who
     /// joins in the middle of it or whose message was lost, and who picks the show up at the time it
     /// has reached.
+    ///
+    /// Last come the host's Celestial terraforming settings, every one of them, so a joining player's
+    /// game works out a comet's orbit, the sky rule's disc and anything else it shows of a comet from
+    /// the host's numbers (docs/COMET-ROCKETS.md, "Configuration: Celestial terraforming").
     ///
     /// The leading byte says what follows. LaunchPadBooster refuses a join between different
     /// versions of the mod, so both ends normally write and read the same layout; the byte still lets
@@ -54,6 +58,7 @@ namespace TerraformingReloaded
         private const byte PlanetSettingsAndSpace = 3;
         private const byte PlanetSettingsSpaceAndStormBounds = 4;
         private const byte PlanetSettingsSpaceStormBoundsAndComet = 5;
+        private const byte PlanetSettingsSpaceStormBoundsCometAndCelestial = 6;
 
         private static readonly FieldInfo[] MixFields = typeof(GlobalGasMixSaveData)
             .GetFields(BindingFlags.Public | BindingFlags.Instance)
@@ -125,7 +130,7 @@ namespace TerraformingReloaded
                 writer.WriteByte(Nothing);
                 return;
             }
-            writer.WriteByte(PlanetSettingsSpaceStormBoundsAndComet);
+            writer.WriteByte(PlanetSettingsSpaceStormBoundsCometAndCelestial);
             writer.WriteInt32(MixFields.Length);
             WriteMix(writer, data.GlobalGasMix);
             WriteMix(writer, data.LiquidClouds);
@@ -146,6 +151,27 @@ namespace TerraformingReloaded
             Comets.CometEvent comet = Comets.CometDirector.ForSync();
             writer.WriteBoolean(comet != null);
             comet?.Write(writer);
+            double[] celestial = Effective.Celestial.ToArray();
+            writer.WriteInt32(celestial.Length);
+            foreach (double value in celestial)
+            {
+                writer.WriteDouble(value);
+            }
+        }
+
+        private static double[] ReadCelestial(RocketBinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            if (count < 0 || count > 1000)
+            {
+                throw new InvalidOperationException("the host's Celestial terraforming settings claim " + count + " values");
+            }
+            double[] values = new double[count];
+            for (int i = 0; i < count; i++)
+            {
+                values[i] = reader.ReadDouble();
+            }
+            return values;
         }
 
         private static void WriteBound(RocketBinaryWriter writer, double? kelvin)
@@ -201,7 +227,7 @@ namespace TerraformingReloaded
             try
             {
                 byte kind = reader.ReadByte();
-                if (kind < PlanetOnly || kind > PlanetSettingsSpaceStormBoundsAndComet)
+                if (kind < PlanetOnly || kind > PlanetSettingsSpaceStormBoundsCometAndCelestial)
                 {
                     return;
                 }
@@ -229,6 +255,7 @@ namespace TerraformingReloaded
                 Comets.CometEvent comet = kind >= PlanetSettingsSpaceStormBoundsAndComet && reader.ReadBoolean()
                     ? Comets.CometEvent.Read(reader)
                     : null;
+                double[] celestial = kind >= PlanetSettingsSpaceStormBoundsCometAndCelestial ? ReadCelestial(reader) : null;
                 if (!NetworkManager.IsClient || PlanetaryAtmosphereSimulation.GetGlobalGasMix() == null)
                 {
                     return;
@@ -257,6 +284,10 @@ namespace TerraformingReloaded
                 if (bounds != null)
                 {
                     Apply(bounds);
+                }
+                if (celestial != null)
+                {
+                    Apply(celestial);
                 }
                 Gate.SetHostPlanet(true);
             }
@@ -313,6 +344,36 @@ namespace TerraformingReloaded
             {
                 Effective.StormBounds = new StormBounds(floor, ceiling);
             }
+        }
+
+        /// <summary>
+        /// The host's Celestial terraforming settings, each checked against its own range from the one
+        /// declaration a world's settings file is checked against: one the config editor would refuse
+        /// keeps this game's own for that setting. A host with a different list of settings is a
+        /// different build, and its list is not read at all.
+        /// </summary>
+        private void Apply(double[] host)
+        {
+            Comets.CelestialSetting[] all = Comets.CelestialSettings.All;
+            if (host.Length != all.Length)
+            {
+                Fault("Host sent " + host.Length + " Celestial terraforming settings where this build has " + all.Length + ". This game's own are used.");
+                return;
+            }
+            Comets.CelestialTuning taken = Effective.Celestial;
+            foreach (Comets.CelestialSetting setting in all)
+            {
+                double value = host[setting.Index];
+                if (setting.Range.Holds(value))
+                {
+                    taken = taken.With(setting, value);
+                }
+                else
+                {
+                    Fault("Host sent a " + setting.Key + " outside what the setting accepts. This game's own is used.");
+                }
+            }
+            Effective.Celestial = taken;
         }
 
         private double? Accepted(double? host, Range range, double? own, string what)

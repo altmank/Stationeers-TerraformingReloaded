@@ -105,6 +105,28 @@ namespace TerraformingReloaded.Patching
         /// Not recorded is none, so the limit applies to all of the added heat a save carries.
         /// </summary>
         public double? PlanetFireHeatJoules;
+
+        /// <summary>
+        /// The Celestial terraforming settings, one entry per key (Comets.CelestialSettings). Not recorded,
+        /// or a key not in it, is the config's, like every setting that only changes behaviour.
+        /// </summary>
+        [XmlArray("Celestial")]
+        [XmlArrayItem("Setting")]
+        public List<CelestialEntry> Celestial;
+    }
+
+    /// <summary>
+    /// One Celestial terraforming setting as a world's file records it. The value is text and is parsed
+    /// on the way in, so a hand edit that is not a number is refused like one out of range rather than
+    /// failing the whole file, and a missing value is not a recorded 0.
+    /// </summary>
+    public class CelestialEntry
+    {
+        [XmlAttribute("Key")]
+        public string Key;
+
+        [XmlAttribute("Value")]
+        public string Value;
     }
 
     /// <summary>
@@ -572,6 +594,7 @@ namespace TerraformingReloaded.Patching
             double fireHeat = Recorded(file.PlanetFireHeatJoules, Limits.PlanetFireHeatJoules, "PlanetFireHeatJoules", bad) ?? 0.0;
             PlanetCombustion.SetHeat(fireHeat);
             _recordedFireHeat = fireHeat;
+            Effective.Celestial = RecordedCelestial(file.Celestial, bad);
 
             if (bad.Count == 0)
             {
@@ -605,6 +628,52 @@ namespace TerraformingReloaded.Patching
             }
             bad.Add(field + " " + value.Value.ToString("R", CultureInfo.InvariantCulture) + " (allowed: " + range + ")");
             return null;
+        }
+
+        /// <summary>
+        /// The Celestial terraforming settings as the file recorded them, each checked against its own
+        /// range from the one declaration in Comets.CelestialSettings; the config's for any the file does
+        /// not record or that cannot be taken. A key the file holds that this build does not know is
+        /// ignored, as an unknown element is. The first entry for a key is the one taken.
+        /// </summary>
+        private static Comets.CelestialTuning RecordedCelestial(List<CelestialEntry> entries, List<string> bad)
+        {
+            Comets.CelestialTuning tuning = Settings.Celestial;
+            if (entries == null)
+            {
+                return tuning;
+            }
+            foreach (Comets.CelestialSetting setting in Comets.CelestialSettings.All)
+            {
+                CelestialEntry entry = entries.Find(e => e != null && string.Equals(e.Key, setting.Key, StringComparison.Ordinal));
+                if (entry == null)
+                {
+                    continue;
+                }
+                string field = "Celestial " + setting.Key;
+                if (!double.TryParse(entry.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+                {
+                    bad.Add(field + " '" + entry.Value + "' (not a number; allowed: " + setting.Range + ")");
+                    continue;
+                }
+                double? kept = Recorded(value, setting.Range, field, bad);
+                if (kept.HasValue)
+                {
+                    tuning = tuning.With(setting, kept.Value);
+                }
+            }
+            return tuning;
+        }
+
+        /// <summary>The Celestial terraforming values in force, as the file records them: every key, written whole.</summary>
+        private static List<CelestialEntry> CelestialEntries(Comets.CelestialTuning tuning)
+        {
+            List<CelestialEntry> entries = new List<CelestialEntry>();
+            foreach (Comets.CelestialSetting setting in Comets.CelestialSettings.All)
+            {
+                entries.Add(new CelestialEntry { Key = setting.Key, Value = tuning[setting].ToString("R", CultureInfo.InvariantCulture) });
+            }
+            return entries;
         }
 
         /// <summary>
@@ -660,6 +729,7 @@ namespace TerraformingReloaded.Patching
             Effective.PlanetAirBurns = Settings.PlanetAirBurns;
             Effective.PlanetHoldsBackWhileIgnitable = Settings.PlanetHoldsBackWhileIgnitable;
             Effective.PlanetKeepsTraceGas = Settings.PlanetKeepsTraceGas;
+            Effective.Celestial = Settings.Celestial;
         }
 
         /// <summary>
@@ -704,7 +774,7 @@ namespace TerraformingReloaded.Patching
         /// </summary>
         public static void TakenFromHost()
         {
-            _source = "this is a network client, so no file is read or written; the three response settings and the sky are the host's, sent with its planet, and the rest are not used here";
+            _source = "this is a network client, so no file is read or written; the three response settings, the sky, the storm bounds and the Celestial terraforming settings are the host's, sent with its planet, and the rest are not used here";
         }
 
         // ---- SaveHelper.CreateSaveDirectory (postfix, an Extra so it fails soft) ------------------
@@ -852,6 +922,7 @@ namespace TerraformingReloaded.Patching
                     PlanetHoldsBackWhileIgnitable = Effective.PlanetHoldsBackWhileIgnitable,
                     PlanetKeepsTraceGas = Effective.PlanetKeepsTraceGas,
                     PlanetFireHeatJoules = fireHeat,
+                    Celestial = CelestialEntries(Effective.Celestial),
                 };
                 string path = Path.Combine(folder, FileName);
                 Salvage(path);
