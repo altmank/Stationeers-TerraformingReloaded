@@ -391,6 +391,93 @@ namespace TerraformingReloaded.Comets
             return new GroundPoint(x, z);
         }
 
+        /// <summary>
+        /// The moles of fuel a deorbit burn spends to move where a comet lands by <paramref name="metres"/>:
+        /// the Δv that is, at <paramref name="metresPerDeltaV"/> metres for each metre a second, burnt by the
+        /// rocket equation from the comet's mass with all its fuel aboard, and never more than the engines can
+        /// burn in <paramref name="windowSeconds"/> or than it has. The inverse of <see cref="ReachMetres"/>:
+        /// steering the whole reach spends exactly what the reach was worked out from.
+        /// </summary>
+        public virtual double SteerFuelMoles(double cometKg, int engines, double fuelMoles, double metres, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole)
+        {
+            if (engines <= 0 || !(fuelMoles > 0.0) || !(fuelKgPerMole > 0.0) || !(metres > 0.0) || !(metresPerDeltaV > 0.0))
+            {
+                return 0.0;
+            }
+            double dry = Math.Max(0.0, cometKg) + EngineMassKg * engines;
+            double fuelKg = fuelMoles * fuelKgPerMole;
+            double flow = engines * EngineMolesPerSecond * fuelKgPerMole;
+            double exhaust = engines * EngineThrustNewtons / flow;
+            double start = dry + fuelKg;
+            double most = Math.Min(fuelKg, flow * Math.Max(0.0, windowSeconds));
+            double burnt = start * (1.0 - Math.Exp(-(metres / metresPerDeltaV) / exhaust));
+            return Math.Min(most, burnt) / fuelKgPerMole;
+        }
+
+        /// <summary>
+        /// A comet brought down from orbit (docs/COMET-ROCKETS.md, "Bring it down"): where it lands and the fuel
+        /// the burn spends. With a target, the sky point moves toward it by the reach or the whole gap
+        /// (<see cref="Landing"/>), and the burn spends what that steer takes (<see cref="SteerFuelMoles"/>);
+        /// with none, the burn is untracked: it lands at the sky point and spends nothing on steering.
+        /// </summary>
+        public virtual Descent Descend(GroundPoint sky, GroundPoint? target, double padX, double padZ, double radius,
+            double cometKg, int engines, double fuelMoles, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole)
+        {
+            double fuel = Math.Max(0.0, fuelMoles);
+            double reach = ReachMetres(cometKg, engines, fuel, metresPerDeltaV, windowSeconds, fuelKgPerMole);
+            if (target == null)
+            {
+                return new Descent(Landing(sky, sky, 0.0, padX, padZ, radius), reach, 0.0, 0.0, fuel);
+            }
+            GroundPoint aim = target.Value;
+            double dx = aim.X - sky.X;
+            double dz = aim.Z - sky.Z;
+            double steered = Math.Min(Math.Sqrt(dx * dx + dz * dz), reach);
+            double spent = SteerFuelMoles(cometKg, engines, fuel, steered, metresPerDeltaV, windowSeconds, fuelKgPerMole);
+            return new Descent(Landing(sky, aim, reach, padX, padZ, radius), reach, steered, spent, Math.Max(0.0, fuel - spent));
+        }
+
+        /// <summary>The moles of each gas of an ice comet that reach the planet: <see cref="Arriving"/> of each.</summary>
+        public virtual double[] ArrivingGas(double[] moles, double share)
+        {
+            double[] arriving = new double[moles.Length];
+            for (int i = 0; i < moles.Length; i++)
+            {
+                arriving[i] = Arriving(moles[i], share);
+            }
+            return arriving;
+        }
+
+        /// <summary>
+        /// The moles of each gas of the planet's air a mineral comet takes away: <see cref="MineralRemovedMoles"/>
+        /// over the air's mean molar mass by the game's figures, taken from each gas in its share of the air, so
+        /// the mix that is left is the mix that was there.
+        /// </summary>
+        public virtual double[] MineralRemoval(double[] airMoles, double[] gramsPerMole, double cometKg, double airKgPerKg)
+        {
+            double[] removed = new double[airMoles.Length];
+            double moles = 0.0;
+            double grams = 0.0;
+            for (int i = 0; i < airMoles.Length; i++)
+            {
+                double held = Math.Max(0.0, airMoles[i]);
+                moles += held;
+                grams += held * gramsPerMole[i];
+            }
+            if (!(moles > 0.0))
+            {
+                return removed;
+            }
+            double total = MineralRemovedMoles(cometKg, airKgPerKg, moles, grams / moles);
+            double share = Math.Min(1.0, total / moles);
+            for (int i = 0; i < airMoles.Length; i++)
+            {
+                double held = Math.Max(0.0, airMoles[i]);
+                removed[i] = share >= 1.0 ? held : held * share;
+            }
+            return removed;
+        }
+
         // ---- the orbit ------------------------------------------------------------------------------------
 
         /// <summary>
@@ -701,6 +788,13 @@ namespace TerraformingReloaded.Comets
                 return "a landing does not reach a target in reach, stop the reach short of one out of it, stay in the disc, or land where the sky puts an untracked burn";
             }
 
+            // ---- bringing it down ----
+            string landing = CheckLanding(rules);
+            if (landing != null)
+            {
+                return landing;
+            }
+
             // ---- the orbit ----
             if (Math.Abs(rules.OrbitPeriodDays(OrbitRealSeconds(PhobosPeriodDays, MarsPeriodDays, MarsTimeScale), MarsPeriodDays, MarsTimeScale) - PhobosPeriodDays) > 1e-9
                 || Math.Abs(rules.OrbitPeriodDays(97.17, MarsPeriodDays, MarsTimeScale) - 2.0 / 24.0) > 0.001)
@@ -852,6 +946,110 @@ namespace TerraformingReloaded.Comets
                     - rules.DiscRadiusAt(tuning.DiscRadiusMetres, ReferenceCurvature, tuning.CometSizeMultiplier, 0.25) * ReferenceCurvature / 0.45) > 1e-9)
             {
                 return "the disc that follows the planet's size does not then shrink with the world's curvature";
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// A comet brought down from orbit, on cases with known answers: the fuel a steer spends is the
+        /// rocket equation's for its Δv and the inverse of the reach; a target in reach is landed on, one out
+        /// of it is fallen short of along the line, an untracked burn lands at the sky point and spends
+        /// nothing; what an ice comet brings and what a mineral comet takes from the air.
+        /// </summary>
+        private static string CheckLanding(CelestialRules rules)
+        {
+            CultureInfo c = CultureInfo.InvariantCulture;
+            const double kg = TestFuelKgPerMole;
+            const double R = 5100.0;
+            const double comet = 18000.0;
+            const int engines = 2;
+            const double plenty = 20000.0;
+            const double perDv = 25.0;
+            const double window = 50.0;
+            double exhaust = EngineThrustNewtons / (EngineMolesPerSecond * kg);
+            double start = comet + EngineMassKg * engines + plenty * kg;
+            double windowFuel = engines * EngineMolesPerSecond * window;
+
+            // The steer's fuel: the whole reach spends what the reach came from; half of it, the rocket
+            // equation's for half the Δv, a little more than half the fuel, since the last fuel burnt pushes
+            // the least mass.
+            double reach = rules.ReachMetres(comet, engines, plenty, perDv, window, kg);
+            double whole = rules.SteerFuelMoles(comet, engines, plenty, reach, perDv, window, kg);
+            double half = rules.SteerFuelMoles(comet, engines, plenty, reach / 2.0, perDv, window, kg);
+            double halfBack = perDv * exhaust * Math.Log(start / (start - half * kg));
+            if (Math.Abs(whole - windowFuel) > 1e-6 * windowFuel || Math.Abs(halfBack - reach / 2.0) > 1e-9 * reach
+                || !(half > windowFuel / 2.0) || !(half < 0.51 * windowFuel))
+            {
+                return string.Format(c, "steering an 18 t comet with two engines its whole reach of {0:0.#} m spends {1:0.###} mol, expected the {2:0} mol its engines burn in the fall, or half the reach spends {3:0.###} mol, which is not the rocket equation's for half the delta-v",
+                    reach, whole, windowFuel, half);
+            }
+            double little = rules.ReachMetres(comet, engines, 360.0, perDv, window, kg);
+            if (Math.Abs(rules.SteerFuelMoles(comet, engines, 360.0, little, perDv, window, kg) - 360.0) > 1e-6
+                || rules.SteerFuelMoles(comet, engines, 360.0, 0.0, perDv, window, kg) != 0.0 || rules.SteerFuelMoles(comet, 0, 360.0, 100.0, perDv, window, kg) != 0.0
+                || rules.SteerFuelMoles(comet, engines, 360.0, 1e9, perDv, window, kg) > 360.0)
+            {
+                return "a reserve smaller than the engines burn in the fall is not all spent steering its whole reach, or a steer of nothing, or with no engines, spends fuel, or a steer spends more than there is";
+            }
+
+            // Where it lands: on a target in reach, short of one out of it along the line, at the sky point untracked.
+            GroundPoint sky = rules.SkyPoint(0.0, 0.0, 1.0, 0.0, 0.0, R);
+            GroundPoint near = new GroundPoint(sky.X + 0.6 * reach * 0.8, sky.Z + 0.6 * reach * 0.6);
+            GroundPoint far = new GroundPoint(sky.X, sky.Z + 10000.0);
+            Descent onTarget = rules.Descend(sky, near, 0.0, 0.0, R, comet, engines, plenty, perDv, window, kg);
+            Descent shortOf = rules.Descend(sky, far, 0.0, 0.0, R, comet, engines, plenty, perDv, window, kg);
+            Descent untracked = rules.Descend(sky, null, 0.0, 0.0, R, comet, engines, plenty, perDv, window, kg);
+            Descent engineless = rules.Descend(sky, near, 0.0, 0.0, R, comet, 0, plenty, perDv, window, kg);
+            double nearSpent = rules.SteerFuelMoles(comet, engines, plenty, 0.6 * reach, perDv, window, kg);
+            if (Math.Abs(onTarget.Land.X - near.X) > 1e-9 || Math.Abs(onTarget.Land.Z - near.Z) > 1e-9 || Math.Abs(onTarget.Steered - 0.6 * reach) > 1e-9
+                || Math.Abs(onTarget.FuelSpent - nearSpent) > 1e-9 || Math.Abs(onTarget.FuelLeft - (plenty - nearSpent)) > 1e-9 || Math.Abs(onTarget.Reach - reach) > 1e-9)
+            {
+                return string.Format(c, "a target {0:0.#} m from the sky point, in reach, is not landed on with the fuel that steer takes: lands ({1:0.###}, {2:0.###}), steered {3:0.###} m on {4:0.###} mol",
+                    0.6 * reach, onTarget.Land.X, onTarget.Land.Z, onTarget.Steered, onTarget.FuelSpent);
+            }
+            if (Math.Abs(shortOf.Land.X - sky.X) > 1e-9 || Math.Abs(shortOf.Land.Z - (sky.Z + reach)) > 1e-9 || Math.Abs(shortOf.Steered - reach) > 1e-9
+                || Math.Abs(shortOf.FuelSpent - windowFuel) > 1e-6 * windowFuel)
+            {
+                return "a target out of reach is not fallen short of by the reach along the line from the sky point, spending all the engines burn in the fall";
+            }
+            if (untracked.Land.X != sky.X || untracked.Land.Z != sky.Z || untracked.Steered != 0.0 || untracked.FuelSpent != 0.0 || untracked.FuelLeft != plenty
+                || Math.Abs(untracked.Reach - reach) > 1e-9 || engineless.Land.X != sky.X || engineless.Land.Z != sky.Z || engineless.FuelSpent != 0.0)
+            {
+                return "an untracked burn, or a comet with no engines, does not land at the sky point with all its fuel";
+            }
+            Descent edge = rules.Descend(new GroundPoint(5000.0, 0.0), new GroundPoint(9000.0, 0.0), 0.0, 0.0, R, comet, engines, plenty, perDv, window, kg);
+            if (Math.Abs(edge.Land.X - R) > 1e-9 || Math.Abs(edge.Land.Z) > 1e-9 || Math.Abs(edge.Steered - reach) > 1e-9)
+            {
+                return "a steer toward a target past the disc does not stop at the disc's edge, having burnt for its whole reach";
+            }
+
+            // What reaches the planet.
+            double[] gas = { 1000.0, 500.0, 0.0 };
+            double[] arriving = rules.ArrivingGas(gas, 0.7);
+            double[] all = rules.ArrivingGas(gas, 1.2);
+            if (arriving.Length != 3 || Math.Abs(arriving[0] - 700.0) > 1e-9 || Math.Abs(arriving[1] - 350.0) > 1e-9 || arriving[2] != 0.0
+                || all[0] != 1000.0 || all[1] != 500.0 || gas[0] != 1000.0)
+            {
+                return "an ice comet's gas does not arrive at its share, gas by gas";
+            }
+            // Venus's air by the game's molar masses: carbon dioxide 44, hydrochloric acid 36, nitrogen 64 g/mol.
+            double[] air = { 1e9, 4.5e8, 1.075e8 };
+            double[] grams = { 44.0, 36.0, 64.0 };
+            double[] taken = rules.MineralRemoval(air, grams, 1e6, 0.7);
+            double airMoles = air[0] + air[1] + air[2];
+            double mean = (air[0] * grams[0] + air[1] * grams[1] + air[2] * grams[2]) / airMoles;
+            double takenMoles = taken[0] + taken[1] + taken[2];
+            double takenKg = (taken[0] * grams[0] + taken[1] * grams[1] + taken[2] * grams[2]) / 1000.0;
+            bool proportional = Math.Abs(taken[1] / air[1] - taken[0] / air[0]) <= 1e-12 * taken[0] / air[0] && Math.Abs(taken[2] / air[2] - taken[0] / air[0]) <= 1e-12 * taken[0] / air[0];
+            if (Math.Abs(takenMoles - rules.MineralRemovedMoles(1e6, 0.7, airMoles, mean)) > 1e-9 * takenMoles || Math.Abs(takenKg - 7e5) > 1e-6 * 7e5 || !proportional)
+            {
+                return string.Format(c, "a 1,000 t mineral comet on Venus takes {0:N3} mol weighing {1:N3} kg, expected 700,000 kg of the air in its own proportions", takenMoles, takenKg);
+            }
+            double[] everything = rules.MineralRemoval(air, grams, 1e15, 0.7);
+            double[] none = rules.MineralRemoval(new[] { 0.0, 0.0 }, new[] { 44.0, 64.0 }, 1e6, 0.7);
+            if (everything[0] != air[0] || everything[1] != air[1] || everything[2] != air[2] || none[0] != 0.0 || none[1] != 0.0
+                || rules.MineralRemoval(air, grams, 0.0, 0.7)[0] != 0.0)
+            {
+                return "a mineral comet bigger than the air does not take all of it, gas by gas, or one takes air that is not there, or a massless one takes any";
             }
             return null;
         }
@@ -1308,6 +1506,34 @@ namespace TerraformingReloaded.Comets
         {
             X = x;
             Z = z;
+        }
+    }
+
+    /// <summary>A comet brought down, by <see cref="CelestialRules.Descend"/>. A plain struct: net472 has no IsExternalInit.</summary>
+    public readonly struct Descent
+    {
+        /// <summary>Where it lands.</summary>
+        public readonly GroundPoint Land;
+
+        /// <summary>The most its fuel could have moved the landing, in metres.</summary>
+        public readonly double Reach;
+
+        /// <summary>How far the burn moved it toward the target, in metres: the reach or the whole gap, 0 untracked.</summary>
+        public readonly double Steered;
+
+        /// <summary>Moles of fuel the steering burnt.</summary>
+        public readonly double FuelSpent;
+
+        /// <summary>Moles of fuel still aboard as it falls.</summary>
+        public readonly double FuelLeft;
+
+        public Descent(GroundPoint land, double reach, double steered, double fuelSpent, double fuelLeft)
+        {
+            Land = land;
+            Reach = reach;
+            Steered = steered;
+            FuelSpent = fuelSpent;
+            FuelLeft = fuelLeft;
         }
     }
 

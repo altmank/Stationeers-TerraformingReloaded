@@ -1006,6 +1006,13 @@ internal static class Program
             ("a Burn that gives fuel without taking it from the comet", new FreeBurn()),
             ("fuel needed that leaves out the fuel's own weight", new WeightlessFuelNeeded()),
             ("a disc that ignores the planet's size", new SizelessDisc()),
+            ("a deorbit burn that spends the whole reserve whatever it steers", new WholeReserveSteer()),
+            ("a deorbit burn's fuel worked as thrust over the full mass, not by the rocket equation", new LinearSteer()),
+            ("an untracked burn steered toward the pad", new UntrackedToPad()),
+            ("a steer charged only for what is left after the disc's edge", new SteerAfterClamp()),
+            ("an ice comet whose every gas arrives whole", new WholeArrival()),
+            ("a mineral comet that takes all its air from the first gas", new FirstGasMineral()),
+            ("a mineral comet that takes the same moles of every gas", new EvenMineral()),
         };
         foreach (var wrong in wrongRules)
         {
@@ -1316,6 +1323,91 @@ internal static class Program
             }
             double dry = cometKg + EngineMassKg * engines;
             return dry * routeDeltaV / (EngineThrustNewtons / (EngineMolesPerSecond * fuelKgPerMole)) / fuelKgPerMole;
+        }
+    }
+
+    private sealed class WholeReserveSteer : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double SteerFuelMoles(double cometKg, int engines, double fuelMoles, double metres, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole) =>
+            metres > 0.0 ? base.SteerFuelMoles(cometKg, engines, fuelMoles, 1e12, metresPerDeltaV, windowSeconds, fuelKgPerMole) : 0.0;
+    }
+
+    private sealed class LinearSteer : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double SteerFuelMoles(double cometKg, int engines, double fuelMoles, double metres, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole)
+        {
+            if (engines <= 0 || !(fuelMoles > 0.0) || !(metres > 0.0) || !(metresPerDeltaV > 0.0))
+            {
+                return 0.0;
+            }
+            double start = cometKg + EngineMassKg * engines + fuelMoles * fuelKgPerMole;
+            double exhaust = EngineThrustNewtons / (EngineMolesPerSecond * fuelKgPerMole);
+            double most = Math.Min(fuelMoles * fuelKgPerMole, engines * EngineMolesPerSecond * fuelKgPerMole * windowSeconds);
+            return Math.Min(most, start * metres / metresPerDeltaV / exhaust) / fuelKgPerMole;
+        }
+    }
+
+    private sealed class UntrackedToPad : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Descent Descend(TerraformingReloaded.Comets.GroundPoint sky, TerraformingReloaded.Comets.GroundPoint? target, double padX, double padZ, double radius,
+            double cometKg, int engines, double fuelMoles, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole) =>
+            base.Descend(sky, target ?? new TerraformingReloaded.Comets.GroundPoint(padX, padZ), padX, padZ, radius, cometKg, engines, fuelMoles, metresPerDeltaV, windowSeconds, fuelKgPerMole);
+    }
+
+    private sealed class SteerAfterClamp : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Descent Descend(TerraformingReloaded.Comets.GroundPoint sky, TerraformingReloaded.Comets.GroundPoint? target, double padX, double padZ, double radius,
+            double cometKg, int engines, double fuelMoles, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.Descent d = base.Descend(sky, target, padX, padZ, radius, cometKg, engines, fuelMoles, metresPerDeltaV, windowSeconds, fuelKgPerMole);
+            double dx = d.Land.X - sky.X;
+            double dz = d.Land.Z - sky.Z;
+            double moved = Math.Sqrt(dx * dx + dz * dz);
+            double spent = SteerFuelMoles(cometKg, engines, fuelMoles, moved, metresPerDeltaV, windowSeconds, fuelKgPerMole);
+            return new TerraformingReloaded.Comets.Descent(d.Land, d.Reach, moved, spent, fuelMoles - spent);
+        }
+    }
+
+    private sealed class WholeArrival : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double[] ArrivingGas(double[] moles, double share) => (double[])moles.Clone();
+    }
+
+    private sealed class FirstGasMineral : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double[] MineralRemoval(double[] airMoles, double[] gramsPerMole, double cometKg, double airKgPerKg)
+        {
+            double[] removed = base.MineralRemoval(airMoles, gramsPerMole, cometKg, airKgPerKg);
+            double total = 0.0;
+            foreach (double one in removed)
+            {
+                total += one;
+            }
+            double[] first = new double[removed.Length];
+            if (first.Length > 0)
+            {
+                first[0] = Math.Min(total, airMoles[0]);
+            }
+            return first;
+        }
+    }
+
+    private sealed class EvenMineral : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double[] MineralRemoval(double[] airMoles, double[] gramsPerMole, double cometKg, double airKgPerKg)
+        {
+            double[] removed = base.MineralRemoval(airMoles, gramsPerMole, cometKg, airKgPerKg);
+            double total = 0.0;
+            foreach (double one in removed)
+            {
+                total += one;
+            }
+            double[] even = new double[removed.Length];
+            for (int i = 0; i < even.Length; i++)
+            {
+                even[i] = Math.Min(airMoles[i], total / even.Length);
+            }
+            return even;
         }
     }
 
