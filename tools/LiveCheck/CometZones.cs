@@ -20,7 +20,10 @@ namespace TerraformingReloaded.LiveCheck
     /// -CometZones: what an impact does near where it lands (docs/COMET-ROCKETS.md, "Near the impact", stage 7).
     ///
     /// Phase "make", a new world, the cap on rocks that hit set to <see cref="RockCap"/> with terraform set:
-    ///   C  a console comet of a million moles of carbon dioxide, sent far from everything; while it falls, real
+    ///   C  a console comet of a million moles of carbon dioxide, sent north-west from the world's origin (whose view
+    ///      a console comet is aimed from when nobody is online) past anywhere the rocket comet can reach, and near
+    ///      enough that its whole line stands inside the game's extent, past which the game deletes a structure when
+    ///      it loads a save (<see cref="Inside"/>); while it falls, real
     ///      structures from the game's prefabs are built on a line out from where it lands, at distances worked out
     ///      from the zones and the wave in force (ground zero, the fireball, the inner and the middle and the outer
     ///      falling rocks, the wave past them, and beyond); once everything the impact's pass scheduled has
@@ -39,8 +42,20 @@ namespace TerraformingReloaded.LiveCheck
         private const double StageSeconds = 900.0;
         private const int RockCap = 4;
         private const double ConsoleMoles = 1e6;
-        private const double ConsoleRange = 12000.0;
         private const string RocketMoles = "1000000";
+        private const double RocketMolesValue = 1e6;
+
+        /// <summary>The console comet's bearing from the origin's view, which faces north: to the north-west, along a diagonal of the extent.</summary>
+        private const double ConsoleTurnDegrees = -45.0;
+
+        /// <summary>How far inside the game's extent the farthest structure of a line stands.</summary>
+        private const double EdgeMarginMetres = 200.0;
+
+        /// <summary>The widest group stands this far either side of the line: eight frames 6 m apart, and the rounding to the grid.</summary>
+        private const double LineHalfWidthMetres = 24.0;
+
+        /// <summary>Where the rocket's launch mount is built, the pad the rocket comet's landing disc is drawn around.</summary>
+        private static readonly Vector3 PadAt = new Vector3(300f, 300f, -400f);
 
         private readonly ManualLogSource _log;
         private readonly Action<string[]> _command;
@@ -217,7 +232,14 @@ namespace TerraformingReloaded.LiveCheck
                 Fail("terraform set did not set MaxDamagingRocks to " + RockCap + " (it is " + Effective.Celestial.MaxDamagingRocks.ToString(C) + ")");
                 return;
             }
-            _command(new[] { "comet", ConsoleMoles.ToString("R", C), "CarbonDioxide", "range=" + ConsoleRange.ToString("R", C) });
+            double range = ConsoleRange(out string placed);
+            if (double.IsNaN(range))
+            {
+                Fail(placed);
+                return;
+            }
+            Info("placement | " + placed);
+            _command(new[] { "comet", ConsoleMoles.ToString("R", C), "CarbonDioxide", "turn=" + ConsoleTurnDegrees.ToString("R", C), "range=" + range.ToString("R", C) });
             if (!CometZoneReport.Current(out _sequence, out _impact, out _impactClock, out _moles))
             {
                 Fail("the console comet was not sent");
@@ -241,6 +263,35 @@ namespace TerraformingReloaded.LiveCheck
         }
 
         // ---- the line of structures ---------------------------------------------------------------------
+
+        /// <summary>
+        /// The console comet's range from the origin along <see cref="ConsoleTurnDegrees"/>: as far out as its line, which
+        /// runs on away from the origin to twice its falling rocks, stays <see cref="EdgeMarginMetres"/> inside the extent
+        /// on both axes. NaN, with the reason, when that is not past where the rocket comet can reach: its landing disc
+        /// around the pad and its own line out to twice its falling rocks.
+        /// </summary>
+        private static double ConsoleRange(out string why)
+        {
+            CelestialTuning tuning = Effective.Celestial;
+            double extent = WorldGrid.WORLD_EXTENTS / 10.0;
+            double line = 2.0 * CometZones.Shipped.ReachFor(ConsoleMoles, tuning).Debris + LineHalfWidthMetres;
+            double bearing = ConsoleTurnDegrees * Math.PI / 180.0;
+            double perAxis = Math.Max(Math.Abs(Math.Sin(bearing)), Math.Abs(Math.Cos(bearing)));
+            double range = Math.Floor((extent - EdgeMarginMetres) / perAxis - line);
+            Vector2 impact = new Vector2((float)(range * Math.Sin(bearing)), (float)(range * Math.Cos(bearing)));
+            double fromPad = Vector2.Distance(impact, new Vector2(PadAt.x, PadAt.z)) - LineHalfWidthMetres;
+            double rocketReach = CometAim.DiscRadius(tuning) + 2.0 * CometZones.Shipped.ReachFor(RocketMolesValue, tuning).Debris;
+            why = string.Format(C, "the console comet {0:R} m out at {1:R} degrees, ({2:0.#}, {3:0.#}), its line out to {4:0.#} m more, inside the game's {5:N0} m extent less {6:N0} m; {7:0.#} m from the pad against the rocket comet's reach of {8:0.#} m",
+                range, ConsoleTurnDegrees, impact.x, impact.y, line, extent, EdgeMarginMetres, fromPad, rocketReach);
+            return fromPad > rocketReach ? range : double.NaN;
+        }
+
+        /// <summary>
+        /// Whether the game keeps a structure standing here when it loads a save: XmlSaveLoad calls
+        /// GameManager.DeleteOutOfBoundsObjects once a world has loaded, which destroys every thing whose
+        /// WorldGrid.OutOfBounds(), more than WorldGrid.WORLD_EXTENTS tenths of a metre from the origin on any axis.
+        /// </summary>
+        private static bool Inside(Vector3 at) => !new WorldGrid(at).OutOfBounds();
 
         /// <summary>Distance from the impact at which the wave peaks at this many kPa.</summary>
         private static double AtPeak(double moles, double kpa)
@@ -302,6 +353,11 @@ namespace TerraformingReloaded.LiveCheck
                     double side = (i - 0.5 * (group.Prefabs.Length - 1)) * 6.0;
                     Vector3 at = impact + dir * (float)group.Distance + across * (float)side + Vector3.up;
                     at = new Vector3(Mathf.Round(at.x / 2f) * 2f, Mathf.Round(at.y / 2f) * 2f + 1f, Mathf.Round(at.z / 2f) * 2f);
+                    if (!Inside(at))
+                    {
+                        Fail(string.Format(C, "the line's group '{0}' would stand at ({1:0.#}, {2:0.#}, {3:0.#}), past the game's extent, where a load deletes it", group.Tag, at.x, at.y, at.z));
+                        return false;
+                    }
                     Structure made = Spawn(group.Prefabs[i], at);
                     if (made == null)
                     {

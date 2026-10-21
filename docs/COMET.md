@@ -295,6 +295,13 @@ one pass, `CometZonePass.cs` (0.22.0); `CometSound.cs` section 7; `CometShow.cs`
   height of its own to fall back on (0 to 1023 is the voxel range, not a ground level), and the host's
   height is unrelated to the impact. Only with no voxel terrain loaded at all, or a column with no solid
   voxel, does it fall back to the host's ground. The site log says which.
+- **Past the game's extent nothing survives a load.** A structure built more than 8,192 m from the origin on
+  any axis stands while the world is played, but the base game deletes it when the save loads: once a world
+  has loaded, `XmlSaveLoad` (`XmlSaveLoad.cs:1184`) calls `GameManager.DeleteOutOfBoundsObjects`
+  (`GameManager.cs:1210-1218`), which destroys every thing whose `WorldGrid.OutOfBounds()` holds
+  (`WorldGrid.cs:51-58`): a grid coordinate past `WorldGrid.WORLD_EXTENTS`, 81,920 tenths of a metre. Between
+  the voxel world's edge and that line, structures load back as saved. A comet may land out to 20 km; the mod
+  changes nothing here.
 - The height travels in the event's impact position (section 1), so every machine lands it at the same
   point. Nothing new is sent.
 - **Drawn lower.** The terrain shader lowers ground with its distance from the camera: past 144 m by
