@@ -29,7 +29,7 @@ param(
 $ErrorActionPreference = 'Stop'
 # schtasks /IT /RU on bt refuses a bare user name ("The task XML contains a value which is incorrectly
 # formatted"); the machine-qualified name works, so a bare name is qualified with this machine's.
-if ($User -notmatch '\') { $User = "$env:COMPUTERNAME\$User" }
+if ($User -notlike '*\*') { $User = "$env:COMPUTERNAME\$User" }
 $run = Join-Path $PSScriptRoot 'run.ps1'
 $out = Join-Path $Root ('runs\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Force -Path $out | Out-Null
