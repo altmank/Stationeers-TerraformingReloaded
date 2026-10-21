@@ -46,6 +46,10 @@ namespace TerraformingReloaded.Comets
             GameObject holder = new GameObject("TR Comet director") { hideFlags = HideFlags.HideInHierarchy };
             DontDestroyOnLoad(holder);
             _instance = holder.AddComponent<CometDirector>();
+            if (!GameManager.IsBatchMode)
+            {
+                holder.AddComponent<CometSkyGlow>();
+            }
         }
 
         /// <summary>The host's event for the planet sync, while there is still something of it to see.</summary>
@@ -175,6 +179,16 @@ namespace TerraformingReloaded.Comets
             catch (Exception e)
             {
                 CometMap.Fault("the comets on the space map stopped being stepped this frame: " + e.Message);
+            }
+            // The parked comets in the sky, then the rockets aiming them, which read the sky.
+            try
+            {
+                CometSkyBodies.Step();
+                CometAim.Step();
+            }
+            catch (Exception e)
+            {
+                CometMap.Fault("the comets in the sky stopped being kept this frame: " + e.Message);
             }
             try
             {

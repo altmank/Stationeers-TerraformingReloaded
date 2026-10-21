@@ -94,15 +94,18 @@ namespace TerraformingReloaded.Comets
     {
         public MapComet[] Comets;
 
+        /// <summary>The payload bays at Entry and their targets, as read; the host writes its own as they stand.</summary>
+        public CometAim.Target[] Targets;
+
         public void Serialize(RocketBinaryWriter writer) => CometMap.Write(writer, Comets ?? new MapComet[0]);
 
-        public void Deserialize(RocketBinaryReader reader) => Comets = CometMap.Read(reader);
+        public void Deserialize(RocketBinaryReader reader) => Comets = CometMap.Read(reader, out Targets);
 
         public void Process(long clientId)
         {
             if (Comets != null && NetworkManager.IsClient)
             {
-                CometMap.FromHost(Comets);
+                CometMap.FromHost(Comets, Targets);
             }
         }
     }

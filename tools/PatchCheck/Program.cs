@@ -258,6 +258,7 @@ internal static class Program
         failures += CheckComets();
         failures += CheckCelestial();
         failures += CheckCometMap();
+        failures += CheckCometSky();
 
         Console.WriteLine(failures == 0 ? "OK" : failures + " problem(s)");
         return failures == 0 ? 0 : 1;
@@ -1321,6 +1322,171 @@ internal static class Program
     private sealed class SizelessDisc : TerraformingReloaded.Comets.CelestialRules
     {
         public override double DiscRadiusAt(double settingMetres, double curvature, double standardMultiplier, double planetSize) => DiscRadius(settingMetres, curvature);
+    }
+
+    /// <summary>
+    /// The comet in the sky (docs/COMET-ROCKETS.md, stage 5): the sky rules by their own check, then wrong
+    /// rules the check must catch; then the three parts go in, or bind where compiling the patched method
+    /// needs Unity. The sky body patches nothing, so it applies here as it does at load.
+    /// </summary>
+    private static int CheckCometSky()
+    {
+        int failures = 0;
+        string rules = TerraformingReloaded.Comets.CometSkyRules.Check(TerraformingReloaded.Comets.CometSkyRules.Shipped);
+        failures += Judge(rules == null, "comet sky rules: " + (rules ?? "Unity's rotations, the day's angle, the scene rotation and the planet's axis in it, a body seen from the planet, a round orbit's place and its pole the tilt from the axis, bearings, the telescope's angles, and the time to a comet's highest"));
+        var wrongRules = new (string What, TerraformingReloaded.Comets.CometSkyRules Rules)[]
+        {
+            ("a scene rotation turned in the wrong order", new SkyTurnedFirst()),
+            ("a latitude that tips the sky the wrong way", new SkyLatitudeFlipped()),
+            ("a scene rotation that leaves the longitude out", new SkyWithoutLongitude()),
+            ("a body seen from itself, not from the planet", new SkySeenBackwards()),
+            ("a day that turns once a degree of orbit, not once a day", new SkyDayOfOrbit()),
+            ("a planet turning backwards counted forwards", new SkyRetrogradeIgnored()),
+            ("an orbit's node taken in degrees", new SkyNodeInDegrees()),
+            ("an orbit tilted from the sky's frame, not the planet's equator", new SkyTiltFromFrame()),
+            ("a bearing measured from east", new SkyAzimuthFromEast()),
+            ("a height measured along north", new SkyHeightFromNorth()),
+            ("a telescope tipped up by the height, not down from straight up", new SkyVerticalAsHeight()),
+            ("a next pass that is the comet rising, not its highest", new SkyNextRise()),
+            ("an anomaly that runs at the comet's period over the planet's", new SkyAnomalyInverted()),
+        };
+        foreach (var wrong in wrongRules)
+        {
+            string caught = TerraformingReloaded.Comets.CometSkyRules.Check(wrong.Rules);
+            failures += Judge(caught != null, "comet sky rules check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        var parts = new (string Name, Action<HarmonyLib.Harmony> Apply)[]
+        {
+            ("comet sky body", _ => TerraformingReloaded.Comets.CometSkyBodies.Apply()),
+            ("comet aim readouts", TerraformingReloaded.Comets.CometAim.ApplyReadouts),
+            ("comet map motherboard icons", TerraformingReloaded.Comets.CometSkyIcons.Apply),
+        };
+        foreach (var part in parts)
+        {
+            try
+            {
+                part.Apply(new HarmonyLib.Harmony("patchcheck." + part.Name.Replace(' ', '.')));
+                Console.WriteLine("applied: " + part.Name);
+            }
+            catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+            {
+                Console.WriteLine("bound:   " + part.Name + " (targets found, patch bodies fit; compiling one needs Unity)");
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("FAILED:  " + part.Name + ": " + e.Message);
+                failures++;
+            }
+        }
+        return failures;
+    }
+
+    private sealed class SkyTurnedFirst : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyRotation SceneRotation(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime) =>
+            TerraformingReloaded.Comets.SkyRotation.AngleAxis(DayAngle(frame, simulationTime) + frame.LongitudeDegrees, frame.Axis)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(-90.0, TerraformingReloaded.Comets.SkyVector.Right)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(frame.LatitudeDegrees, TerraformingReloaded.Comets.SkyVector.Right);
+    }
+
+    private sealed class SkyLatitudeFlipped : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyRotation SceneRotation(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime) =>
+            TerraformingReloaded.Comets.SkyRotation.AngleAxis(-90.0, TerraformingReloaded.Comets.SkyVector.Right)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(-frame.LatitudeDegrees, TerraformingReloaded.Comets.SkyVector.Right)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(DayAngle(frame, simulationTime) + frame.LongitudeDegrees, frame.Axis);
+    }
+
+    private sealed class SkyWithoutLongitude : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyRotation SceneRotation(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime) =>
+            TerraformingReloaded.Comets.SkyRotation.AngleAxis(-90.0, TerraformingReloaded.Comets.SkyVector.Right)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(frame.LatitudeDegrees, TerraformingReloaded.Comets.SkyVector.Right)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(DayAngle(frame, simulationTime), frame.Axis);
+    }
+
+    private sealed class SkySeenBackwards : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyVector SkyDirection(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime, TerraformingReloaded.Comets.SkyVector planetLessBody) =>
+            base.SkyDirection(frame, simulationTime, -planetLessBody);
+    }
+
+    private sealed class SkyDayOfOrbit : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override double DayAngle(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime) => (float)((frame.EpochDegrees + simulationTime) % 360.0);
+    }
+
+    private sealed class SkyRetrogradeIgnored : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override double DayAngle(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime) =>
+            base.DayAngle(new TerraformingReloaded.Comets.SkyFrame(frame.Axis, frame.LatitudeDegrees, frame.LongitudeDegrees, frame.EpochDegrees, frame.SolDegreesPerDay, false, frame.PeriodDays, frame.TimeScale), simulationTime);
+    }
+
+    private sealed class SkyNodeInDegrees : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyVector OrbitOffset(TerraformingReloaded.Comets.SkyOrbit orbit, double anomalyDegrees) =>
+            base.OrbitOffset(new TerraformingReloaded.Comets.SkyOrbit(orbit.PeriodDays, orbit.InclinationDegrees, orbit.AscendingNodeRadians * Math.PI / 180.0,
+                orbit.PeriapsisRadians, orbit.SemiMajorAxisAu, orbit.EpochDegrees), anomalyDegrees);
+    }
+
+    private sealed class SkyTiltFromFrame : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyOrbit OrbitFor(TerraformingReloaded.Comets.SkyFrame frame, double orbitSeconds, double tiltDegrees, double phaseDegrees, double semiMajorAxisAu)
+        {
+            TerraformingReloaded.Comets.SkyOrbit right = base.OrbitFor(frame, orbitSeconds, tiltDegrees, phaseDegrees, semiMajorAxisAu);
+            return new TerraformingReloaded.Comets.SkyOrbit(right.PeriodDays, (float)tiltDegrees, 0.0, 0.0, semiMajorAxisAu, right.EpochDegrees);
+        }
+    }
+
+    private sealed class SkyAzimuthFromEast : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.Bearing BearingOf(TerraformingReloaded.Comets.SkyVector direction)
+        {
+            TerraformingReloaded.Comets.Bearing right = base.BearingOf(direction);
+            double azimuth = Math.Atan2(direction.Z, direction.X) * 180.0 / Math.PI;
+            return new TerraformingReloaded.Comets.Bearing(azimuth < 0.0 ? azimuth + 360.0 : azimuth, right.Height);
+        }
+    }
+
+    private sealed class SkyHeightFromNorth : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.Bearing BearingOf(TerraformingReloaded.Comets.SkyVector direction)
+        {
+            TerraformingReloaded.Comets.Bearing right = base.BearingOf(direction);
+            double length = direction.Length;
+            return new TerraformingReloaded.Comets.Bearing(right.Azimuth, length > 0.0 ? Math.Asin(direction.Z / length) * 180.0 / Math.PI : 0.0);
+        }
+    }
+
+    private sealed class SkyVerticalAsHeight : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.TelescopeAim AimFor(TerraformingReloaded.Comets.Bearing bearing) =>
+            new TerraformingReloaded.Comets.TelescopeAim(bearing.Azimuth, Math.Max(0.0, Math.Min(90.0, bearing.Height)), bearing.Height >= 0.0);
+    }
+
+    private sealed class SkyNextRise : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override double NextHighestSeconds(TerraformingReloaded.Comets.SkyFrame frame, TerraformingReloaded.Comets.SkyOrbit orbit, double simulationTime, double withinSeconds)
+        {
+            double step = 0.01;
+            double before = BearingOf(CometDirection(frame, orbit, simulationTime)).Height;
+            for (double seconds = step; seconds <= withinSeconds; seconds += step)
+            {
+                double now = BearingOf(CometDirection(frame, orbit, simulationTime + seconds * frame.TimeScale)).Height;
+                if (before <= 0.0 && now > 0.0)
+                {
+                    return seconds;
+                }
+                before = now;
+            }
+            return double.NaN;
+        }
+    }
+
+    private sealed class SkyAnomalyInverted : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override double Anomaly(TerraformingReloaded.Comets.SkyOrbit orbit, double planetPeriodDays, double simulationTime) =>
+            orbit.EpochDegrees + orbit.PeriodDays / planetPeriodDays * simulationTime;
     }
 
     private static int Judge(bool passed, string what)

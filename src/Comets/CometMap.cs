@@ -94,6 +94,7 @@ namespace TerraformingReloaded.Comets
                 _pendingModes = new List<CometRocketRecord>();
                 _changed = false;
             }
+            CometAim.WorldStart();
         }
 
         /// <summary>SpaceMapNode.Create(SiteNodeReference), during a load: the site the save knew by this id.</summary>
@@ -648,6 +649,9 @@ namespace TerraformingReloaded.Comets
 
         private static void Changed() => _changed = true;
 
+        /// <summary>Something sent with the list changed (a payload bay's target, CometAim): the list goes out with the next send.</summary>
+        internal static void MarkChanged() => _changed = true;
+
         /// <summary>
         /// Main thread, every frame: every rocket a loaded save had running a comet action goes back into it
         /// once the game is running and the rocket is there, which the game then checks as any mode it is
@@ -840,10 +844,15 @@ namespace TerraformingReloaded.Comets
 
         // ---- the network --------------------------------------------------------------------------------
 
-        /// <summary>1: 0.18.0. 2: each comet's kind, ore and Cut cycles after its state (0.19.0 on).</summary>
-        private const byte WireLayout = 2;
+        /// <summary>
+        /// 1: 0.18.0. 2: each comet's kind, ore and Cut cycles after its state (0.19.0). 3: then the target of
+        /// every payload bay at Entry, which the game neither saves nor sends (0.20.0 on).
+        /// </summary>
+        private const byte WireLayout = 3;
 
-        /// <summary>The whole list, for the instant message and the planet sync.</summary>
+        private const int MaxTargets = 4096;
+
+        /// <summary>The whole list and the payload bays' targets, for the instant message and the planet sync.</summary>
         internal static void Write(RocketBinaryWriter writer, MapComet[] comets)
         {
             writer.WriteByte(WireLayout);
@@ -852,11 +861,20 @@ namespace TerraformingReloaded.Comets
             {
                 comet.Write(writer);
             }
+            CometAim.Target[] targets = CometAim.Targets;
+            writer.WriteInt32(targets.Length);
+            foreach (CometAim.Target target in targets)
+            {
+                writer.WriteInt64(target.BayId);
+                writer.WriteSingle(target.X);
+                writer.WriteSingle(target.Z);
+            }
         }
 
-        /// <summary>The host's list; null when it is not one this build can read, which the caller ignores.</summary>
-        internal static MapComet[] Read(RocketBinaryReader reader)
+        /// <summary>The host's list and its payload bays' targets; null when it is not one this build can read, which the caller ignores.</summary>
+        internal static MapComet[] Read(RocketBinaryReader reader, out CometAim.Target[] targets)
         {
+            targets = null;
             if (reader.ReadByte() != WireLayout)
             {
                 return null;
@@ -871,11 +889,29 @@ namespace TerraformingReloaded.Comets
             {
                 comets[i] = MapComet.Read(reader);
             }
+            int aimed = reader.ReadInt32();
+            if (aimed < 0 || aimed > MaxTargets)
+            {
+                throw new InvalidOperationException("the host's comet map claims " + aimed + " payload bays aiming");
+            }
+            CometAim.Target[] read = new CometAim.Target[aimed];
+            for (int i = 0; i < aimed; i++)
+            {
+                long bay = reader.ReadInt64();
+                float x = reader.ReadSingle();
+                float z = reader.ReadSingle();
+                if (float.IsNaN(x) || float.IsInfinity(x) || float.IsNaN(z) || float.IsInfinity(z))
+                {
+                    throw new InvalidOperationException("the host sent payload bay " + bay + " aiming at a point that is not on the ground");
+                }
+                read[i] = new CometAim.Target(bay, x, z);
+            }
+            targets = read;
             return comets;
         }
 
-        /// <summary>Client: the host's comets, from either route. The host's list is the list.</summary>
-        internal static void FromHost(MapComet[] comets)
+        /// <summary>Client: the host's comets and its payload bays' targets, from either route. The host's list is the list.</summary>
+        internal static void FromHost(MapComet[] comets, CometAim.Target[] targets)
         {
             if (comets == null || !NetworkManager.IsClient)
             {
@@ -885,6 +921,7 @@ namespace TerraformingReloaded.Comets
             {
                 Publish(comets);
             }
+            CometAim.FromHost(targets);
         }
 
         // ---- the save -------------------------------------------------------------------------------------

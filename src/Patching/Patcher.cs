@@ -415,6 +415,14 @@ namespace TerraformingReloaded.Patching
             Extra(report, "comet rocket actions", () => Comets.CometActionPatches.Apply(harmony));
             // Their buttons on the rocket map screen, copied from the game's Mine button.
             Extra(report, "comet action buttons", () => Comets.CometActionPatches.ApplyButtons(harmony));
+            // A comet parked at Entry as a body in the game's own sky (stage 5). Nothing is patched: refused
+            // unless the sky still keeps its bodies in the lists the comet joins and the sky rules pass their
+            // own check.
+            Extra(report, "comet sky body", () => Comets.CometSkyBodies.Apply());
+            // Where a rocket at Entry would bring it down, read out through its payload bay.
+            Extra(report, "comet aim readouts", () => Comets.CometAim.ApplyReadouts(harmony));
+            // Its target and its landing as two icons on the Map motherboard.
+            Extra(report, "comet map motherboard icons", () => Comets.CometSkyIcons.Apply(harmony));
 
             return report;
         }
