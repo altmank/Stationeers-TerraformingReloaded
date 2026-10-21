@@ -6,8 +6,10 @@ the pure rules (stage 2 of *Proof as it is built*, 0.17.0), the comet as an obje
 flies to Entry by the rocket rule, saved with the world and sent to every player (stage 3, 0.18.0), the
 rocket actions that make it and send it: Cut, Rig, Fuel, Burn and Launch (stage 4, 0.19.0), the parked
 comet in the game's own sky, aimed by a rocket at Entry, seen by the Ground Telescope and shown on the Map
-motherboard (stage 5, 0.20.0), and the deorbit and the landing: a rocket at Entry brings the comet down, every
-player is warned, and the impact brings its gas or takes air away (stage 6, 0.21.0).
+motherboard (stage 5, 0.20.0), the deorbit and the landing: a rocket at Entry brings the comet down, every
+player is warned, and the impact brings its gas or takes air away (stage 6, 0.21.0), and what the impact does
+near where it lands: ground zero, the fireball's heat, the wave and the falling rocks, in one pass (stage 7,
+0.22.0).
 
 Game facts below are from the decompile; file and line references are kept out of this public repo.
 
@@ -416,27 +418,75 @@ comet lands wherever it is brought down.
 
 ## Near the impact
 
-The pressure wave only breaks what is over its limit. Closer in, an impact does more. Each zone ends where the
-wave falls to a game threshold, so the zones grow with the cube root of the comet's moles as the wave does, and
-stop growing at 1e9 mol where the wave stops (`CelestialRules.GroundZeroMetres`, `CelestialRules.ZoneAt`). r0 is
-186 m at 1e6 mol (settings below).
+The pressure wave only breaks what is over its limit. Closer in, an impact does more. Ground zero and the
+falling rocks end where the wave falls to a game threshold, so they grow with the cube root of the comet's moles
+as the wave does and stop growing at 1e9 mol where the wave stops (`CelestialRules.GroundZeroMetres`). The
+fireball's heat reaches as far as the fireball is drawn, the radius its yield gives it (`COMET.md`, "Size from
+yield"), so what is seen burning and what burns agree (`CometZones.ReachFor`, `CometZones.ZoneAt`). r0 is 186 m
+at 1e6 mol (settings below).
 
-| Zone | Radius | Where the wave there is | What happens |
+| Zone | Radius | What sets it | What happens |
 |---|---|---|---|
-| Ground zero | r0 | past the strongest wall, 10,000 kPa | every structure destroyed whatever its limit; anyone there dies |
-| Fireball | 2.24 x r0 | past the full-force push, 2,000 kPa | heat damage to structures outside and to players |
-| Debris rain | 7.07 x r0 | past ordinary windows, 200 kPa | falling rocks; each one that lands on a structure or player is a small game explosion |
-| Pressure wave | as `COMET.md` | | breaks what is over its limit |
+| Ground zero | r0 | the wave past the strongest wall, 10,000 kPa | every structure destroyed whatever its limit, indoors or out; anyone there dies |
+| Fireball | the drawn fireball, 54.9 m x (2W)^0.4 | the fireball's largest radius, Glasstone and Dolan | a structure facing the outside, and a player outdoors, burned by the game's lava rate for the fireball's growth; then the wave as below |
+| Falling rocks | 7.07 x r0 | the wave past ordinary windows, 200 kPa | the wave as below; a place with a structure or a player on it may get a rock, the game's own small explosion |
+| Pressure wave | as `COMET.md` | | breaks what is over its limit, makes windows near it creak |
 
-| Comet | Ground zero | Fireball | Debris rain |
-|---|---|---|---|
-| 1e6 mol | 186 m | 417 m | 1.3 km |
-| 1e7 mol | 401 m | 898 m | 2.8 km |
-| 1e8 mol | 863 m | 1.9 km | 6.1 km |
+A zone a nearer one covers is empty: below about 2,300 mol ground zero is wider than the fireball, so a tiny
+comet has no fireball zone.
+
+| Comet | Ground zero | Fireball | Burn in it | Falling rocks | Chance of a rock at the outer edge |
+|---|---|---|---|---|---|
+| 1e5 mol | 86 m | 249 m | 41 | 610 m | 6.8 % |
+| 1e6 mol | 186 m | 625 m | 112 | 1.3 km | 10.7 % |
+| 1e7 mol | 401 m | 1.6 km | 308 | 2.8 km | 17 % |
+| 1e8 mol | 863 m | 3.9 km | 847 | 6.1 km | 27 % |
+| 1e9 mol | 1.9 km | 9.9 km | 2,333 | 13.2 km | 43 % |
+
+From `tools/PatchCheck`, which prints it. For scale, by the game's own health (`Thing.ThingHealth`): a Composite
+Window 220, an Iron Wall 216, a Reinforced Composite Window 450, a solar panel 445, an Airlock 1,571.
 
 A rocket comet is capped at its site's contents times K. The biggest ice site on any shipped map holds 3.05M
-mol (Europa's; 2.79M on Mars's and the Moon's), so at Standard size, K = 5, the largest rocket comet is 15.2M mol, ground zero
-461 m. The 1e8 row and above happen only through the console command.
+mol (Europa's; 2.79M on Mars's and the Moon's), so at Standard size, K = 5, the largest rocket comet is 15.2M mol:
+ground zero 461 m, the fireball 1,858 m, a burn of 370 in it, the falling rocks out to 3.3 km. The 1e8 row and
+above happen only through the console command.
+
+### As built (stage 7, 0.22.0)
+
+- **One pass, at the impact** (`CometZonePass`), on every machine: every structure in the world once
+  (`GridController.AllStructuresPool`), its distance from the impact to its centre picking its row, then on the host
+  every player online once. Each effect is a moment of the show, when the wave gets there (`d / 340` s), and a rock
+  when it comes down. The pass logs `[TR comet] event N impact at ...; zones in one pass over S structures and P
+  players in X ms: ...` with what it found, and keeps a report for `tools/LiveCheck` (`CometZoneReport`). Clients
+  make the same list for the sounds and change nothing; the game sends the damage, the removals, the deaths and
+  its own explosions.
+- **Ground zero** removes a structure by the game's own removal of one its damage destroys
+  (`Structure.OnDamageDestroyed`), whatever its pressure limit, indoors or out, leaving its wreckage where it has
+  any. Only what the game makes indestructible stays. A player there is given their whole health as Burn, the
+  game's own death by damage; one just respawned is spared, as the wave's suit damage spares them.
+- **The fireball** burns a structure that faces the outside (the wave's own test, `COMET.md` section 4) with the
+  game's lava rate, 25 a second (`OcclusionManager.LavaDamage`, the one heat the game deals to anything by where
+  it is), for the fireball's growth and thermal pulse, `CometSizes.FireballSeconds`, ten times the pulse's peak:
+  `25 x 0.417 x W^0.44` Burn, the same all through the fireball. A player outdoors in it is burned as standing in
+  lava burns one (`Human.ApplyLavaDamage`): the suit and the helmet each by that much times how much it lets lava
+  burn it (a HARM suit a quarter), or the body with no suit. The wave then acts there as everywhere past ground
+  zero, so a window in the fireball is burned and then broken; what the burn alone takes past its health the
+  game breaks or removes.
+- **The wave** is `COMET.md` section 4's, unchanged, applied in the fireball, the falling rocks and beyond.
+- **The falling rocks.** The ground is judged in 2 m squares, one large grid cell; a square with a structure
+  facing the outside or a player outdoors in it is a place a rock can land on something, the first thing found
+  standing for it. Each place is given a rock by its chance, drawn from the event's seed nearest first, until
+  `MaxDamagingRocks` have come down (`CometZones.Rocks`). The chance is 1 at the falling rocks' inner edge, past
+  the fireball, and thins as an ejecta blanket does, as the inverse cube of the distance (McGetchin, Settle and
+  Head 1973). A rock is the game's own smallest explosion that damages anything, a suit bursting
+  (`Explosion.Explode(200, position, 2.3)`): it damages what lies within 1 m of where it lands by 200 Brute, so a
+  rock on a structure takes 200 from it. It lands on the place's structure or player, when a 45 degree throw that
+  lands there comes down, `sqrt(2 d / g)` under the world's gravity, never before the wave: 18 to 27 s after the
+  impact across a 1e6 comet's falling rocks on Mars, as the show draws its rain from 4 to 35 s. Rocks over open
+  ground are only drawn.
+- **Mineral comets** are the same: their size is the moles of air they take.
+- `CometZones.Check` runs at load, chained into the comet rules' verdict, and in `tools/PatchCheck`, with ten
+  wrong rules it must catch. `tools/LiveCheck/run.ps1 -CometZones` is the in-game proof, for bt.
 
 ## Ore comets: what they leave
 
@@ -462,7 +512,7 @@ cost grows with area, is out unless it is cheap.
 
 - **One pass on the host at impact.** Every structure gets its distance once, which picks its effect from one
   table (destroyed, heat damage, wave check, untouched), applied when the wave reaches it. One pass over the
-  players.
+  players. Built in stage 7 (*Near the impact*): the pass logs its count and its time.
 - **Nothing per tick afterwards** except the darker sky, which is built.
 - **Clients** get the one event already sent; the game syncs structure damage and its own explosions.
 - **Damaging rocks:** at most about 40 per comet, only where the pass found a structure or player within a few
@@ -540,8 +590,8 @@ section, `Celestial terraforming`.
 | CorrectionMetresPerDeltaV | reach in metres per m/s of Δv the reserve can give | 25 | A steady burn through the whole fall of T seconds moves the comet a T^2 / 2 sideways for a Δv of a T: T / 2 metres per m/s, 25 at T = 50. Exact for the largest steer (the cap below); a short burn early in the fall would drift up to T per m/s, so this errs short |
 | EntryWindowSeconds | how long the deorbit burn can run, so thrust caps the usable reserve | 50 | A landing rocket starts down at its leg's Δv, 400 m/s (2 x the map's OrbitDistance of 200), from the game's default re-entry height of 25,000 m (ReEntryProfile Low). Falling freely under Mars's gravity of 3.7 m/s^2 it reaches the ground in (-400 + sqrt(400^2 + 2 x 3.7 x 25,000)) / 3.7 = 50.6 s (`CelestialRules.FallSeconds`). Vulcan and Venus (gravity clamped to 5.5) 47.2 s, the Moon 56.1 s, Mimas 58.3 s: one figure, Mars's, rounded |
 | GroundZeroMetresAt1e6 | r0 at 1e6 mol; the zones grow from it with the cube root of the moles | 186 | The wave rule (`COMET.md` section 3), dP = 400 x (n / 1e7)^(2/3) x (2000 / d)^2 kPa. The strongest limit any structure has is the Reinforced Wall's 10,000 kPa; at 1e6 mol the wave passes it inside d = 2000 x sqrt(400 x 0.1^(2/3) / 10,000) = 185.7 m. Ground zero, where everything goes whatever its limit, is where the wave already breaks everything. A fixed peak's distance goes as n^(1/3), so the zones' cube root is the wave's own |
-| FireballRadiusFactor | the fireball's radius as a multiple of r0 | 2.24 | Where the wave falls to the full-force push, 2,000 kPa (`CometRules.FullForceKPa`), which throws a player hard and damages the suit: sqrt(10,000 / 2,000) = 2.236 times r0, 417 m at 1e6 mol |
-| DebrisRadiusFactor | the reach of the falling rocks as a multiple of r0 | 7.07 | Where the wave falls to 200 kPa, the weakest limit that breaks (ordinary windows and glass doors, `COMET.md`) and where the hard push starts (`CometRules.ThrownHardKPa`): sqrt(10,000 / 200) = 7.071 times r0, 1,315 m at 1e6 mol. No rock does harm outside the ground the wave already damages |
+| FireballHeatFactor | how far the fireball's heat reaches, as a multiple of the fireball drawn from the comet's yield; above 1 the fireball is drawn as far as its heat | 1 | What is seen burning and what burns agree: the heat reaches exactly as far as the fireball is drawn, its largest radius by Glasstone and Dolan's 180 W^0.4 ft for a surface burst (`CometYield.FireballLawMetres`), 625 m at 1e6 mol and 1,570 m at 1e7. It replaces stage 2's FireballRadiusFactor (2.24 x r0, where the wave falls to the full-force push), which the drawn fireball is 1.3 (1e5) to 2.4 (1e9) times (decisions, stage 7) |
+| DebrisRadiusFactor | the reach of the falling rocks as a multiple of r0 | 7.07 | Where the wave falls to 200 kPa, the weakest limit that breaks (ordinary windows and glass doors, `COMET.md`) and where the hard push starts (`CometRules.ThrownHardKPa`): sqrt(10,000 / 200) = 7.071 times r0, 1,315 m at 1e6 mol. No rock does harm outside the ground the wave already damages. It stays wider than the drawn fireball at every size up to the wave's cap (1.3 times at 1e9), and the show throws its rocks to exactly this edge (`COMET.md`, "Against the damage") |
 | MaxDamagingRocks | the cap on rocks that hit | 40 | No game fact sets it; set to keep the cost rule. The show draws its debris rain at 7 pieces a second, falling off over 12 s, from 4 to 35 s after the impact: 7 x 12 x (1 - e^(-31 / 12)) = 78 pieces. A rock that hits must be one a player could have seen fall, so at most 78; half of them, 40, is at most 1.3 game explosions of 3 m or less a second over the 31 s, each the cost of one grenade |
 | GasArrivingShare | share of the gas left after the trip that reaches the planet | 0.7 | No game fact: a rocket that crashes in the game puts all its fuel into the world (`Rocket.Explode`), which LU ruled out ("only part of the gas reaches the planet"). Kept at the approved design's 70 % (Decisions, below). K is derived through it |
 | CometMassScale | a comet's weight in flight as a share of what the ice or ore cut from its site weighs; the extra gas K gives weighs nothing | 0.39 | The largest hundredth at which the heaviest comet a Mars map can make (K x a D8 R3 S7 site of silanol ice, 2.4M mol cut, 372.4 t, from Lost Moon Fragments, 2,058.5 delta-v, two engines) takes no more time hauling its fuel in a big fuel rocket than cutting it took: 6.84 trips of 100,302 mol in 994 s against 1,000 cycles of 6.8 s. The fuel rocket and the trips are in the stage 4 decisions, below |
@@ -572,7 +622,7 @@ in *What it is judged against*.
 | 372 s an orbit, Phobos's | 1: trackable by the Ground Telescope, as Phobos is; a pass in view for three minutes | 120 s, for a line that moves only 36 degrees a pass: the comet would cross the sky three times faster than anything the game shows |
 | Steering is T / 2 metres per m/s, capped by the engines' Δv in the fall | 7, a big comet steers little; exact at the cap | T per m/s: twice the largest steer the kinematics allow |
 | One fall time, Mars's 50 s, for every world | 5, simple | Per world from its gravity: 47 to 58 s, a spread smaller than the tuning matters |
-| The zones end where the wave crosses game thresholds (10,000, 2,000 and 200 kPa) | 4, the game's own limits; the zones and the wave never disagree | The earlier 150 m, 2.5 and 8 picked by eye: ground zero inside where the wave already breaks everything, and rocks that could hit beyond it |
+| The zones end where the wave crosses game thresholds (10,000, 2,000 and 200 kPa); in stage 7 the fireball's moved to the drawn fireball (below) | 4, the game's own limits; the zones and the wave never disagree | The earlier 150 m, 2.5 and 8 picked by eye: ground zero inside where the wave already breaks everything, and rocks that could hit beyond it |
 | The engines are counted at the measured 16.39 kN, not the 4 % more `RocketsBurnCompletely` gives a real engine | 4: the one thrust measured in the game | The modelled 16.95 kN: not measured |
 | 70 % arriving, as the approved design text has it | LU's "only part of the gas reaches the planet" | 60 %, the earlier balance table's figure: no fact favours it, and every comet count there is about a sixth higher |
 | A mineral comet takes 0.7 kg of air per kg | symmetry with an ice comet, so Venus costs as much comet per tonne of air as Mars | A momentum or energy estimate from the game's 590 m/s impact: 0.01 to 0.1 kg per kg, too little for a tool LU wants for thinning Venus |
@@ -659,7 +709,7 @@ Fuel, Burn) sends the list to every player at most every 2 s.
 | Rig is the game's Deploy, and the payload the game's Pumped Gas engine kit in a Payload Delivery Container; a kit counts as many engines as it would build | 4, 5 | A new kit or a new action: nothing the game does not already have |
 | The comet modes are written as None in the game's save, the real mode in the comets entry by the rocket's ReferenceId | saves stay loadable, with and without the mod | Writing Mine for Cut: the unmodded game would mine the site for real, and with the mod a mode the entry could not restore would mine too |
 | Launch sends the comet whether or not its fuel covers the route, and says which | LU's "no rescue if it runs dry": a bad plan has a bad outcome | Refusing a comet short of fuel: the rule's arrival is a prediction the player can read first, in the comet's line and in `terraform comet list` |
-| **The disc follows the planet's size above Standard**: it grows by twice what K adds to the biggest rocket comet's safe distance, so half of it is that safe distance, rounded up as at Standard, on every size: 5,450 m on Long (half 2,725 m against 2,720 m), 5,750 m on a full-size planet; never below the setting, so 5,100 m on Short (`CelestialRules.DiscRadiusAt`). The cost: on Long the smallest show (scale 0.4, seen out to 2,614 m) can land just past where it clears the drawn horizon at the edge of the tracked half | goal 1, a tracked landing at a safe distance, on every size | Leaving the disc as set: on Long the biggest comets could not be brought down at a safe distance while in sight. Shrinking it on Short too: no goal needs it, and small comets are easier to see nearer |
+| **The disc follows the planet's size above Standard**: it grows by twice what K adds to the biggest rocket comet's safe distance, so half of it is that safe distance, rounded up as at Standard, on every size: 5,450 m on Long (half 2,725 m against 2,720 m), 5,750 m on a full-size planet, by stage 4's safe distance (8,852 and 15,406 m by stage 7's, which keeps the viewer outside the drawn fireball); never below the setting, so 5,100 m on Short (`CelestialRules.DiscRadiusAt`). The cost: on Long the smallest show (scale 0.4, seen out to 2,614 m) can land just past where it clears the drawn horizon at the edge of the tracked half | goal 1, a tracked landing at a safe distance, on every size | Leaving the disc as set: on Long the biggest comets could not be brought down at a safe distance while in sight. Shrinking it on Short too: no goal needs it, and small comets are easier to see nearer |
 | A site's comet is the first one waiting there; Cut grows it, makes one only when none waits, and refuses one of the other kind (a debug-made ice comet at a mineral site) | one comet per site in play; Cut never mixes ice and ore | A comet per rocket: two rockets cutting one site would make two half comets |
 | The comet actions are offered only once every one of their patches is in, the save's guard last, and only with the comets' save installed | saves stay loadable; one patch the game no longer fits costs all four actions, never a broken save | Offering each action whose own patch went in: a mode could then reach a save with nothing to keep it out |
 | While an action changes a comet every tick the host sends the whole list at most every 2 s, and at once for anything else | 5, a few hundred bytes now and then | Every change at once: Fuel changes the comet twice a second |
@@ -715,6 +765,29 @@ Fuel, Burn) sends the list to every player at most every 2 s.
 | The falls ride the comet list (layout 4), sent at once and with the planet sync, and only what a player's game shows and warns with: the comet, its kind, size, impact and fall on the clock | 5, one list for every comet; a player who joins mid-fall is warned too | A message of their own: a second route to keep in step, and none for a player who joins later |
 | The impact's height is read from the voxels as the console comet's is; with none to read, the launch pad's height | 4, the console comet's own ground rule | The host's own height: a dedicated server has none |
 
+### Stage 7, as built (0.22.0)
+
+| Decision | Goal served | Alternative, and why it lost |
+|---|---|---|
+| **The fireball's heat reaches as far as the fireball is drawn**: its yield's largest radius, 54.9 m x (2W)^0.4, times `FireballHeatFactor` (1). 249 m at 1e5 mol, 625 m at 1e6, 1,570 m at 1e7, 3,943 m at 1e8, 9,906 m at 1e9 | LU's standing intent that what is seen and what is done agree | Stage 2's 2.24 x r0 (where the wave falls to 2,000 kPa): the drawn fireball is 1.3 (1e5, 249 against 193 m) to 2.4 (1e9, 9,906 against 4,166 m) times it, so a player in drawn fire took no heat. Drawing the fireball at that zone and keeping the law for its timing: a 2 Mt fireball drawn 898 m across where Glasstone and Dolan give 1,570 m |
+| The setting is a new key, `FireballHeatFactor`, a multiple of the drawn fireball; `FireballRadiusFactor` is gone | a world's file that recorded 2.24 cannot be read as a multiple of a different radius | The old key with a new meaning: an older world would burn out to 2.24 times its fireball. A world's file with only the old key takes the config's value for the new one (`SIDECAR.md`) |
+| Ground zero and the falling rocks stay at their wave thresholds, 10,000 and 200 kPa | 4, the game's own limits; nothing drawn contradicts them | Following the drawing there too: the show throws its rocks to exactly the falling rocks' edge, and ground zero is inside the drawn fireball at every size above 2,300 mol, so neither disagrees with what is drawn |
+| **The burn is the game's lava rate, 25 a second, for the fireball's growth and thermal pulse (10 t_max)**, the same all through the fireball: 41 at 1e5, 112 at 1e6, 308 at 1e7, 370 for the largest rocket comet, 847 at 1e8, 2,333 at 1e9 | 4, the game's one heat damage by place; one number per comet, so it can be judged | The thermal pulse's power-weighted length, 2.22 t_max: 25 at 1e6, a 219 kt fireball barely scorching a window. The drawn glow, heat times time until it fades (`CometLook.BallHeat`): 268 at 1e6 and 561 at 1e7, everything of the game's usual health gone, no different from ground zero. Falling off with distance by the drawn ball's foot on the ground: the ball rises with the cloud from the first second, so its foot reaches only 0.89 R (1e5) to 0.23 R (1e9), a rule of the drawing's own and not the law's (Open, below) |
+| The burn and the rocks only reach what faces the outside, by the wave's own test, and players outdoors | the rooms around a structure shield it, as they do from the wave | Every structure: a window deep inside a base would burn through the walls around it |
+| The wave still acts in the fireball and the falling rocks, after the burn | a window in the fireball breaks as one just outside it does | The heat in place of the wave: a window 300 m from a 1e6 comet would be scorched and stand while one at 1.2 km breaks |
+| Ground zero removes a structure by the game's own removal of one its damage destroys, whatever its limit, indoors or out | "every structure destroyed whatever its limit" | The wave's break: a structure with a broken model would stand as a wreck at the impact, and only those facing the outside would go |
+| A player at ground zero is given their whole health as Burn | the game's own death by damage, synced as any death | Setting them dead directly: skips the damage route the game shows and logs |
+| **Rocks land on places, not at random**: the ground in 2 m squares, a square with a structure facing the outside or a player outdoors a place; each place by its chance, nearest first, until `MaxDamagingRocks` | the cost rule (only where something is, at most the cap); a big comet's rocks fall most where the fireball ends | Landing the show's 78 drawn rocks at random: over a 1e6 comet's falling rocks (4.2 km^2) a given square is hit about once in 13,000 comets, so damaging rocks would almost never happen. Every place hit: no thinning with distance, and the cap taken by whatever the pass met first |
+| The chance is 1 at the inner edge and falls as the inverse cube of the distance, an ejecta blanket's thinning (McGetchin, Settle and Head 1973): 6.8 % at the outer edge for 1e5, 10.7 % for 1e6, 43 % for 1e9 | a falling rock's density from crater ejecta, cheap | A flat chance: as many rocks at the outer edge as by the fireball |
+| A rock is the game's suit-burst explosion, `Explosion.Explode(200, position, 2.3)`, landing on the place's structure or player: 200 Brute within 1 m | the cost rule's 3 m or less; the game's own smallest explosion that damages anything | A grenade (1,600 at 4.3 m): past the cost rule. A circuit housing's (50 at 1 m): it damages nothing, since the game damages only inside the whole metres below the radius |
+| A rock comes down when a 45 degree throw that lands there would, `sqrt(2 d / g)` under the world's gravity, never before the wave; on a world with no gravity 30 s after the wave | ballistics, as the show throws them; 18 to 27 s on Mars for a 1e6 comet, inside the drawn rain's 4 to 35 s | All at the wave: rocks landing before they could have flown there |
+| **The console comet's safe distance keeps section 2's table and is never inside 1.25 times the larger of the drawn fireball and ground zero**: from 1.97e7 mol up the fireball sets it, 3,276 m at 3.6e7, 4,929 m at 1e8, 12,382 m at 1e9 | the viewer outside what is drawn burning and what is destroyed: the fireball's boils reach 1.18 R (`CometLook`), and 1.25 stands past them | Section 2's table alone: from 3.7e7 mol the drawn fireball covered the nearest allowed point (1e8's 3.9 km against 2.75 km, 1e9's 9.9 km against 3 km). The fireball alone, with no floor: a 1e5 comet would land 311 m off and its wave there, 770 kPa, break every window, wall and hatch |
+| The peak at the safe distance falls from 1e8 up: 306 kPa at 1e8 (windows and composite walls break; shutters at 350 hold), 225 kPa at 1e9 (windows only), where section 3 had 982 and 3,830 kPa | follows from the row above; reinforced windows still hold at every size | Keeping the old peaks: would need the comet nearer than its own fireball |
+| The landing disc on planets above Standard follows the new safe distance through its own rule: Standard and Short unchanged (5,100 m), Long 8,852 m (was 5,450), a full-size planet 15,406 m (was 5,750) | the disc's derivation, a tracked landing reaching a safe distance | Leaving the disc on the old safe distance: on Long the biggest comet (76M mol, fireball 3.5 km) could not be brought down outside its own drawn fireball while in sight. Cost: on Long a blind burn lands near the pad less often (Open) |
+| **Loudness is the wave's peak where the listener is**, to the 0.6 against the 50 kPa that throws a player (Stevens' power law, half as loud for every 10 dB less), never under 0.1; at the console safe distance 0.26 (1e4), 0.55 (1e5), full from 1e6 | the sound follows the wave a listener feels, from the yield and the distance | The 0.16 log scale, 0.45 + 0.2 x scale: a comet heard the same 2 km and 20 km off. The yield alone at a fixed distance: a rocket comet across the map as loud as one at the pad |
+| **The darker sky's depth is 0.55 (1 - e^(-tau)), tau as the yield to the 1/2** (the dust over the cap's area, the cap growing as W^(1/4)), 0.15 at 1e5: 0.053 at 1e4, 0.349 at 1e6, 0.527 at 1e7, 0.55 from 1e8 | the sky follows the yield as the rest of the show does | The 0.16 log scale: 0.25 at 1e6 and 0.35 at 1e7, and a 1e4 comet as dark as a 1e5 one |
+| The storm loop after the sound passes follows the loudness alone | one rule for every sound | The 0.16 log scale on top of the loudness |
+
 ## Proof as it is built
 
 LU, 2026-10-21: prove each mechanic works as it is built, and that it still works once joined to the rest.
@@ -742,6 +815,18 @@ Build order, each stage proven before the next starts:
 | 6 | the deorbit and the landing | landings land where the rule says, with and without reserve, and an untracked burn lands in the disc |
 | 7 | the impact zones | structures at measured distances end as the table says |
 | 8 | multiplayer | a dedicated server and a rendered client on bt see the same comet, icon and impact |
+
+Stage 7 is in 0.22.0, proof (1) and (2) written, (2) not yet run: `CometZones` (the zones, the heat zone at the drawn
+fireball, the burn, the rocks' chance, cap, order and time) is checked at load, chained into the comet rules'
+verdict, and by `tools/PatchCheck`, which hands it ten wrong rules it must catch (the heat at stage 2's 2.24 r0, the
+zones judged outermost first, a burn that fades toward the edge, one for the pulse's peak alone, one past the
+fireball's edge, rocks past the cap, rocks past the falling rocks, a flat chance, the farthest first, rocks before
+the wave), and `CometRules` (the safe distance outside 1.25 times the drawn fireball and ground zero, the loudness,
+the sky's depth) four more (the 0.16 safe distance, the bare fireball with no margin, a loudness that ignores the
+listener, the 0.16 sky). `tools/LiveCheck/run.ps1 -CometZones` is the in-game proof (`VERIFICATION.md`), for bt: a
+console comet and an untracked rocket comet, each landing by a line of real structures, every one's end state
+judged, the pass judged against the world's structure count, and every state read back after a save and a load.
+Players at ground zero, in the fireball and under the rocks need a run with players, stage 8.
 
 Stage 6 is in 0.21.0, proof (1) and (2) written, (2) not yet run: `CelestialRules.SteerFuelMoles`, `Descend`,
 `ArrivingGas` and `MineralRemoval` are checked at load and by `tools/PatchCheck`, which hands the check seven more
@@ -803,3 +888,9 @@ rules it must catch and reads the game's own molar masses and burn ratio under t
 - The glow's size and brightness, and how it looks by day, are untuned: a rendered run on bt shoots it.
 - Fuel and Δv left, and Δv still needed, are not read out on any device yet (*Readouts*).
 - Whether a landing past Mars's 4 km of terrain looks right on the far curved ground.
+- The drawn fireball rises with the cloud from the first second, so its foot on the ground reaches only 0.89 R
+  (1e5) to 0.23 R (1e9) of the heat zone, which is its largest radius aloft. Holding the ball on the ground through
+  its growth would make the foot reach R; a look change, LU's call.
+- On a Long planet the disc is now 8,852 m (stage 7's safe distance), so a blind burn lands near the pad less
+  often than the 5,450 m disc had it; LU's to revisit with the default planet size.
+- What the players' heat, kill and rocks look like from a player's seat: stage 8.

@@ -64,8 +64,11 @@ The host picks the impact point. It starts from where the host is looking, turne
 `range=` if given. It must be at least the **safe distance** from every structure and every player in the
 world:
 
-- safe distance = 1,500 m + 500 m x the comet's scale (`CometRules.Scale`, the log scale the 0.16 show was drawn at): 1,750 m at 1e4 mol, 2,000 m at 1e5, 2,250 m at 1e6,
-  2,500 m at 1e7, 2,750 m at 1e8, 3,000 m from 1e9 up;
+- safe distance = 1,500 m + 500 m x the comet's scale (`CometRules.Scale`, the log scale the 0.16 show was drawn at),
+  and never less than 1.25 times the larger of the drawn fireball and ground zero (`CometRules.SafeDistance`), so
+  nobody stands in what is drawn burning or in what the impact destroys (0.22.0): 1,750 m at 1e4 mol, 2,000 m at
+  1e5, 2,250 m at 1e6, 2,500 m at 1e7; from 1.97e7 mol the fireball sets it, 3,276 m at 3.6e7, 4,929 m at 1e8,
+  12,382 m from 1e9 up;
 - if the point is too close to anything, it moves outward along the same bearing, then tries other bearings,
   until it fits;
 - a `range=` that is too close is moved out, and the reply says so.
@@ -88,11 +91,13 @@ That gives, at the safe distance (where the nearest base is at most):
 | 1e5 mol, small | 2,000 m | 19 kPa | nothing |
 | 1e6 mol, medium | 2,250 m | 68 kPa | nothing |
 | 1e7 mol, large | 2,500 m | 256 kPa | 200 kPa windows and glass doors |
-| 1e8 mol, huge | 2,750 m | 982 kPa | also composite walls (300), shutters (350), hatches (500) |
-| 1e9 mol, largest | 3,000 m | 3,830 kPa | also airlocks (1,000) |
+| 1e8 mol, huge | 4,929 m | 306 kPa | also composite walls (300) |
+| 1e9 mol, largest | 12,382 m | 225 kPa | 200 kPa windows and glass doors |
 
 Reinforced windows and walls (8,000 kPa and up) hold against every comet at the safe distance. A base
-further away than the nearest allowed point gets less: the peak falls with the square of the distance.
+further away than the nearest allowed point gets less: the peak falls with the square of the distance. Until
+0.22.0 the safe distance was the log scale's alone and the two largest rows read 2,750 m (982 kPa: also shutters
+and hatches) and 3,000 m (3,830 kPa: also airlocks); the drawn fireball then covered the nearest allowed point.
 
 This is a game rule, not a physical model. A real blast of this energy at these distances is a few kPa, and
 the game's windows take 200. It also ignores the planet's air, so a thin-aired Mars feels it as much as Venus
@@ -101,6 +106,10 @@ does. Both are deliberate: LU's spec is that comet size sets the damage.
 The constants live in one place, so they can be tuned.
 
 ## 4. Structures
+
+Nearer the impact ground zero destroys, the fireball burns and rocks fall (`COMET-ROCKETS.md`, "Near the
+impact"); the wave below acts everywhere past ground zero. All of it is one pass over every structure, at the
+impact (0.22.0).
 
 At impact the host goes through every structure (`GridController.AllStructuresPool`) and keeps those that:
 
@@ -154,7 +163,11 @@ Fuels and oxidisers are TR's own lists (`FireGases`). The gas colours stay as in
 ## 7. Sound
 
 Everything goes through the game's mixer, so the player's volume settings, pausing, the helmet and the air
-around the player all apply as for any game sound. Two routes:
+around the player all apply as for any game sound. How loud it is follows the wave's peak where the listener is
+when the show starts (`CometRules.Loudness`, 0.22.0): full where the wave throws a player (50 kPa), and below
+that as loudness goes with sound pressure, to the 0.6 (Stevens' power law: half as loud for every 10 dB less),
+never under a tenth. From the console safe distance a 1e4 comet is 0.26 as loud, 1e5 0.55, 1e6 and up full.
+Two routes:
 
 - **Through the air** (the External group): roar, crack, boom, gust, glass. The air around the listener
   muffles it the way the game muffles everything.
@@ -178,7 +191,10 @@ The sequence:
 
 After impact the dust spreads and the sky dims to a depth set by the comet's size, then recovers:
 
-- depth: 15 % dimmer for a small comet up to 55 % for the largest;
+- depth: the dust's optical depth over its cap goes as the yield over the cap's area, W / W^(1/2), the cap
+  growing as the cloud's top, W^(1/4); the sky dims by 1 - e^(-depth) of at most 55 %, stated 15 % at 1e5 mol
+  (`CometRules.SkyDepth`, 0.22.0): 5 % at 1e4, 35 % at 1e6, 53 % at 1e7, 55 % from 1e8. The 0.16 show's log
+  scale had 15 % for a small comet up to 55 % for the largest;
 - it falls over the first 30 s and recovers over 5 minutes;
 - it dims the sky's scattering, the ambient light and the sun's light, on every machine;
 - visual only: solar panels are not affected.
@@ -214,10 +230,11 @@ Built to sections 1 to 9. What differs from the text above, and why. Nothing her
 the code builds, `tools/PatchCheck` binds the sky patches to their targets and runs the rules' check with
 the wrong rules it must catch, and every game API below was read in the decompile. Section 10 is still to do.
 
-**Where it lives.** `src/Comets/CometRules.cs` holds every number of sections 2, 3, 5 and 8 and their check;
-`CometReactions.cs` section 6's strengths; `CometEvent.cs` the event; `CometDirector.cs` the event in force
-and its delivery; `CometNet.cs` the instant message; `CometSite.cs` section 2; `CometWave.cs` sections 4 and
-5; `CometSound.cs` section 7; `CometShow.cs` the timeline and the drawing; `src/Patching/CometSky.cs` section
+**Where it lives.** `src/Comets/CometRules.cs` holds every number of sections 2, 3, 5 and 8 and their check
+(the loudness of section 7 too, from 0.22.0); `CometReactions.cs` section 6's strengths; `CometEvent.cs` the
+event; `CometDirector.cs` the event in force and its delivery; `CometNet.cs` the instant message;
+`CometSite.cs` section 2; `CometWave.cs` sections 4 and 5, whose structures and players come from the impact's
+one pass, `CometZonePass.cs` (0.22.0); `CometSound.cs` section 7; `CometShow.cs` the timeline and the drawing; `src/Patching/CometSky.cs` section
 8; `src/Sync.cs` layout 5.
 
 **1. The event.**
@@ -448,12 +465,12 @@ From `tools/PatchCheck`, which prints it, at the shipped zone settings:
 
 | Comet | W | Fireball (law / zone) | Grown by | Cloud top | Cap width | Dust | Rocks | Show after impact | Far clip from the safe distance |
 |---|---|---|---|---|---|---|---|---|---|
-| 1e5 mol | 21.9 kt | 249 m (249 / 193) | 1.6 s | 8.7 km | 13.0 km | 1.2 km | 610 m | 330 s | 19 km |
-| 1e6 mol | 219 kt | 625 m (625 / 417) | 4.5 s | 15.4 km | 23.1 km | 2.6 km | 1.3 km | 330 s | 32 km |
-| 1e7 mol | 2.19 Mt | 1,570 m (1,570 / 898) | 12.3 s | 27.4 km | 41.1 km | 5.7 km | 2.8 km | 330 s | 56 km |
-| 3.6e7 mol | 7.88 Mt | 2,621 m (2,621 / 1,376) | 21.6 s | 37.7 km | 56.6 km | 8.7 km | 4.3 km | 330 s | 77 km |
-| 1e8 mol | 21.9 Mt | 3,943 m (3,943 / 1,934) | 33.9 s | 48.7 km | 73.0 km | 12.2 km | 6.1 km | 330 s | 99 km |
-| 1e9 mol | 219 Mt | 9,906 m (9,906 / 4,166) | 93.3 s | 86.6 km | 129.8 km | 26.3 km | 13.2 km | 330 s | 174 km |
+| 1e5 mol | 21.9 kt | 249 m (249 / 249) | 1.6 s | 8.7 km | 13.0 km | 1.2 km | 610 m | 330 s | 19 km |
+| 1e6 mol | 219 kt | 625 m (625 / 625) | 4.5 s | 15.4 km | 23.1 km | 2.6 km | 1.3 km | 330 s | 32 km |
+| 1e7 mol | 2.19 Mt | 1,570 m (1,570 / 1,570) | 12.3 s | 27.4 km | 41.1 km | 5.7 km | 2.8 km | 330 s | 56 km |
+| 3.6e7 mol | 7.88 Mt | 2,621 m (2,621 / 2,621) | 21.6 s | 37.7 km | 56.6 km | 8.7 km | 4.3 km | 330 s | 77 km |
+| 1e8 mol | 21.9 Mt | 3,943 m (3,943 / 3,943) | 33.9 s | 48.7 km | 73.0 km | 12.2 km | 6.1 km | 330 s | 101 km |
+| 1e9 mol | 219 Mt | 9,906 m (9,906 / 9,906) | 93.3 s | 86.6 km | 129.8 km | 26.3 km | 13.2 km | 330 s | 190 km |
 
 Calculated, not seen: `tools/CometShot` on bt is what shows them.
 
@@ -476,22 +493,21 @@ root of the gravity, so on the Moon they fly 1.5 times as long as on Mars.
 
 ### Against the damage
 
-- The drawn fireball is never smaller than the fireball zone. `CometYield.Check` sweeps 1 to 1e12 mol at the
-  shipped zone settings and at every zone setting's maximum. The law is the larger at every shipped size;
-  below about 2,300 mol the cube-root zone overtakes it and the zone is drawn.
+- The fireball's heat reaches exactly as far as the fireball is drawn (0.22.0, `COMET-ROCKETS.md` stage 7): the
+  heat zone is the law's radius times `FireballHeatFactor` (1), and above 1 the fireball is drawn as far as its
+  heat. `CometYield.Check` and `CometZones.Check` sweep 1 to 1e12 mol at the shipped settings and at the factor's
+  bounds.
 - The rocks land inside the falling rocks zone, the fastest at its edge, and the rain of them falls over that
   zone and nowhere else: a player outside it sees it fall in the distance.
 - The dust stops exactly where the wave stops throwing a player, and the shock front travels with the wave.
-- **Not closed, LU's call.** The law's fireball is 1.3 times (1e5) to 2.4 times (1e9) the fireball zone, so a
-  player between the zone's edge and the drawn fireball's stands in drawn fire and takes no heat. And from
-  about 3.7e7 mol, just past the largest rocket comet, the drawn fireball reaches past the console comet's
-  safe distance: 1e8's 3.9 km fireball
-  covers the nearest allowed point at 2.75 km, 1e9's 9.9 km the one at 3 km. Either the fireball zone follows
-  the law (`FireballLawMetres` in place of 2.24 r0) or the fireball is drawn at the zone and the law kept for
-  its timing. The zones are `CelestialRules`/`CelestialTuning`; the safe distance and the sky's depth keep the
-  0.16 log scale (`CometRules.Scale`, `SafeDistance`, `SkyDim`), whose tables are approved and which the
-  rocket stage's disc radius is derived from. At 1e9 the safe distance was already inside the fireball zone
-  (3 km against 4.2 km).
+- **Closed in 0.22.0.** The law's fireball was 1.3 times (1e5) to 2.4 times (1e9) stage 2's fireball zone
+  (2.24 r0), so a player between the two stood in drawn fire and took no heat; and from about 3.7e7 mol the
+  drawn fireball reached past the console comet's safe distance (1e8's 3.9 km over the nearest allowed point
+  at 2.75 km, 1e9's 9.9 km over the one at 3 km). Now the heat zone is the drawn fireball, and the safe distance
+  is never inside 1.25 times it or ground zero (section 2). The sound's loudness and the sky's depth follow the
+  yield too (sections 7 and 8). What is left: the drawn ball rises with the cloud from the first second, so its
+  foot on the ground reaches 0.89 R (1e5) to 0.23 R (1e9) of the heat zone, its largest radius aloft
+  (`COMET-ROCKETS.md`, Open).
 
 ### The camera
 

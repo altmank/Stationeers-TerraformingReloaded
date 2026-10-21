@@ -59,7 +59,7 @@ per-world value comes back for free. Nothing else has a carrier like that.
     <Setting Key="CorrectionMetresPerDeltaV" Value="25" />
     <Setting Key="EntryWindowSeconds" Value="50" />
     <Setting Key="GroundZeroMetresAt1e6" Value="186" />
-    <Setting Key="FireballRadiusFactor" Value="2.24" />
+    <Setting Key="FireballHeatFactor" Value="1" />
     <Setting Key="DebrisRadiusFactor" Value="7.07" />
     <Setting Key="MaxDamagingRocks" Value="40" />
     <Setting Key="GasArrivingShare" Value="0.7" />
