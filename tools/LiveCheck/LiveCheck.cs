@@ -283,6 +283,9 @@ namespace TerraformingReloaded.LiveCheck
         // so a run without the mod never loads the mod's types.
         private object _burn;
 
+        // -CometFlight (CometFlight.cs), held the same way.
+        private object _cometFlight;
+
         private void Awake()
         {
             _instance = this;
@@ -293,6 +296,10 @@ namespace TerraformingReloaded.LiveCheck
             if (Environment.GetEnvironmentVariable("TR_LIVECHECK_WATCH") != null)
             {
                 StartWatch();
+            }
+            if (Environment.GetEnvironmentVariable("TR_LIVECHECK_COMETFLIGHT") != null)
+            {
+                StartCometFlight();
             }
             // Sample at the top of the planet tick: it runs on the simulation thread after the
             // previous tick's atmosphere workers have been joined and before this tick's start, so
@@ -380,6 +387,42 @@ namespace TerraformingReloaded.LiveCheck
             ((PlanetBurnCheck)_burn).Step();
         }
 
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StartCometFlight()
+        {
+            _cometFlight = CometFlightCheck.FromEnvironment(Logger, RunCommand);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StepCometFlight()
+        {
+            ((CometFlightCheck)_cometFlight).Step();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void FixedStepCometFlight()
+        {
+            ((CometFlightCheck)_cometFlight).FixedStep();
+        }
+
+        /// <summary>The fixed step rockets fly on (Rocket.PhysicsUpdate), for -CometFlight's flight stepped as the game steps one.</summary>
+        private void FixedUpdate()
+        {
+            if (_cometFlight == null || _failed || !GameManager.IsBatchMode || GameManager.GameState != GameState.Running)
+            {
+                return;
+            }
+            try
+            {
+                FixedStepCometFlight();
+            }
+            catch (Exception e)
+            {
+                _failed = true;
+                Logger.LogError("LiveCheck stopped: " + e);
+            }
+        }
+
         private void Update()
         {
             KeepRunning();
@@ -465,6 +508,10 @@ namespace TerraformingReloaded.LiveCheck
             if (_burn != null)
             {
                 StepPlanetBurn();
+            }
+            if (_cometFlight != null)
+            {
+                StepCometFlight();
             }
             if (RainSave.Length > 0 && !_rainDone && GameManager.GameTickCount >= 15)
             {
