@@ -1449,6 +1449,9 @@ try {
         $judged += "pass logged $(if ($passLines.Count -eq 2) { 'PASS' } else { 'FAIL' }) | the mod's own line for each impact's pass: $($passLines.Count) $(@($passLines | ForEach-Object { if ($_ -match 'zones in one pass over (\d+) structures and (\d+) players in (\S+) ms') { "$($Matches[1]) structures in $($Matches[3]) ms" } }) -join ' / ')"
         $thrown = @(@($made) + @($loaded) | Where-Object { $_ -match '\[TR comet\] (stopped|a moment of the impact failed)' })
         $judged += "no throw $(if ($thrown.Count -eq 0) { 'PASS' } else { 'FAIL' }) | lines of an impact that stopped or a moment that failed: $($thrown.Count) $($thrown | Select-Object -First 3)"
+        # A structure the game cannot take out of its cell throws in StructuralArray.Clear when it goes (bt, stage 8).
+        $gridLoaded = @($loaded | Where-Object { $_ -match 'StructuralArray\.Clear' })
+        $judged += "no grid throw after the load $(if ($gridLoaded.Count -eq 0) { 'PASS' } else { 'FAIL' }) | lines naming StructuralArray.Clear in the second instance: $($gridLoaded.Count)"
         $judged | Write-Host
 
         $problems = @($judged -match ' FAIL ')
@@ -1458,6 +1461,9 @@ try {
             }
             $structures = @($first -match "^structure $case ")
             if ($structures.Count -lt 20 -or @($structures -match "^structure $case PASS").Count -ne $structures.Count) { $problems += "case ${case}: $($structures.Count) structures judged, not all PASS" }
+        }
+        foreach ($want in '^grid edge PASS', '^grid throws PASS') {
+            if (@($first -match $want).Count -ne 1) { $problems += "the first instance did not print one '$($want.TrimStart('^'))' line" }
         }
         if (@($second -match '^done').Count -ne 1) { $problems += "the second instance did not print one 'done' line" }
         if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join ' / ')" }

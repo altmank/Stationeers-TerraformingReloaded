@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using Assets.Scripts;
 using Assets.Scripts.Atmospherics;
 using Assets.Scripts.GridSystem;
@@ -61,7 +62,7 @@ namespace TerraformingReloaded.LiveCheck
         private readonly Action<string[]> _command;
         private readonly bool _load;
 
-        private enum Stage { Setup, ConsoleBuild, ConsoleImpact, RocketSetup, RocketFlying, RocketAim, RocketOrder, RocketFired, RocketImpact, Save, Saved, Done }
+        private enum Stage { Setup, GridEdge, ConsoleBuild, ConsoleImpact, RocketSetup, RocketFlying, RocketAim, RocketOrder, RocketFired, RocketImpact, Save, Saved, Done }
 
         private Stage _stage = Stage.Setup;
         private double _stageClock;
@@ -100,6 +101,133 @@ namespace TerraformingReloaded.LiveCheck
             _log = log;
             _command = command;
             _load = load;
+            Application.logMessageReceivedThreaded += CountGridThrows;
+        }
+
+        // ---- the grid ---------------------------------------------------------------------------------------
+        //
+        // A structure placed on a cell's face or centre is registered in its cell's structural lookup and taken
+        // out of it when it goes. The game registers one whose grid is neither (a wall on the edge between four
+        // cells) in the cell's list alone (Cell.AddStructural), but takes it out by clearing the lookup at that
+        // grid (GridController.RemoveGridStructure, StructuralArray.Clear), which throws for it: the
+        // IndexOutOfRangeException in Structure.OnDestroy seen on bt in stage 8, when ground zero removed walls
+        // a driver had built on cell edges. So every structure here is built on its own face or centre, and the
+        // run counts every throw from StructuralArray.Clear.
+
+        private static int _gridThrows;
+        private int _gridThrowsBefore;
+        private Structure _edgeWall;
+        private Structure _faceWall;
+        private string _edgeLine;
+
+        private static void CountGridThrows(string condition, string stack, LogType type)
+        {
+            if ((type == LogType.Exception || type == LogType.Error)
+                && ((stack != null && stack.Contains("StructuralArray.Clear")) || (condition != null && condition.Contains("StructuralArray.Clear"))))
+            {
+                Interlocked.Increment(ref _gridThrows);
+            }
+        }
+
+        private static float Odd(float v) => 2f * Mathf.Floor(v / 2f) + 1f;
+
+        /// <summary>
+        /// The grid offset of a structure's grid from the cell the game takes it out of, as RemoveGridStructure works
+        /// it out: its grid less that grid's cell centre on the side of its middle. A structure snapped to the grid
+        /// is taken out by its cell's centre, whatever its grid.
+        /// </summary>
+        private static StructureElement Element(Structure structure, Grid3 grid, Vector3 middle)
+        {
+            return structure.PlacementType == PlacementSnap.Grid ? StructureElement.Center : StructuralArray.Get(grid - grid.GridCenter(middle));
+        }
+
+        /// <summary>Every grid of a built structure is one its cell can take it out of.</summary>
+        private static bool OnItsGrid(Structure structure, out string where)
+        {
+            List<string> parts = new List<string>();
+            bool ok = true;
+            foreach (Grid3 grid in structure.BlockingGrids ?? new Grid3[0])
+            {
+                StructureElement element = Element(structure, grid, structure.CenterPosition);
+                ok &= element != StructureElement.Invalid;
+                parts.Add(string.Format(C, "{0} {1}", grid, element));
+            }
+            where = string.Join(", ", parts);
+            return ok;
+        }
+
+        /// <summary>
+        /// Where near <paramref name="near"/> a structure of this prefab stands as the game places one: a cell's centre
+        /// for one snapped to the grid, else the first of the cell's faces its one grid can be taken out of (a wall
+        /// facing north first, a mounted thing on the floor first), with the prefab's own middle.
+        /// </summary>
+        private static Vector3 OnGrid(string prefabName, Vector3 near)
+        {
+            Vector3 centre = new Vector3(Odd(near.x), Odd(near.y), Odd(near.z));
+            if (!(Prefab.Find(prefabName) is Structure prefab) || prefab.PlacementType == PlacementSnap.Grid)
+            {
+                return centre;
+            }
+            Vector3[] steps = prefab.PlacementType == PlacementSnap.FaceMount
+                ? new[] { Vector3.down, Vector3.up, Vector3.forward, Vector3.back, Vector3.right, Vector3.left }
+                : new[] { Vector3.forward, Vector3.back, Vector3.right, Vector3.left, Vector3.up, Vector3.down };
+            foreach (Vector3 step in steps)
+            {
+                Vector3 at = centre + step;
+                if (Element(prefab, new Grid3(at), at + prefab.Bounds.center) != StructureElement.Invalid)
+                {
+                    return at;
+                }
+            }
+            return centre;
+        }
+
+        /// <summary>
+        /// The bt stage 8 error, made on purpose, with a control: a Composite Wall on the edge between four cells (x
+        /// and z even), as that driver built them, and the same wall on a face, both removed by the game's own removal
+        /// of a structure its damage destroys, as ground zero removes them.
+        /// </summary>
+        private void GridEdge()
+        {
+            Vector3 cell = new Vector3(-101f, 701f, 301f);
+            Vector3 edge = cell + new Vector3(1f, 0f, 1f);
+            Vector3 face = OnGrid("StructureCompositeWall", cell + new Vector3(8f, 0f, 0f));
+            _edgeWall = Spawn("StructureCompositeWall", edge);
+            _faceWall = Spawn("StructureCompositeWall", face);
+            if (_edgeWall == null || _faceWall == null)
+            {
+                Fail("the game made no Composite Wall for the grid case");
+                return;
+            }
+            bool edgeOk = OnItsGrid(_edgeWall, out string edgeWhere);
+            bool faceOk = OnItsGrid(_faceWall, out string faceWhere);
+            _edgeLine = string.Format(C, "a Composite Wall at ({0:0.#}, {1:0.#}, {2:0.#}), its grids {3}; the same wall at ({4:0.#}, {5:0.#}, {6:0.#}), its grids {7}",
+                edge.x, edge.y, edge.z, edgeWhere, face.x, face.y, face.z, faceWhere);
+            if (edgeOk || !faceOk)
+            {
+                Fail("the grid case's walls are not one on an edge and one on a face: " + _edgeLine);
+                return;
+            }
+            _gridThrowsBefore = Volatile.Read(ref _gridThrows);
+            _edgeWall.OnDamageDestroyed();
+            _faceWall.OnDamageDestroyed();
+            Next(Stage.GridEdge);
+        }
+
+        private void JudgeGridEdge()
+        {
+            int thrown = Volatile.Read(ref _gridThrows) - _gridThrowsBefore;
+            bool gone = (_edgeWall == null || _edgeWall.IsBeingDestroyed) && (_faceWall == null || _faceWall.IsBeingDestroyed);
+            bool pass = gone && thrown == 1;
+            Info(string.Format(C, "grid edge {0} | {1} | both removed by the game's own removal of a structure its damage destroys: {2} | StructuralArray.Clear threw {3} time(s), expected once, for the wall on the edge alone",
+                pass ? "PASS" : "FAIL", _edgeLine, gone, thrown));
+            if (!pass)
+            {
+                Fail("the wall on a cell's edge did not throw once on its removal while the wall on a face did not, so the stage 8 error is not the one this explains");
+                return;
+            }
+            _gridThrowsBefore = Volatile.Read(ref _gridThrows);
+            SetUp();
         }
 
         public static CometZonesCheck FromEnvironment(ManualLogSource log, Action<string[]> command)
@@ -170,7 +298,10 @@ namespace TerraformingReloaded.LiveCheck
             switch (_stage)
             {
                 case Stage.Setup when GameManager.GameTickCount >= StartTick:
-                    SetUp();
+                    GridEdge();
+                    break;
+                case Stage.GridEdge when Clock - _stageClock >= 2.0:
+                    JudgeGridEdge();
                     break;
                 case Stage.ConsoleBuild:
                     BuildForConsole();
@@ -204,6 +335,14 @@ namespace TerraformingReloaded.LiveCheck
                     }
                     break;
                 case Stage.Save:
+                    int thrown = Volatile.Read(ref _gridThrows) - _gridThrowsBefore;
+                    Info(string.Format(C, "grid throws {0} | StructuralArray.Clear threw {1} time(s) after the grid case, through both impacts, with every structure built on its own face or centre",
+                        thrown == 0 ? "PASS" : "FAIL", thrown));
+                    if (thrown != 0)
+                    {
+                        Fail("a structure built here could not be taken out of its cell");
+                        break;
+                    }
                     PrintStates("at the save");
                     Info("ids | " + string.Join(",", _all.Select(p => p.Id.ToString(C))));
                     Util.Commands.CommandLine.Process("file save");
@@ -351,8 +490,7 @@ namespace TerraformingReloaded.LiveCheck
                 for (int i = 0; i < group.Prefabs.Length; i++)
                 {
                     double side = (i - 0.5 * (group.Prefabs.Length - 1)) * 6.0;
-                    Vector3 at = impact + dir * (float)group.Distance + across * (float)side + Vector3.up;
-                    at = new Vector3(Mathf.Round(at.x / 2f) * 2f, Mathf.Round(at.y / 2f) * 2f + 1f, Mathf.Round(at.z / 2f) * 2f);
+                    Vector3 at = OnGrid(group.Prefabs[i], impact + dir * (float)group.Distance + across * (float)side + Vector3.up);
                     if (!Inside(at))
                     {
                         Fail(string.Format(C, "the line's group '{0}' would stand at ({1:0.#}, {2:0.#}, {3:0.#}), past the game's extent, where a load deletes it", group.Tag, at.x, at.y, at.z));
@@ -362,6 +500,12 @@ namespace TerraformingReloaded.LiveCheck
                     if (made == null)
                     {
                         Fail("the game made no " + group.Prefabs[i]);
+                        return false;
+                    }
+                    if (!OnItsGrid(made, out string grids))
+                    {
+                        Fail(string.Format(C, "{0} {1} at ({2:0.#}, {3:0.#}, {4:0.#}) is not on a face or a centre of its cell, so the game cannot take it out of it: {5}",
+                            group.Tag, group.Prefabs[i], at.x, at.y, at.z, grids));
                         return false;
                     }
                     built.Add(new Placed
