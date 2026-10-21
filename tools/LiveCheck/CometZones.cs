@@ -373,7 +373,9 @@ namespace TerraformingReloaded.LiveCheck
             Structure made = OnServer.Create<Structure>(prefab, position, Quaternion.identity);
             if (made != null && made.BuildStates != null && made.BuildStates.Count > 0)
             {
-                made.CurrentBuildStateIndex = made.BuildStates.Count - 1;
+                // Finished as a player finishes it: the last build state and what it shows and collides with. Setting
+                // the index alone leaves the first state's parts in place, a frame's bare beams.
+                made.UpdateBuildStateAndVisualizer(made.BuildStates.Count - 1);
             }
             return made;
         }
@@ -412,6 +414,7 @@ namespace TerraformingReloaded.LiveCheck
                 bool creaks = p.Window && p.LimitKPa > 0.0 && !breaks && rules.Creaks(peak, p.LimitKPa);
                 double heat = zone == CometZone.Fireball ? burn : 0.0;
                 bool rock = rocked.Contains(p.Id);
+                CometZoneReport.Rock fell = report.Rocks.FirstOrDefault(r => r.Structure == p.Id);
                 double rockDamage = rock ? CometZones.RockForce : 0.0;
                 CometZoneReport.Entry? entry = report.Entries.Where(e => e.ReferenceId == p.Id).Select(e => (CometZoneReport.Entry?)e).FirstOrDefault();
                 Structure now = Referencable.Find<Structure>(p.Id);
@@ -428,31 +431,19 @@ namespace TerraformingReloaded.LiveCheck
                 }
                 else
                 {
-                    // The game's explosion damages a thing once for each of its colliders inside the sphere, so a rock
-                    // takes 200 a collider its 1 m reaches: at least one, a whole number of them.
-                    double colliders = rock && !float.IsNaN(gotBrute) ? Math.Round(gotBrute / CometZones.RockForce) : 0.0;
-                    if (rock && colliders >= 1.0 && Math.Abs(gotBrute - colliders * CometZones.RockForce) <= 1e-3 * gotBrute)
-                    {
-                        rockDamage = colliders * CometZones.RockForce;
-                    }
-                    bool overHealth = !rock && heat >= p.Health;
+                    bool overHealth = heat + rockDamage >= p.Health;
                     bool reportOk = (heat > 0.0 || breaks || creaks) == (entry != null)
                         && (entry == null || (entry.Value.Zone == zone && entry.Value.Breaks == breaks && entry.Value.Creaks == creaks && Math.Abs(entry.Value.Burn - heat) <= 1e-9 * Math.Max(1.0, heat)));
-                    bool rockOk = !rock || zone == CometZone.Debris;
+                    bool rockOk = !rock || (zone == CometZone.Debris && fell != null && Math.Abs(fell.TargetDamage - CometZones.RockForce) <= 1e-3 * CometZones.RockForce);
                     if (breaks || overHealth)
                     {
                         expected = string.Format(C, "{0}{1}{2}", breaks ? "broken by the wave" : "broken by its damage", heat > 0.0 ? ", burned " + heat.ToString("0.###", C) : "", rock ? ", a rock" : "");
                         pass = (gone || broken) && reportOk && rockOk;
                     }
-                    else if (rock && (gone || broken))
-                    {
-                        expected = string.Format(C, "a rock, burn {0:0.###}: broken by the rock", heat);
-                        pass = reportOk && rockOk;
-                    }
                     else
                     {
-                        expected = string.Format(C, "standing, burn {0:0.###}, brute {1}{2}", heat, rock ? "200 for each collider the rock reached" : "0", creaks ? ", creaked" : "");
-                        pass = !gone && !broken && Math.Abs(gotBurn - heat) <= 1e-3 * Math.Max(1.0, heat) && (rock ? rockDamage >= CometZones.RockForce && Math.Abs(gotBrute - rockDamage) <= 1e-3 * rockDamage : gotBrute == 0f)
+                        expected = string.Format(C, "standing, burn {0:0.###}, brute {1:0.###}{2}", heat, rockDamage, creaks ? ", creaked" : "");
+                        pass = !gone && !broken && Math.Abs(gotBurn - heat) <= 1e-3 * Math.Max(1.0, heat) && Math.Abs(gotBrute - rockDamage) <= 1e-3 * Math.Max(1.0, rockDamage)
                             && reportOk && rockOk;
                     }
                 }
@@ -460,11 +451,12 @@ namespace TerraformingReloaded.LiveCheck
                 {
                     failures++;
                 }
-                Info(string.Format(C, "structure {0} {1} | {2} {3} id {4} | {5}: {6:0.#} m out, in {7} | wave {8:0.#} kPa, limit {9:0.#} kPa, health {10:0.#} | expected {11} | got {12}, burn {13:R}, brute {14:R} | the pass: {15}",
+                Info(string.Format(C, "structure {0} {1} | {2} {3} id {4} | {5}: {6:0.#} m out, in {7} | wave {8:0.#} kPa, limit {9:0.#} kPa, health {10:0.#} | expected {11} | got {12}, burn {13:R}, brute {14:R} | the pass: {15} | rock: {16}",
                     p.Case, pass ? "PASS" : "FAIL", p.Prefab, p.Tag, p.Id, p.Case, p.Distance, zone, peak, p.LimitKPa, p.Health, expected,
                     gone ? "gone" : broken ? "broken" : "standing", gotBurn, gotBrute,
                     entry == null ? "nothing" : string.Format(C, "{0}{1}{2}{3}", entry.Value.Zone, entry.Value.Destroyed ? ", destroy" : "", entry.Value.Breaks ? ", break" : entry.Value.Creaks ? ", creak" : "",
-                        entry.Value.Burn > 0.0 ? ", burn " + entry.Value.Burn.ToString("0.###", C) : "")));
+                        entry.Value.Burn > 0.0 ? ", burn " + entry.Value.Burn.ToString("0.###", C) : ""),
+                    fell == null ? "none" : fell.ToString()));
             }
 
             // The rocks: the rule's for the places the pass found, all in the falling rocks, all come down, at most the cap.
@@ -482,7 +474,7 @@ namespace TerraformingReloaded.LiveCheck
             bool rocksPass = allIn && asRule && capped && landed && onInner;
             Info(string.Format(C, "rocks {0} {1} | {2} rocks of a cap of {3} on {4} places the pass found in the falling rocks ({5:0.#} to {6:0.#} m) | the rule gives {7} for those places and the event's seed | {8} came down | {9}",
                 _case, rocksPass ? "PASS" : "FAIL", report.Rocks.Count, report.RockCap, report.SpotMetres.Count, reach.Inner, reach.Debris, rule.Length, report.RocksLanded,
-                string.Join(", ", report.Rocks.Select(r => string.Format(C, "{0} at {1:0.#} m after {2:0.#} s", r.Structure, r.Distance, r.Seconds)))
+                string.Join(", ", report.Rocks.Select(r => string.Format(C, "{0} at {1:0.#} m after {2:0.#} s, {3}", r.Structure, r.Distance, r.Seconds, r)))
                 + (_case == "C" ? string.Format(C, " | the {0} frames at the inner edge take the cap, nearest first: {1}", innerFrames, onInner) : "")));
             bool onePass = report.Structures == _worldStructures && report.Milliseconds >= 0.0 && report.Host;
             Info(string.Format(C, "pass {0} {1} | event {2} | one pass over {3} structures (the world held {4} before the impact) and {5} players in {6:0.###} ms | {7} | burn {8:0.###} | destroyed {9}, burned {10}, broken {11}",
