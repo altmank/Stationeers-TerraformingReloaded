@@ -12,12 +12,6 @@ mod switches it on and fixes what goes wrong when it runs for real.
 Inspired by [Elmotrix's Terraforming Mod](https://github.com/Elmotrix/TerraformingMod), which did
 this by hand before the game had a model of its own. This is a new mod, not a port of that code.
 
-> **Release candidate.** Gas conservation, save and load, the reset to stock and the temperature model
-> are all checked against the running game by automated runs, on Mars, Venus, Vulcan, Europa, the Moon
-> and Mimas. [VERIFICATION.md](docs/VERIFICATION.md) lists what each run covers and what it measured.
-> That is testing, not play. Back up your save before its first session, and please open an issue with
-> your `Player.log` if something reads wrong.
-
 ## Install
 
 1. Install [StationeersLaunchPad](https://github.com/StationeersLaunchPad/StationeersLaunchPad).

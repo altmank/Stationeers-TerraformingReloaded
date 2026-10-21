@@ -4,39 +4,39 @@
   <Author>XCeled</Author>
   <Version>0.22.5</Version>
   <Description>[h1]Terraform the planet[/h1]
-The air outside is no longer bottomless. What you vent stays. What your base draws in is gone. Move enough of the right gases and the pressure, temperature, sky and weather outside change for good, saved with your world.
-
-[b]Release candidate.[/b] Every part of this is checked against the game by automated runs rather than by long play. Back up your save before its first session, and report anything odd on GitHub with your Player.log.
+In the base game the planet's air never runs out: gas you vent outside vanishes, and gas your base pulls in comes from nowhere. With this mod the planet holds a fixed amount of air. Add or remove enough of the right gases and the outside pressure, temperature, sky and weather change, and stay changed in your save.
 
 [hr][/hr]
-[h2]Two things set the temperature[/h2]
-[b]Which gas it is.[/b] Each one either traps heat or sheds it:
+[h2]Temperature[/h2]
+The planet's temperature depends on which gases are in the air and how much air there is.
 [table]
 [tr][th]Effect[/th][th]Gases[/th][/tr]
-[tr][td][b]Traps heat[/b][/td][td]pollutant (strongest), volatiles, carbon dioxide, steam[/td][/tr]
-[tr][td][b]Sheds heat[/b][/td][td]nitrous oxide (strongest), hydrogen, nitrogen, oxygen[/td][/tr]
-[tr][td][b]Does neither[/b][/td][td]helium, hydrazine, hydrochloric acid, ozone, silanol[/td][/tr]
+[tr][td][b]Warms[/b][/td][td]pollutant (strongest), volatiles, carbon dioxide, steam[/td][/tr]
+[tr][td][b]Cools[/b][/td][td]nitrous oxide (strongest), hydrogen, nitrogen, oxygen[/td][/tr]
+[tr][td][b]None[/b][/td][td]helium, hydrazine, hydrochloric acid, ozone, silanol[/td][/tr]
 [/table]
-Nitrogen and oxygen are not filler. Both shed heat, and harder the thicker they get, so air you can breathe is cold air. You make up for it with carbon dioxide: a breathable Mars holds more carbon dioxide than oxygen, about 75 moles per outdoor cell against 57.
-
-[b]How much of it there is.[/b] Thick air narrows the gap between day and night whatever it is made of. Helium is the clean example: it neither traps nor sheds, so it is pure thickening.
+[list]
+[*]The more of a gas there is, the stronger its effect.
+[*]Thicker air, of any gas, makes days cooler and nights warmer.
+[*]Breathable air is mostly nitrogen and oxygen, which both cool, so it needs carbon dioxide to stay warm. A breathable Mars needs about 75 moles of carbon dioxide per outdoor cell against 57 of oxygen.
+[/list]
 
 [hr][/hr]
 [h2]How it plays[/h2]
 [list]
-[*]An endgame project for a base built to move gas in bulk: rockets hauling ice back from orbit, gas traders, big vents, tank farms.
-[*]Hot worlds are hot because of the air they start with. Strip the greenhouse gases out of Venus or Vulcan and they cool.
-[*]Cold worlds warm in stages. Vent a gas that freezes at the temperature you have now and it just snows into the ice caps, doing nothing. So you start with a gas that stays airborne while it is still that cold, let it lift the planet a little, and that unlocks the next gas up. Everything that froze on the way is still there, and the caps hand it back as the planet warms.
-[*]The Moon and Mimas start with nothing. Their first air swings hard between day and night until it thickens.
+[*]An endgame project. You need a base that moves gas in bulk: ice mining rockets, gas traders, large vents, tank farms.
+[*]Venus and Vulcan are hot because of their air. Remove the warming gases and they cool down.
+[*]Cold worlds warm in stages. A gas that freezes at the current temperature just snows into the ice caps and does nothing. Start with a gas that stays in the air at that temperature, let it warm the planet a little, and the next gas can then stay up too. Nothing that froze on the way is lost: the ice caps release it as the planet warms.
+[*]The Moon and Mimas start with no air. New air there swings hard between day and night until there is more of it.
 [*]Storms are milder on a world you have cooled.
-[*]Storms answer to what you have done. Take away most of a world's air, or make it temperate, thick and clean, and it stops getting its own storms. Solar storms keep coming unless you choose otherwise: on the Moon one is four times the usual solar power.
-[*]A world you have not touched reads exactly as it does without the mod.
-[*]Custom worlds work. WORLDS.md in the mod folder is for world authors.
+[*]Storms depend on the air. Remove most of a world's air, or make it temperate, thick and clean, and its own storms stop. Solar storms keep coming unless you turn them off in the settings; on the Moon one gives four times the usual solar power.
+[*]A world you have not changed behaves exactly as it does without the mod.
+[*]Custom worlds work. World authors: see WORLDS.md in the mod folder.
 [/list]
 
 [hr][/hr]
 [h2]How long it takes[/h2]
-One setting, [b]Planet size[/b], decides the pace. Hours to reach air you can stand in with your helmet off:
+The [b]Planet size[/b] setting decides the pace. Hours until you can take your helmet off outside:
 [table]
 [tr][th]World[/th][th]Terraforming strategy[/th][th]Short 1/100[/th][th]Standard 1/20[/th][th]Long 1/4[/th][th]Unmodded 1/1[/th][/tr]
 [tr][td]Venus[/td][td]Strip the air, tank what you take[/td][td]8[/td][td]40[/td][td]201[/td][td]806[/td][/tr]
@@ -46,40 +46,41 @@ One setting, [b]Planet size[/b], decides the pace. Hours to reach air you can st
 [tr][td]Vulcan[/td][td]Strip the fuel first, then fill[/td][td]44[/td][td]222[/td][td]1,108[/td][td]4,431[/td][/tr]
 [tr][td]Mimas[/td][td]Warm it in stages, from nothing[/td][td]72[/td][td]360[/td][td]1,802[/td][td]7,208[/td][/tr]
 [/table]
-[b]Unmodded[/b] is the planet at the size the game itself uses. The others shrink it, so there is less air behind every outdoor cell and less of it to move.
+[b]Unmodded[/b] is the planet size the game itself uses. The smaller sizes mean less air in total, so less to move.
 
-[b]The hours are time spent moving gas, and the strategy is the rest of the story.[/b] What sets the pace on every world is ice arriving: there is no oxygen tap, and the carbon dioxide a cold world needs has to be burnt out of volatiles on top of that. Taking gas away is much faster, because a vent draws in a share of the whole planet's air at once. So Venus is quick in hours and still a big project: what it really costs is somewhere to put what you take out, about 48 large tanks at Standard size.
+[b]The hours count only time spent moving gas.[/b] Adding gas is limited by how fast ice arrives: there is no other source of oxygen, and the carbon dioxide a cold world needs has to be made by burning volatiles. Removing gas is much faster, because a vent draws from the whole planet's air at once. So Venus is quick but still a big project: you need somewhere to store what you take out, about 48 large tanks at Standard size.
 
-[b]Rough scale, not a promise.[/b] They assume four ice mining rockets (about 330,000 moles of ice an hour) and twenty large powered vents, worked out rather than measured. Half the rockets doubles every number.
+[b]Calculated, not measured.[/b] The numbers assume four ice mining rockets (about 330,000 moles of ice an hour) and twenty large powered vents. With half the rockets, every number doubles.
 
-Size changes nothing else about the world: the air, pressure and temperature you start with are the same at every size. A save made before you installed the mod carries the full-size planet until you rescale it.
+Size changes nothing else: the starting air, pressure and temperature are the same at every size. A save from before you installed the mod keeps the full-size planet until you rescale it.
 
 [hr][/hr]
 [h2]Console (F3)[/h2]
 [list]
 [*][b]terraform[/b] : pressure, temperature, gases, and whether the mod is running
-[*][b]terraform set[/b] : the settings the world you are playing keeps for itself. [b]terraform set &lt;key&gt; &lt;value&gt;[/b] changes one for this world only. One that deletes something for good asks first
-[*][b]terraform size &lt;share&gt; confirm[/b] : change how much air the planet holds, and so how long it takes. Pressure, mix and temperature stay where they are
-[*][b]terraform reset confirm[/b] : put the planet back as the world ships. Your base is untouched
-[*][b]terraform gas add[/b] / [b]remove[/b] : put a gas into the planet or take it out, for testing
+[*][b]terraform set[/b] : this world's settings. [b]terraform set &lt;key&gt; &lt;value&gt;[/b] changes one for this world only. Settings that delete something permanently ask you to confirm
+[*][b]terraform size &lt;share&gt; confirm[/b] : change the planet size, and with it how long terraforming takes. Pressure, mix and temperature stay the same
+[*][b]terraform reset confirm[/b] : put the planet back the way the world ships. Your base is not touched
+[*][b]terraform gas add[/b] / [b]remove[/b] : add a gas to the planet or remove one, for testing
 [*][b]terraform curves export[/b] / [b]reload[/b] : tune the temperature response. See CURVES.md
 [/list]
 
 [hr][/hr]
 [h2]Removing it[/h2]
-Your changed planet lives in the save, so deleting the mod does not undo it. Run [b]terraform reset confirm[/b], save, quit, then disable. Skip that and a changed world snaps back to its shipped temperature: a breathable Venus is 737 K again, and new air on the Moon sits near absolute zero.
+The changes are stored in your save, so removing the mod does not undo them. First run [b]terraform reset confirm[/b], save and quit, then disable the mod. If you skip this, a changed world jumps back to its original temperature: a breathable Venus returns to 737 K, and new air on the Moon drops to near absolute zero.
 
 [hr][/hr]
 [h2]Good to know[/h2]
 [list]
-[*]The StationeersLaunchPad config editor sets what a new world starts with; each world then keeps its own settings. Change the one you are playing with [b]terraform set[/b].
-[*]The pressure ceiling deletes air permanently. Leave it at 0 unless you mean it.
-[*]Multiplayer: the host and everyone who joins need the mod, same version. The host's settings decide the planet for everyone, and only the host can run [b]terraform size[/b], [b]set[/b], [b]reset[/b] and [b]gas[/b].
-[*][b]Experimental, off by default:[/b] [b]terraform set TraceGasGatheringEnabled on[/b] makes a small spill of a gas the planet barely holds (a furnace taken apart outside) gather beside your base, where it burns off or reaches your filters, instead of lingering over the whole planet for hours.
-[*][b]Off by default.[/b] Gas deleted in space is gone for good: switching the setting off later stops new deletion but does not bring deleted gas back. [b]terraform set SpaceDeletesGas on[/b] makes gas released at or above 1,000 m, where rockets in space are, disappear instead of drifting back down to the planet, so a rocket can carry unwanted gas off the world. In multiplayer the host's world setting applies to everyone: gas any player vents in space is deleted.
-[*][b]On by default:[/b] rocket engines burn all their propellant, so a 2:1 methane and oxygen mix leaves no oxygen in the exhaust to light fires. Switched off after flying, auto-landings can come in too fast; see the readme.
-[*]Tutorials are left alone.
-[*]If a game update changes what this depends on, the mod switches itself off and says why in the log rather than risk your save.
+[*]The StationeersLaunchPad config editor sets the defaults for new worlds. Each world then keeps its own settings: change the current world's with [b]terraform set[/b].
+[*]The pressure ceiling permanently deletes air above its limit. Leave it at 0 (off) unless you want that.
+[*]Multiplayer: the host and every player need the mod, same version. The host's settings apply to everyone, and only the host can run [b]terraform size[/b], [b]set[/b], [b]reset[/b] and [b]gas[/b].
+[*][b]Experimental, off by default:[/b] [b]terraform set TraceGasGatheringEnabled on[/b] makes a small spill of a gas the planet barely has (for example from a furnace taken apart outside) collect near your base, where it burns off or reaches your filters, instead of spreading thinly over the whole planet for hours.
+[*][b]Experimental, off by default, enable at your own risk:[/b] [b]terraform set CometsEnabled on[/b] lets rockets cut comets at space map sites and bring them down. Ice comets add gas, mineral comets remove it, and an impact can destroy structures and hurt players near it.
+[*][b]Off by default:[/b] [b]terraform set SpaceDeletesGas on[/b] deletes gas released at or above 1,000 m, where rockets in space are, instead of letting it drift back down, so a rocket can carry unwanted gas off the world. Deleted gas is gone for good; turning the setting off later does not bring it back. In multiplayer it applies to gas any player vents in space.
+[*][b]On by default:[/b] rocket engines burn all their propellant, so a 2:1 methane and oxygen mix leaves no oxygen in the exhaust to start fires. If you turn this off after flying, auto-landings can come in too fast; see the readme.
+[*]Tutorials are not affected.
+[*]If a game update breaks something the mod depends on, the mod turns itself off and logs why, instead of risking your save.
 [/list]
 
 [hr][/hr]
