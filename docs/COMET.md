@@ -256,6 +256,39 @@ and its delivery; `CometNet.cs` the instant message; `CometSite.cs` section 2; `
 - A dedicated server has no view: it looks from the first player online, else from the world origin facing
   north.
 
+**The ground (0.16.1).** `src/Comets/CometGround.cs` holds the rule, `CometTerrain.cs` feeds it from the game.
+- **Height.** The host reads the impact's height from the voxel terrain, the way the game's own spawn point
+  finds the surface: down the column from the top of the terrain (voxel 1023) to the top of the highest
+  voxel of density 127/255 or more. It reads every 8th voxel, then voxel by voxel above the first solid
+  one, so the answer is exact unless a layer thinner than 8 m floats clear of the ground. Not a ray: the
+  game gives terrain colliders only to the finest level of detail, tens of metres around each player, so
+  a ray 2 km out always missed and the 0.16.0 comet landed at the host's own height.
+- **Outside the voxel world** (Mars2 is 4,096 m across, -2,048 to +2,048) there are no voxels to read and
+  the game draws no terrain. The height is read from the nearest column on the world's edge. That is the
+  last ground the player can see in that direction, so the impact continues it; the world has no base
+  height of its own to fall back on (0 to 1023 is the voxel range, not a ground level), and the host's
+  height is unrelated to the impact. Only with no voxel terrain loaded at all, or a column with no solid
+  voxel, does it fall back to the host's ground. The site log says which.
+- The height travels in the event's impact position (section 1), so every machine lands it at the same
+  point. Nothing new is sent.
+- **Drawn lower.** The terrain shader lowers ground with its distance from the camera: past 144 m by
+  0.001 x ((d - 144) x curvature)^2 metres, plus a fold term and less a lift in the orbital view, at a
+  position recentred with the terrain there (`TerrainCurvature.Drop`). Mars2's curvature is 0.3: 232 m at
+  1,750 m, 310 at 2,000, 500 at 2,500, 734 at 3,000, as measured with `tools/CometShot`. Every machine
+  works it out for its own camera, every frame, from the shader's own settings, and moves the show's
+  drawn frame (`TR Comet/Drawn`) by the drop at the impact. Everything that stands on the ground or flies
+  down to it is in that frame: the head and its tail, sparks and smoke, every glow, the impact and its
+  cloud. Their particles simulate in that frame, so those already out move with it. The approach moves as
+  one and stays straight; the game curves nothing in the sky either.
+- Left in the real frame: the debris falling around the player and the gust of dust past them, both seen
+  near the player, where the ground is drawn where it is. The head's short glowing trail keeps its points
+  where they were drawn, so it lags by the change in drop over its 2.5 s if the camera moves fast.
+- The sounds of the head and of the explosion come from where they are drawn. The wave and the sound's
+  arrival stay at the real distance: they are physics.
+- Checked by `CometGround.Check` at load and in `tools/PatchCheck`, with eight wrong rules it must catch;
+  `tools/CometShot` logs, at each shot after the impact, its own read of the voxels and the game's own
+  `TerrainCurvature.Drop` against where the show drew the impact.
+
 **3. The wave.** As written, with one addition: the wave stops growing at 1e9 mol
 (`CometRules.WaveMolesCap`), where the show stops growing. The command takes up to 1e12 mol, and without
 the cap a comet past about 3e9 mol would break reinforced windows at the safe distance, against this

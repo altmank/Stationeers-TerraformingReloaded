@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.16.1 (prototype)
+
+- **A comet comes down on the ground you see.** On worlds whose distant ground curves away below the
+  horizon, the game draws far-off ground lower the further it is from you: on Mars about 300 m lower at
+  2 km. The explosion, the column and the cloud were drawn at the ground's true height, so they
+  hung hundreds of metres in the air above the ground you could see. They now sit on it, for every player
+  from wherever they stand, and stay on it as you move. The pressure wave and the sound still travel the
+  true distance.
+- **A comet lands at the height of the ground where it comes down**, not at the height you were standing
+  at when you sent it. One that comes down past the edge of the world's terrain lands at the height of the
+  nearest edge.
+
 ## 0.16.0 (prototype)
 
 - **A comet's impact now reaches your base.** The bigger the comet, the stronger the pressure wave that
