@@ -47,7 +47,7 @@ namespace TerraformingReloaded.Comets
         private static readonly float EndSeconds = (float)CometEvent.EndSeconds;
 
         /// <summary>No more particles than this across the whole show, whatever its size and reactions.</summary>
-        private const int MaxParticles = 6000;
+        private const int MaxParticles = CometLook.MaxParticles;
 
         /// <summary>
         /// The most the head's light is raised over the reference comet's: past four times it the
@@ -122,13 +122,28 @@ namespace TerraformingReloaded.Comets
         private Glow _skyGlow;
         private Glow _groundRing;
         private Glow _steamDome;
-        private ParticleSystem _fireball;
+        private Glow _ballFace;
+        private ParticleSystem _boils;
+        private Material _boilMaterial;
+        private Gradient _ballColours;
         private ParticleSystem _secondFireball;
         private ParticleSystem _ejecta;
         private ParticleSystem _stem;
+        private float _stemGrowth;
         private ParticleSystem _stemGlow;
-        private ParticleSystem _cap;
+        private ParticleSystem _capTop;
+        private ParticleSystem _capUnder;
+        private Material _underMaterial;
         private ParticleSystem _capGlow;
+
+        /// <summary>The cap's cloud, drawn at a radius of one and scaled to the cap each frame, so every puff grows with it.</summary>
+        private Transform _capCloud;
+
+        /// <summary>How the cloud is drawn, layer by layer, from the yield's sizes (<see cref="CometLook"/>).</summary>
+        private readonly CometLook _look = CometLook.Shipped;
+
+        /// <summary>Seconds after the impact at which the drawn sizes are written to the log.</summary>
+        private readonly List<float> _milestones = new List<float>();
         private ParticleSystem _groundDust;
         private ParticleSystem _debrisRain;
         private ParticleSystem _fog;
@@ -233,6 +248,8 @@ namespace TerraformingReloaded.Comets
             _ = CometArt.Rumble;
             _ = CometArt.Thump;
             _ = CometArt.SmokeSheet;
+            _ = CometArt.BillowSheet;
+            _ = CometArt.FireballSheet;
             _sound = new CometSound(gameObject, _plan.Scale);
             _drawn = new GameObject("Drawn").transform;
             _drawn.SetParent(transform, false);
@@ -385,7 +402,6 @@ namespace TerraformingReloaded.Comets
             Color hotWhite = new Color(1f, 0.97f, 0.9f);
             Color orange = new Color(1f, 0.55f, 0.18f);
             Color ember = new Color(0.55f, 0.12f, 0.05f);
-            float fire = 1f - 0.6f * (float)_react.Steam;
             bool burst = !_late;
 
             // The fireball rises inside the cap as the cloud climbs, so it is drawn in a frame of its
@@ -396,40 +412,49 @@ namespace TerraformingReloaded.Comets
             _capTransform.SetParent(at, false);
             _capTransform.localPosition = Vector3.up * CapHeight(0f);
 
-            // Fireball: a burst of hot gas rolling out to R by the time the thermal pulse is over,
-            // cooling through the comet's colours, inside the smoke, so the smoke covers it rather
-            // than it being pasted over the smoke.
+            // The fireball: one face as wide as the ball is now, a glowing surface boiling with
+            // bright cells and darker toward its limb, white-hot while it grows and cooling through
+            // orange and the comet's colours to a dull red; and bulges boiling off its edge, so its
+            // outline churns. Both drawn before the glow and the smoke, so the smoke covers them.
             float outward = Mathf.Log(10f) / grow;
-            _fireball = NewParticles("Fireball", _ball, Additive(CometArt.SmokeSheet, CometArt.InnerQueue), 160, _ball);
-            var main = _fireball.main;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(Mathf.Min(longest, Mathf.Max(3f, 2.5f * grow)), Mathf.Min(longest, Mathf.Max(5f, 4f * grow)));
-            main.startSpeed = new ParticleSystem.MinMaxCurve(0.35f * r * outward, 0.5f * r * outward);
-            main.startSize = new ParticleSystem.MinMaxCurve(r * 0.55f, r * 0.9f);
+            _ballColours = Keys(
+                new[] { (hotWhite, 0f), (new Color(1f, 0.86f, 0.5f), 0.2f), (Color.Lerp(orange, _gasColour, 0.25f), 0.45f), (new Color(0.85f, 0.3f, 0.1f), 0.72f), (new Color(0.35f, 0.1f, 0.05f), 1f) },
+                new[] { (1f, 0f), (1f, 1f) });
+            _ballFace = NewGlow("Fireball", CometArt.FireballSheet, additive: false, CometArt.BallQueue);
+            _ballFace.Soft(0.05f * r);
+            CometLayer boils = _look.Layer(_sizes, "boils");
+            float boilLife = Mathf.Clamp(0.45f * grow, 1.5f, 30f);
+            _boilMaterial = CometArt.Blended(CometArt.FireballSheet, new Color(1f, 1f, 1f, 0.5f), CometArt.BoilQueue);
+            _boils = NewParticles("Boils", _ball, _boilMaterial, boils.Count, _ball);
+            var main = _boils.main;
+            main.loop = true;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.7f * boilLife, boilLife);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.03f * r / grow, 0.08f * r / grow);
+            main.startSize = new ParticleSystem.MinMaxCurve((float)boils.PuffMinMetres, (float)boils.PuffMaxMetres);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.startColor = Color.white;
-            var shape = _fireball.shape;
+            main.startColor = hotWhite;
+            var shape = _boils.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.Hemisphere;
             shape.rotation = new Vector3(-90f, 0f, 0f);
-            shape.radius = r * 0.2f;
+            shape.radius = (float)_look.BallRadius(_sizes, 0.0) * 0.85f;
+            shape.radiusThickness = 0.15f;
             if (burst)
             {
-                Burst(_fireball, Mathf.RoundToInt(110 * fire), 0f);
+                Burst(_boils, boils.Count / 2, 0f);
             }
-            Slow(_fireball, outward);
-            SizeOverLife(_fireball, 0.6f, 1.4f);
-            Rotate(_fireball, 0.4f * Mathf.Min(1f, 5f / grow));
-            Animate(_fireball, 1f);
-            Soften(_fireball, r);
-            ColourOverLife(_fireball, Keys(
-                new[] { (hotWhite, 0f), (new Color(1f, 0.85f, 0.4f), 0.12f), (orange, 0.3f), (_gasColour, 0.55f), (ember, 1f) },
-                new[] { (1f, 0f), (0.9f, 0.4f), (0f, 1f) }));
+            SizeOverLife(_boils, 0.7f, (float)boils.GrowsTo);
+            Rotate(_boils, 0.3f * Mathf.Min(1f, 5f / grow));
+            Animate(_boils, 2f);
+            Soften(_boils, r);
+            ColourOverLife(_boils, Fade(Color.white, 1f, 0f, 0.15f));
+            ScreenShare(_boils, boils.ScreenShare);
 
             // Burning: a second, larger fireball a second or two after the first, rolling orange-red.
             if (_react.Burning > 0.02)
             {
                 float burn = (float)_react.Burning;
-                _secondFireball = NewParticles("Second fireball", _ball, Additive(CometArt.SmokeSheet, CometArt.InnerQueue), 180, _ball);
+                _secondFireball = NewParticles("Second fireball", _ball, Additive(CometArt.SmokeSheet, CometArt.InnerQueue), 90, _ball);
                 main = _secondFireball.main;
                 main.startLifetime = new ParticleSystem.MinMaxCurve(Mathf.Min(longest, Mathf.Max(5f, 3f * grow)), Mathf.Min(longest, Mathf.Max(9f, 5f * grow)));
                 main.startSpeed = new ParticleSystem.MinMaxCurve(0.45f * r * outward, 0.65f * r * outward);
@@ -443,7 +468,7 @@ namespace TerraformingReloaded.Comets
                 shape.radius = r * 0.3f;
                 if (burst)
                 {
-                    Burst(_secondFireball, Mathf.RoundToInt(40 + 120 * burn), 1.4f);
+                    Burst(_secondFireball, Mathf.RoundToInt(20 + 60 * burn), 1.4f);
                 }
                 Slow(_secondFireball, outward);
                 SizeOverLife(_secondFireball, 0.6f, 1.5f);
@@ -482,98 +507,113 @@ namespace TerraformingReloaded.Comets
             Trails(_ejecta, 0.35f, rocks * 0.01f);
             Collide(_ejecta);
 
-            // The column: smoke and dust filling a cone that widens as a plume does, from the ground
-            // up to the cap, lit from inside by the fire at its root. Steam turns it white and
-            // billowing. Its length, puff size and drift follow the cloud each frame (Aftermath).
+            // The column: dust and smoke drawn up from the ground behind the rising fireball, climbing
+            // to the cap and widening as a plume does, so each puff is as wide as the column where it
+            // is: born at the root and grown to the column's width at the cap by the time it gets
+            // there. Puffs are lit from above, in darker and lighter masses. Steam turns it white and
+            // billowing. Its climb and its growth follow the cloud each frame (Aftermath).
             float steam = (float)_react.Steam;
-            _stem = NewParticles("Stem", at, Blended(CometArt.SmokeSheet), 800);
+            CometLayer stem = _look.Layer(_sizes, "stem");
+            float stemLife = Mathf.Min(longest, (float)CometLook.StemSeconds);
+            _stem = NewParticles("Stem", at, Blended(CometArt.BillowSheet), stem.Count);
             main = _stem.main;
             main.loop = true;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(25f, 45f);
-            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.startColor = new ParticleSystem.MinMaxGradient(Darken(_bands, 0.45f * (1f - steam), Color.Lerp(new Color(0.35f, 0.3f, 0.27f), new Color(0.92f, 0.94f, 0.96f), steam), 0.75f)) { mode = ParticleSystemGradientMode.RandomColor };
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.85f * stemLife, stemLife);
+            main.startSize = new ParticleSystem.MinMaxCurve((float)stem.PuffMinMetres, (float)stem.PuffMaxMetres);
+            main.startRotation = new ParticleSystem.MinMaxCurve(-0.25f, 0.25f);
+            main.startColor = new ParticleSystem.MinMaxGradient(Shaded(_bands, 0.45f * (1f - steam), Color.Lerp(new Color(0.35f, 0.3f, 0.27f), new Color(0.92f, 0.94f, 0.96f), steam),
+                new[] { (0.55f, 0.95f), (0.85f, 0.9f), (1.15f, 0.85f) })) { mode = ParticleSystemGradientMode.RandomColor };
             shape = _stem.shape;
             shape.enabled = true;
-            shape.shapeType = ParticleSystemShapeType.ConeVolume;
+            shape.shapeType = ParticleSystemShapeType.Cone;
             shape.angle = Mathf.Atan((float)CometYield.StemSpread) * Mathf.Rad2Deg + 5f * steam;
-            shape.radius = r * 0.35f;
-            shape.length = r;
+            shape.radius = (float)stem.ReachMetres;
+            shape.radiusThickness = 1f;
             shape.rotation = new Vector3(-90f, 0f, 0f);
-            Slow(_stem, 1f / 20f);
-            SizeOverLife(_stem, 0.8f, 1.6f + 0.6f * steam);
-            Rotate(_stem, 0.15f * Mathf.Min(1f, 240f / r));
+            _stemGrowth = 1f;
+            SizeAlongLife(_stem, _stemGrowth);
+            Rotate(_stem, 0.04f);
             Animate(_stem, 1f);
             Soften(_stem, r);
-            ColourOverLife(_stem, Fade(Color.white, 0.95f, 0f, 0.12f));
+            ColourOverLife(_stem, Fade(Color.white, 0.95f, 0f, 0.08f));
+            ScreenShare(_stem, stem.ScreenShare);
 
-            _stemGlow = NewParticles("Stem glow", at, Additive(CometArt.SmokeSheet, CometArt.InnerQueue), 300);
+            CometLayer stemGlow = _look.Layer(_sizes, "stem glow");
+            _stemGlow = NewParticles("Stem glow", at, Additive(CometArt.SmokeSheet, CometArt.InnerQueue), stemGlow.Count);
             main = _stemGlow.main;
             main.loop = true;
             main.startLifetime = new ParticleSystem.MinMaxCurve(2.5f, 4.5f);
-            main.startSize = new ParticleSystem.MinMaxCurve(r * 0.5f, r * 0.9f);
+            main.startSize = new ParticleSystem.MinMaxCurve((float)stemGlow.PuffMinMetres, (float)stemGlow.PuffMaxMetres);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
             main.startColor = new ParticleSystem.MinMaxGradient(_bands) { mode = ParticleSystemGradientMode.RandomColor };
             shape = _stemGlow.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.ConeVolume;
             shape.angle = 6f;
-            shape.radius = r * 0.25f;
+            shape.radius = (float)stemGlow.ReachMetres;
             shape.length = r;
             shape.rotation = new Vector3(-90f, 0f, 0f);
-            SizeOverLife(_stemGlow, 0.7f, 1.6f);
+            SizeOverLife(_stemGlow, 0.7f, (float)stemGlow.GrowsTo);
             Animate(_stemGlow, 1f);
             Soften(_stemGlow, r);
             ColourOverLife(_stemGlow, Keys(
                 new[] { (new Color(1f, 0.9f, 0.6f), 0f), (Color.white, 0.4f), (new Color(0.6f, 0.3f, 0.2f), 1f) },
                 new[] { (1f, 0f), (0.6f, 0.5f), (0f, 1f) }));
 
-            // The cap: the cloud spreading where it stops rising, in the comet's colours. Drawn in
-            // the cap's own frame, so it climbs as one; its width follows the cloud each frame.
-            _cap = NewParticles("Cap smoke", _capTransform, Blended(CometArt.SmokeSheet), 800, _capTransform);
-            main = _cap.main;
-            main.loop = true;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(40f, 80f);
-            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.startColor = new ParticleSystem.MinMaxGradient(Darken(_bands, 0.85f * (1f - 0.5f * steam), Color.Lerp(new Color(0.55f, 0.5f, 0.47f), new Color(0.95f, 0.96f, 0.98f), steam), 0.4f)) { mode = ParticleSystemGradientMode.RandomColor };
-            shape = _cap.shape;
-            shape.enabled = true;
-            shape.shapeType = ParticleSystemShapeType.Circle;
-            shape.radius = r * 0.7f;
-            shape.rotation = new Vector3(90f, 0f, 0f);
-            Slow(_cap, 1f / 30f);
-            SizeOverLife(_cap, 0.6f, 1.6f);
-            Rotate(_cap, 0.1f * Mathf.Min(1f, 240f / r));
-            Animate(_cap, 1f);
-            ColourOverLife(_cap, Fade(Color.white, 0.9f, 0f, 0.1f));
+            // The cap: a ring of cloud rolling over where the column stops rising, in the comet's
+            // colours, its sunlit top lighter and its underside in shadow, lit warm by the fireball
+            // below it and cooling as the fireball does. Drawn at a radius of one in a frame the cap's
+            // radius scales each frame, so the cap climbs as one and every puff grows with it.
+            _capCloud = new GameObject("Cap cloud").transform;
+            _capCloud.SetParent(_capTransform, false);
+            _capCloud.localScale = Vector3.one * (float)_sizes.CapRadiusAt(0.0);
+            float capLife = Mathf.Min(longest, 80f);
+            float capFrom = Mathf.Min(2f, 0.2f * grow);
+            CometLayer capTop = _look.Layer(_sizes, "cap top");
+            _capTop = NewParticles("Cap top", _capCloud, Blended(CometArt.BillowSheet), capTop.Count, _capCloud);
+            _capTop.transform.localPosition = Vector3.up * (float)CometLook.CapTopLift;
+            CapRing(_capTop, capTop, capLife, capFrom, burst,
+                Shaded(_bands, 0.85f * (1f - 0.5f * steam), Color.Lerp(new Color(0.62f, 0.57f, 0.53f), new Color(0.95f, 0.96f, 0.98f), steam), new[] { (0.85f, 0.9f), (1.1f, 0.85f) }));
+            CometLayer capUnder = _look.Layer(_sizes, "cap underside");
+            _underMaterial = CometArt.Blended(CometArt.BillowSheet, new Color(0.5f, 0.5f, 0.5f, 0.5f));
+            _capUnder = NewParticles("Cap underside", _capCloud, _underMaterial, capUnder.Count, _capCloud);
+            _capUnder.transform.localPosition = Vector3.down * (float)CometLook.CapUnderDrop;
+            CapRing(_capUnder, capUnder, capLife, capFrom, burst,
+                Shaded(_bands, 0.6f * (1f - 0.5f * steam), Color.Lerp(new Color(0.4f, 0.36f, 0.33f), new Color(0.8f, 0.82f, 0.85f), steam), new[] { (0.5f, 0.95f), (0.75f, 0.9f) }));
 
-            _capGlow = NewParticles("Cap glow", _capTransform, Additive(CometArt.SmokeSheet, CometArt.InnerQueue), 240, _capTransform);
+            CometLayer capGlow = _look.Layer(_sizes, "cap glow");
+            _capGlow = NewParticles("Cap glow", _capTransform, Additive(CometArt.SmokeSheet, CometArt.InnerQueue), capGlow.Count, _capTransform);
             main = _capGlow.main;
             main.loop = true;
             main.startLifetime = new ParticleSystem.MinMaxCurve(0.6f * FireLife(), FireLife());
             main.startSpeed = new ParticleSystem.MinMaxCurve(r * 0.3f * outward, r * 0.6f * outward);
-            main.startSize = new ParticleSystem.MinMaxCurve(r * 1.0f, r * 1.8f);
+            main.startSize = new ParticleSystem.MinMaxCurve((float)capGlow.PuffMinMetres, (float)capGlow.PuffMaxMetres);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
             main.startColor = new ParticleSystem.MinMaxGradient(_bands) { mode = ParticleSystemGradientMode.RandomColor };
             shape = _capGlow.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.Circle;
-            shape.radius = r * 0.5f;
+            shape.radius = (float)capGlow.ReachMetres;
             shape.rotation = new Vector3(90f, 0f, 0f);
             Slow(_capGlow, outward);
-            SizeOverLife(_capGlow, 0.7f, 1.8f);
+            SizeOverLife(_capGlow, 0.7f, (float)capGlow.GrowsTo);
             Animate(_capGlow, 1f);
             ColourOverLife(_capGlow, Fade(Color.white, 0.8f, 0f, 0.2f));
 
-            // The base surge: dust thrown out along the ground with the shock, to where the wave is
-            // still strong enough to throw a player, then lingering there.
-            _groundDust = NewParticles("Base surge", at, Blended(CometArt.SmokeSheet), 260);
+            // The base surge: a low wall of dust thrown out along the ground with the shock, rolling
+            // out to where the wave is still strong enough to throw a player and lingering there. Its
+            // puffs stay below the fireball and never cover more than part of the screen, so as it
+            // rolls over the eye the sky still shows through it.
+            CometLayer surgeLayer = _look.Layer(_sizes, "base surge");
+            _groundDust = NewParticles("Base surge", at, Blended(CometArt.BillowSheet), surgeLayer.Count);
+            _groundDust.transform.localPosition = Vector3.up * (0.3f * (float)surgeLayer.PuffMaxMetres);
             float dustSlows = (float)CometRules.SpeedOfSound / Mathf.Max(1f, surge - 0.6f * r);
             main = _groundDust.main;
             main.startLifetime = new ParticleSystem.MinMaxCurve(Mathf.Min(longest, Mathf.Max(8f, 2.5f * surgeSeconds)), Mathf.Min(longest, Mathf.Max(14f, 4f * surgeSeconds)));
             main.startSpeed = new ParticleSystem.MinMaxCurve(0.8f * (float)CometRules.SpeedOfSound, (float)CometRules.SpeedOfSound);
-            main.startSize = new ParticleSystem.MinMaxCurve(Mathf.Max(0.7f * r, 0.08f * surge), Mathf.Max(1.4f * r, 0.16f * surge));
-            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.55f, 0.45f, 0.36f, 0.9f), Color.Lerp(new Color(0.5f, 0.42f, 0.35f), _gasColour, 0.3f) * new Color(1f, 1f, 1f, 0.8f));
+            main.startSize = new ParticleSystem.MinMaxCurve((float)surgeLayer.PuffMinMetres, (float)surgeLayer.PuffMaxMetres);
+            main.startRotation = new ParticleSystem.MinMaxCurve(-0.2f, 0.2f);
+            main.startColor = new ParticleSystem.MinMaxGradient(Shaded(_bands, 0.3f, new Color(0.55f, 0.45f, 0.36f), new[] { (0.7f, 0.9f), (1f, 0.85f) })) { mode = ParticleSystemGradientMode.RandomColor };
             shape = _groundDust.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.Circle;
@@ -582,19 +622,20 @@ namespace TerraformingReloaded.Comets
             shape.rotation = new Vector3(90f, 0f, 0f);
             if (burst)
             {
-                Burst(_groundDust, 180, 0f);
+                Burst(_groundDust, Mathf.RoundToInt(0.8f * surgeLayer.Count), 0f);
             }
             Slow(_groundDust, dustSlows);
-            SizeOverLife(_groundDust, 0.6f, 2.8f);
-            Rotate(_groundDust, 0.2f * Mathf.Min(1f, 240f / r));
+            SizeOverLife(_groundDust, 0.8f, (float)surgeLayer.GrowsTo);
+            Rotate(_groundDust, 0.05f);
             Animate(_groundDust, 1f);
-            Soften(_groundDust, 0.08f * surge);
-            ColourOverLife(_groundDust, Fade(Color.white, 0.88f, 0f, 0.05f));
+            Soften(_groundDust, (float)surgeLayer.PuffMaxMetres);
+            ColourOverLife(_groundDust, Fade(Color.white, 0.9f, 0f, 0.05f));
+            ScreenShare(_groundDust, surgeLayer.ScreenShare);
 
             // Dry ice: a dense grey-white fog rolling out along the ground.
             if (_react.DryIce > 0.02)
             {
-                _fog = NewParticles("Dry ice fog", at, Blended(CometArt.SmokeSheet), 360);
+                _fog = NewParticles("Dry ice fog", at, Blended(CometArt.SmokeSheet), 200);
                 main = _fog.main;
                 main.loop = true;
                 main.startLifetime = new ParticleSystem.MinMaxCurve(22f, 38f);
@@ -620,7 +661,7 @@ namespace TerraformingReloaded.Comets
             // Toxic: a sickly yellow-green haze that settles low and lingers.
             if (_react.Toxic > 0.02)
             {
-                _haze = NewParticles("Toxic haze", at, Blended(CometArt.SmokeSheet), 300);
+                _haze = NewParticles("Toxic haze", at, Blended(CometArt.SmokeSheet), 160);
                 main = _haze.main;
                 main.loop = true;
                 main.startLifetime = new ParticleSystem.MinMaxCurve(40f, 70f);
@@ -645,7 +686,7 @@ namespace TerraformingReloaded.Comets
             // Ionised: an electric blue-violet shimmer flickering through the cap.
             if (_react.Ionised > 0.02)
             {
-                _shimmer = NewParticles("Shimmer", _capTransform, Additive(CometArt.Glow, CometArt.InnerQueue), 300, _capTransform);
+                _shimmer = NewParticles("Shimmer", _capTransform, Additive(CometArt.Glow, CometArt.InnerQueue), 200, _capTransform);
                 main = _shimmer.main;
                 main.loop = true;
                 main.startLifetime = new ParticleSystem.MinMaxCurve(0.15f, 0.5f);
@@ -716,13 +757,65 @@ namespace TerraformingReloaded.Comets
             _flashIrradiance = (float)CometYield.Shipped.FlashIrradiance(_sizes.Kilotons, Vector3.Distance(_camera.transform.position, _drawn.TransformPoint(_impact)));
 
             Budget();
-            foreach (ParticleSystem system in new[] { _fireball, _secondFireball, _ejecta, _stem, _stemGlow, _cap, _capGlow, _groundDust, _fog, _haze, _shimmer, _debrisRain })
+            foreach (ParticleSystem system in new[] { _boils, _secondFireball, _ejecta, _stem, _stemGlow, _capTop, _capUnder, _capGlow, _groundDust, _fog, _haze, _shimmer, _debrisRain })
             {
                 if (system != null)
                 {
                     system.Play();
                 }
             }
+
+            StringBuilder log = new StringBuilder();
+            log.Append(string.Format(CultureInfo.InvariantCulture, "[TR comet] event {0} cloud layers at full size:", _event.Sequence));
+            foreach (CometLayer layer in _look.Layers(_sizes))
+            {
+                log.Append(" ").Append(layer).Append(";");
+            }
+            log.Append(" particles");
+            foreach (ParticleSystem system in _systems)
+            {
+                log.Append(string.Format(CultureInfo.InvariantCulture, " {0} {1}", system.name, system.main.maxParticles));
+            }
+            Debug.Log(log.ToString());
+            foreach (float moment in new[] { 0.5f, grow, 5f, 30f, 120f, 300f })
+            {
+                if (!_milestones.Contains(moment))
+                {
+                    _milestones.Add(moment);
+                }
+            }
+            _milestones.Sort();
+        }
+
+        /// <summary>One of the cap's two rings of cloud, in the cap's frame at a radius of one.</summary>
+        private void CapRing(ParticleSystem system, CometLayer layer, float life, float from, bool burst, Gradient colours)
+        {
+            float radius = (float)_sizes.CapRadiusMetres;
+            var main = system.main;
+            main.loop = true;
+            main.scalingMode = ParticleSystemScalingMode.Hierarchy;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.6f * life, life);
+            main.startSize = new ParticleSystem.MinMaxCurve((float)(layer.PuffMinMetres / radius), (float)(layer.PuffMaxMetres / radius));
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.001f, 0.004f);
+            main.startRotation = new ParticleSystem.MinMaxCurve(-0.25f, 0.25f);
+            main.startColor = new ParticleSystem.MinMaxGradient(colours) { mode = ParticleSystemGradientMode.RandomColor };
+            var shape = system.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Donut;
+            shape.radius = (float)CometLook.CapRingShare;
+            shape.donutRadius = (float)CometLook.CapTubeShare;
+            shape.radiusThickness = 1f;
+            shape.rotation = new Vector3(90f, 0f, 0f);
+            if (burst)
+            {
+                Burst(system, layer.Count / 2, from);
+            }
+            Slow(system, 1f / 30f);
+            SizeOverLife(system, 0.8f, (float)layer.GrowsTo);
+            Rotate(system, 0.03f);
+            Animate(system, 1f);
+            ColourOverLife(system, Fade(Color.white, 0.95f, 0f, 0.1f));
+            ScreenShare(system, layer.ScreenShare);
         }
 
         /// <summary>Seconds the fire's glow takes to fade: the fireball's growth and a cooling after, longer when it burns.</summary>
@@ -1163,7 +1256,7 @@ namespace TerraformingReloaded.Comets
             float burning = (float)_react.Burning;
             float steam = (float)_react.Steam;
             float r = (float)_sizes.FireballMetres;
-            float grow = Mathf.Max(0.6f, (float)_sizes.FireballSeconds);
+            float grow = (float)CometLook.GrowSeconds(_sizes);
             float surge = Mathf.Max(r, (float)_sizes.SurgeMetres);
             float surgeSeconds = surge / (float)CometRules.SpeedOfSound;
             float top = (float)_sizes.TopAt(s);
@@ -1172,29 +1265,47 @@ namespace TerraformingReloaded.Comets
             float ballHeight = BallHeight(s);
             float end = EndSeconds - ApproachSeconds;
             float fireLife = FireLife();
-            // The thermal pulse, after the first flash: its power over its peak at this moment.
-            float pulse = (float)CometYield.Pulse(s / Mathf.Max(0.01f, (float)_sizes.FlashPeakSeconds));
-            float seen = _flashIrradiance / (1f + _flashIrradiance);
+            float peak = (float)_sizes.FlashPeakSeconds;
+            float heat = (float)_look.BallHeat(_sizes, s);
+            float ballRadius = (float)_look.BallRadius(_sizes, s);
 
-            // Flash: up in a frame or two, gone in about a second, warm as it goes; sharper and bluer
-            // when the cloud is ionised. Then the thermal pulse, as long as the yield makes it and as
-            // bright as it is at this distance, in a camera's saturating response.
-            float decay = 0.45f * (1f - 0.5f * ionised);
-            float first = s < 0.05f ? s / 0.05f : Mathf.Exp(-(s - 0.05f) / decay);
-            float flash = Mathf.Max(first, 0.5f * seen * pulse);
-            Color flashColour = Color.Lerp(Color.Lerp(new Color(1f, 0.85f, 0.65f), new Color(0.75f, 0.8f, 1f), ionised), Color.white, first);
-            _flash.color = flashColour * new Color(1f, 1f, 1f, Mathf.Min(1f, 0.97f * (1f + 0.15f * ionised)) * _flashView * flash);
+            // The flash: a white frame for a few tenths of a second at most, then the thermal pulse,
+            // warm, as long as the yield makes it and never so strong that the ground stops reading
+            // through it (CometLook). Bluer when the cloud is ionised.
+            float first = (float)_look.FlashFirst(s);
+            float thermal = (float)_look.Thermal(s, peak, _flashIrradiance);
+            float overlay = _late ? 0f : (float)_look.FlashOverlay(s, peak, _flashIrradiance, _flashView);
+            Color warm = Color.Lerp(new Color(1f, 0.8f, 0.55f), new Color(0.75f, 0.8f, 1f), ionised);
+            Color flashColour = Color.Lerp(warm, Color.white, first >= thermal ? 1f : first / Mathf.Max(1e-4f, thermal));
+            _flash.color = new Color(flashColour.r, flashColour.g, flashColour.b, overlay);
 
-            _flashLight.transform.localPosition = Vector3.up * (ballHeight + r);
-            _flashLight.intensity = (45f * Mathf.Exp(-s / 0.6f) + 20f * seen * pulse + 5f * Mathf.Exp(-s / (fireLife * (1f + burning)))) * (1f + burning);
+            _flashLight.transform.localPosition = Vector3.up * (ballHeight + ballRadius);
+            _flashLight.intensity = (float)_look.FlashLight(s, peak, _flashIrradiance, fireLife, burning);
             _flashLight.range = Mathf.Max(20000f, 2f * surge);
             _flashLight.color = Color.Lerp(Color.Lerp(new Color(1f, 0.6f, 0.25f), _gasColour, 0.35f), Color.white, Mathf.Exp(-s / 0.8f));
 
-            float grown = 1f - Mathf.Exp(-s * Mathf.Log(10f) / grow);
-            _flashCore.Show(_impact + Vector3.up * (ballHeight + r * 0.5f), 7f * r * Mathf.Max(0.05f, grown), Color.Lerp(new Color(1f, 0.8f, 0.5f), Color.white, Mathf.Exp(-s / 0.7f)),
-                2f * Mathf.Max(Mathf.Exp(-s / 1.4f), pulse) * (_late ? 0f : 1f), 1f);
-            _fireGlow.Show(_impact + Vector3.up * (ballHeight + r * 0.8f), 3f * r * (0.6f + 0.4f * grown) * (1f + 0.4f * burning),
-                Color.Lerp(Color.Lerp(new Color(1f, 0.55f, 0.2f), new Color(1f, 0.35f, 0.1f), burning), _gasColour, Mathf.Clamp01(s / Mathf.Max(8f, grow))), 1.5f * Mathf.Exp(-s / fireLife) * glowGain, 1f);
+            _flashCore.Show(_impact + Vector3.up * (ballHeight + 0.3f * ballRadius), 2.5f * ballRadius, Color.Lerp(new Color(1f, 0.8f, 0.5f), Color.white, Mathf.Exp(-s / 0.7f)),
+                _late ? 0f : (float)_look.CoreGain(s, peak, _flashIrradiance), 1f);
+
+            // The fireball's face: as wide as the ball now, its cells boiling a cycle every few
+            // seconds (slower the bigger it is) and turning slowly, white-hot while it grows, then
+            // cooling through orange to a dull red and fading as the cloud closes over it.
+            Color ballColour = _ballColours.Evaluate(1f - heat);
+            float faceAlpha = Mathf.Clamp01(heat / 0.15f);
+            float cycle = Mathf.Max(1.5f, 0.5f * grow);
+            _ballFace.Roll = s * 10f * Mathf.Min(1f, 5f / grow);
+            _ballFace.Frame(Mathf.FloorToInt(s / cycle * CometArt.SheetTiles * CometArt.SheetTiles), CometArt.SheetTiles);
+            _ballFace.Show(_impact + Vector3.up * (ballHeight + 0.15f * ballRadius), 2.06f * ballRadius, ballColour, 0.7f + 1.3f * heat, faceAlpha);
+            var shape = _boils.shape;
+            shape.radius = 0.85f * ballRadius;
+            var main = _boils.main;
+            float boilBright = 0.5f + 0.5f * heat;
+            main.startColor = new Color(ballColour.r * boilBright, ballColour.g * boilBright, ballColour.b * boilBright, faceAlpha);
+            var emission = _boils.emission;
+            emission.rateOverTime = heat > 0.2f ? _boils.main.maxParticles / Mathf.Max(0.5f, _boils.main.startLifetime.constantMax) : 0f;
+
+            _fireGlow.Show(_impact + Vector3.up * (ballHeight + 0.3f * ballRadius), 2.6f * ballRadius * (1f + 0.4f * burning),
+                Color.Lerp(Color.Lerp(new Color(1f, 0.55f, 0.2f), new Color(1f, 0.35f, 0.1f), burning), _gasColour, Mathf.Clamp01(s / Mathf.Max(8f, grow))), 0.8f * heat * glowGain, 1f);
             // The shock front leaves at the speed of sound, as the wave that breaks things does, and
             // is drawn out to where it stops throwing dust.
             float front = r + (float)CometRules.SpeedOfSound * s;
@@ -1202,7 +1313,7 @@ namespace TerraformingReloaded.Comets
             const float ringAt = 0.86f;
             if (s < surgeSeconds)
             {
-                _shock.Show(_impact + Vector3.up * r * 0.3f, 2f * front / ringAt, new Color(1f, 0.95f, 0.85f), 1.6f, Mathf.Exp(-s / (0.3f * surgeSeconds)));
+                _shock.Show(_impact + Vector3.up * r * 0.3f, 2f * front / ringAt, new Color(1f, 0.95f, 0.85f), 1f, Mathf.Exp(-s / (0.3f * surgeSeconds)));
             }
             else
             {
@@ -1219,63 +1330,84 @@ namespace TerraformingReloaded.Comets
             }
             _groundRing.Show(_impact + Vector3.up * 3f, 2f * surge * (1f - Mathf.Exp(-s / surgeSeconds)) / ringAt, new Color(0.62f, 0.52f, 0.42f), 1f, 0.8f * Mathf.Exp(-s / (1.5f * surgeSeconds + 4f)));
             float skyFade = Mathf.Clamp01((end - s) / 12f);
-            _skyGlow.Show(_impact + Vector3.up * top * 0.5f, 2.2f * Mathf.Max(top, capRadius), _gasColour, 0.55f * Mathf.Exp(-s / Mathf.Max(30f, 3f * grow)) * Mathf.Clamp01(s / 0.5f) * skyFade * glowGain, 1f);
+            _skyGlow.Show(_impact + Vector3.up * top * 0.5f, 2.2f * Mathf.Max(top, capRadius), _gasColour, 0.3f * Mathf.Exp(-s / Mathf.Max(20f, 2f * grow)) * Mathf.Clamp01(s / 0.5f) * skyFade * glowGain, 1f);
 
-            // The cloud: the cap and the fireball in it climbing, the column below filling up to it,
+            // The cloud: the cap and the fireball in it climbing, the column below climbing up to it,
             // each element sized to the cloud as it is now. Emission stops early enough for the
             // longest-lived puff to fade before the show ends.
             _capTransform.localPosition = Vector3.up * capHeight;
+            _capCloud.localScale = Vector3.one * capRadius;
             _ball.localPosition = Vector3.up * ballHeight;
             float rise = RiseSpeed(s);
             float fire = 1f - 0.6f * steam;
             float smokeMore = 1f + 0.35f * _day;
 
-            var shape = _stem.shape;
-            shape.length = Mathf.Max(r, capHeight);
-            float stemMiddle = r * 0.35f + (float)CometYield.StemSpread * shape.length * 0.5f;
-            var main = _stem.main;
-            main.startSize = new ParticleSystem.MinMaxCurve(stemMiddle * 0.9f, stemMiddle * 1.4f);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(0.1f * rise, 0.3f * rise);
+            // The stem's puffs climb from the root to the cap over their life, growing to the
+            // column's width there; the curve is set again only when that width has moved on.
+            float stemLength = Mathf.Max(r, capHeight);
+            main = _stem.main;
+            float stemLife = main.startLifetime.constantMax;
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.9f * stemLength / stemLife, 1.1f * stemLength / stemLife);
+            float growth = (float)(CometLook.StemRadius(_sizes, stemLength) / CometLook.StemRadius(_sizes, 0.0));
+            if (Mathf.Abs(growth / _stemGrowth - 1f) > 0.02f)
+            {
+                _stemGrowth = growth;
+                SizeAlongLife(_stem, _stemGrowth);
+            }
             shape = _stemGlow.shape;
             shape.length = Mathf.Min(Mathf.Max(r, ballHeight + r), 3f * r);
             main = _stemGlow.main;
             main.startSpeed = new ParticleSystem.MinMaxCurve(0.5f * rise, rise);
-            shape = _cap.shape;
-            shape.radius = 0.6f * capRadius;
-            main = _cap.main;
-            main.startSize = new ParticleSystem.MinMaxCurve(0.35f * capRadius, 0.7f * capRadius);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(0.1f * capRadius / 30f, 0.3f * capRadius / 30f);
             if (_shimmer != null)
             {
                 shape = _shimmer.shape;
                 shape.radius = Mathf.Max(1.4f * r, 0.7f * capRadius);
             }
 
-            var emission = _stem.emission;
-            emission.rateOverTime = 20f * (1f + 2f * Mathf.Exp(-s / 20f)) * (1f + 0.5f * steam) * smokeMore * Mathf.Clamp01((end - 45f - s) / 30f);
+            // The cap's underside, lit warm by the fireball below while it glows, then in shadow.
+            float warmth = Mathf.Pow(heat, 0.7f) * glowGain;
+            Color under = Color.Lerp(new Color(0.42f, 0.42f, 0.44f), new Color(0.95f, 0.6f, 0.38f), warmth);
+            _underMaterial.SetColor(_underMaterial.HasProperty("_TintColor") ? "_TintColor" : "_Color", new Color(under.r, under.g, under.b, Mathf.Lerp(0.5f, 0.64f, _day)));
+
+            emission = _stem.emission;
+            emission.rateOverTime = _stem.main.maxParticles / stemLife * (1f + 2f * Mathf.Exp(-s / 20f)) * (1f + 0.5f * steam) * smokeMore * Mathf.Clamp01((end - stemLife - s) / 30f);
             emission = _stemGlow.emission;
-            emission.rateOverTime = s < 4f * fireLife ? 60f * Mathf.Exp(-s / (0.5f * fireLife)) * fire : 0f;
-            emission = _cap.emission;
-            emission.rateOverTime = s > Mathf.Min(2f, 0.2f * grow) ? (12f + 25f * Mathf.Exp(-s / 40f)) * smokeMore * Mathf.Clamp01((end - 80f - s) / 30f) : 0f;
+            emission.rateOverTime = s < 4f * fireLife ? 20f * Mathf.Exp(-s / (0.5f * fireLife)) * fire : 0f;
+            float capFrom = Mathf.Min(2f, 0.2f * grow);
+            foreach (ParticleSystem cap in new[] { _capTop, _capUnder })
+            {
+                float capLife = cap.main.startLifetime.constantMax;
+                emission = cap.emission;
+                emission.rateOverTime = s > capFrom ? cap.main.maxParticles / (0.8f * capLife) * (1f + 2f * Mathf.Exp(-s / 40f)) * smokeMore * Mathf.Clamp01((end - capLife - s) / 30f) : 0f;
+            }
             emission = _capGlow.emission;
-            emission.rateOverTime = s > 1.5f && s < 2.5f * fireLife ? 30f * Mathf.Exp(-(s - 1.5f) / (0.7f * fireLife)) * fire : 0f;
+            emission.rateOverTime = s > 1.5f && s < 2.5f * fireLife ? 10f * Mathf.Exp(-(s - 1.5f) / (0.7f * fireLife)) * fire : 0f;
             emission = _debrisRain.emission;
             emission.rateOverTime = s > 4f && s < 35f ? 7f * Mathf.Exp(-(s - 4f) / 12f) : 0f;
             if (_fog != null)
             {
                 emission = _fog.emission;
-                emission.rateOverTime = s > 0.5f && s < 30f ? 22f * (float)_react.DryIce * Mathf.Exp(-(s - 0.5f) / 12f) : 0f;
+                emission.rateOverTime = s > 0.5f && s < 30f ? 12f * (float)_react.DryIce * Mathf.Exp(-(s - 0.5f) / 12f) : 0f;
             }
             if (_haze != null)
             {
                 emission = _haze.emission;
-                emission.rateOverTime = s > 3f && s < 60f ? 8f * (float)_react.Toxic * Mathf.Exp(-(s - 3f) / 25f) : 0f;
+                emission.rateOverTime = s > 3f && s < 60f ? 5f * (float)_react.Toxic * Mathf.Exp(-(s - 3f) / 25f) : 0f;
             }
             if (_shimmer != null)
             {
                 emission = _shimmer.emission;
                 float flicker = 0.5f + 0.5f * Mathf.Sin(s * 23f) * Mathf.Sin(s * 7.3f + 1f);
-                emission.rateOverTime = s > 0.8f && s < 25f ? 90f * ionised * flicker * Mathf.Exp(-(s - 0.8f) / 8f) : 0f;
+                emission.rateOverTime = s > 0.8f && s < 25f ? 60f * ionised * flicker * Mathf.Exp(-(s - 0.8f) / 8f) : 0f;
+            }
+
+            if (_milestones.Count > 0 && s >= _milestones[0])
+            {
+                _milestones.RemoveAt(0);
+                Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                    "[TR comet] event {0} at {1:0.0} s: fireball {2:N0} m at {3:N0} m up, heat {4:0.00}; stem {5:N0} m long, {6:N0} m wide at the root and {7:N0} m at the cap, puffs climbing {8:N0} m/s; cap {9:N0} m up, {10:N0} m across, underside warmth {11:0.00}; flash {12:0.00}, light {13:0.0}; sky {14:0.00} dimmer; live particles {15:N0}",
+                    _event.Sequence, s, ballRadius, ballHeight, heat, stemLength, 2.0 * CometLook.StemRadius(_sizes, 0.0), 2.0 * CometLook.StemRadius(_sizes, stemLength), stemLength / stemLife,
+                    capHeight, 2f * capRadius, warmth, overlay, _flashLight.intensity, CometSky.Dim, LiveParticles()));
             }
 
             if (_shakeFrom >= 0f)
@@ -1572,6 +1704,14 @@ namespace TerraformingReloaded.Comets
             size.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(new Keyframe(0f, from, 0f, (to - from) * 2f), new Keyframe(1f, to, 0f, 0f)));
         }
 
+        /// <summary>Grows each puff evenly from its start size to <paramref name="to"/> times it, as a puff climbing at an even speed up a column widening evenly.</summary>
+        private static void SizeAlongLife(ParticleSystem system, float to)
+        {
+            var size = system.sizeOverLifetime;
+            size.enabled = true;
+            size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, to));
+        }
+
         private static void ColourOverLife(ParticleSystem system, Gradient gradient)
         {
             var colour = system.colorOverLifetime;
@@ -1629,17 +1769,54 @@ namespace TerraformingReloaded.Comets
             return gradient;
         }
 
-        /// <summary>The comet's colour bands, darkened toward smoke: <paramref name="keep"/> of the gas colour over <paramref name="smoke"/>.</summary>
-        private static Gradient Darken(Gradient bands, float keep, Color smoke, float alpha)
+        /// <summary>
+        /// The comet's colour bands toward smoke, <paramref name="keep"/> of the gas colour over
+        /// <paramref name="smoke"/>, each band split into the shades given (a brightness and an
+        /// opacity), for a system that picks a random colour from it: a cloud of darker and lighter
+        /// masses in every gas's colour. Unity holds eight keys, so the largest bands are kept.
+        /// </summary>
+        private static Gradient Shaded(Gradient bands, float keep, Color smoke, (float Shade, float Alpha)[] shades)
         {
-            GradientColorKey[] keys = bands.colorKeys;
-            for (int i = 0; i < keys.Length; i++)
+            GradientColorKey[] source = bands.colorKeys;
+            int kept = Mathf.Max(1, Mathf.Min(source.Length, 8 / shades.Length));
+            List<GradientColorKey> colours = new List<GradientColorKey>();
+            List<GradientAlphaKey> alphas = new List<GradientAlphaKey>();
+            float from = 0f;
+            for (int k = 0; k < kept; k++)
             {
-                keys[i].color = Color.Lerp(smoke, keys[i].color * 0.9f, keep);
+                float to = k == kept - 1 ? 1f : source[k].time;
+                Color colour = Color.Lerp(smoke, source[k].color * 0.9f, keep);
+                for (int j = 0; j < shades.Length; j++)
+                {
+                    float at = from + (to - from) * (j + 1) / shades.Length;
+                    Color shaded = colour * shades[j].Shade;
+                    colours.Add(new GradientColorKey(new Color(Mathf.Clamp01(shaded.r), Mathf.Clamp01(shaded.g), Mathf.Clamp01(shaded.b)), at));
+                    alphas.Add(new GradientAlphaKey(shades[j].Alpha, at));
+                }
+                from = to;
             }
             Gradient gradient = new Gradient { mode = GradientMode.Fixed };
-            gradient.SetKeys(keys, new[] { new GradientAlphaKey(alpha, 0f), new GradientAlphaKey(alpha, 1f) });
+            gradient.SetKeys(colours.ToArray(), alphas.ToArray());
             return gradient;
+        }
+
+        /// <summary>The most of the screen's height one puff of this system may cover, however near it is.</summary>
+        private static void ScreenShare(ParticleSystem system, double share)
+        {
+            system.GetComponent<ParticleSystemRenderer>().maxParticleSize = (float)share;
+        }
+
+        private int LiveParticles()
+        {
+            int count = 0;
+            foreach (ParticleSystem system in _systems)
+            {
+                if (system != null)
+                {
+                    count += system.particleCount;
+                }
+            }
+            return count;
         }
 
         /// <summary>Frame times over one part of the show, for the log.</summary>
@@ -1693,9 +1870,30 @@ namespace TerraformingReloaded.Comets
 
             public void Hide() => _renderer.enabled = false;
 
+            /// <summary>Degrees the quad is turned about the line to the eye.</summary>
+            public float Roll;
+
+            /// <summary>Shows one frame of a sheet of tiles by tiles, top-left first, as a particle system steps through it.</summary>
+            public void Frame(int index, int tiles)
+            {
+                int frames = tiles * tiles;
+                int f = ((index % frames) + frames) % frames;
+                _material.mainTextureScale = new Vector2(1f / tiles, 1f / tiles);
+                _material.mainTextureOffset = new Vector2(f % tiles / (float)tiles, (tiles - 1 - f / tiles) / (float)tiles);
+            }
+
+            /// <summary>Fades the quad against the ground over this many metres rather than the art's 30.</summary>
+            public void Soft(float metres)
+            {
+                if (_material.HasProperty("_InvFade"))
+                {
+                    _material.SetFloat("_InvFade", 1f / Mathf.Max(30f, metres));
+                }
+            }
+
             public void Face(Vector3 eye, Quaternion facing)
             {
-                _transform.rotation = Flat ? Quaternion.Euler(90f, 0f, 0f) : facing;
+                _transform.rotation = Flat ? Quaternion.Euler(90f, 0f, 0f) : Roll != 0f ? facing * Quaternion.Euler(0f, 0f, Roll) : facing;
             }
         }
     }

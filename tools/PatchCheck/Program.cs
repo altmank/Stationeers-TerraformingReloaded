@@ -788,6 +788,27 @@ internal static class Program
             string caught = TerraformingReloaded.Comets.CometYield.Check(wrong.Yield);
             failures += Judge(caught != null, "comet yield check fails " + wrong.What + (caught != null ? ": " + caught : ""));
         }
+        string lookCheck = TerraformingReloaded.Comets.CometLook.Check(TerraformingReloaded.Comets.CometLook.Shipped);
+        failures += Judge(lookCheck == null, "comet look: " + (lookCheck ?? "the flash whites out the view for at most 0.3 s from anywhere, every layer of the cloud fits the part it draws and keeps its proportions at every size, and the layers fit under the particle cap"));
+        var wrongLooks = new (string What, TerraformingReloaded.Comets.CometLook Look)[]
+        {
+            ("a flash that fades over a second", new LingeringFlash()),
+            ("a thermal pulse that holds the view white", new WhiteThermal()),
+            ("stem puffs half as wide again as the stem", new WideStemPuffs()),
+            ("a surge whose puffs may fill the screen", new FullScreenSurge()),
+            ("cap puffs drawn from the fireball rather than the cap", new CapFromFireball()),
+        };
+        foreach (var wrong in wrongLooks)
+        {
+            string caught = TerraformingReloaded.Comets.CometLook.Check(wrong.Look);
+            failures += Judge(caught != null, "comet look check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        foreach (double moles in new[] { 1e5, 1e7, 1e9 })
+        {
+            var sizes = TerraformingReloaded.Comets.CometYield.Shipped.For(moles, TerraformingReloaded.Comets.CelestialTuning.Defaults);
+            Console.WriteLine(string.Format(System.Globalization.CultureInfo.InvariantCulture, "layers:  {0:0.#E+0} mol: {1}",
+                moles, string.Join("; ", TerraformingReloaded.Comets.CometLook.Shipped.Layers(sizes))));
+        }
         foreach (double moles in new[] { 1e5, 1e6, 1e7, 3.6e7, 1e8, 1e9 })
         {
             var shipped = TerraformingReloaded.Comets.CometRules.Shipped;
@@ -1021,6 +1042,44 @@ internal static class Program
     private sealed class LongShow : TerraformingReloaded.Comets.CometYield
     {
         public override double ShowSeconds() => RiseSeconds * 3.0;
+    }
+
+    private sealed class LingeringFlash : TerraformingReloaded.Comets.CometLook
+    {
+        public override double FlashFadeSeconds => 1.0;
+    }
+
+    private sealed class WhiteThermal : TerraformingReloaded.Comets.CometLook
+    {
+        public override double ThermalOverlayMax => 0.97;
+    }
+
+    private sealed class WideStemPuffs : TerraformingReloaded.Comets.CometLook
+    {
+        public override double StemPuffMax => 1.6;
+    }
+
+    private sealed class FullScreenSurge : TerraformingReloaded.Comets.CometLook
+    {
+        public override double SurgeScreenShare => 1.0;
+    }
+
+    private sealed class CapFromFireball : TerraformingReloaded.Comets.CometLook
+    {
+        public override System.Collections.Generic.IList<TerraformingReloaded.Comets.CometLayer> Layers(TerraformingReloaded.Comets.CometSizes sizes)
+        {
+            var layers = new System.Collections.Generic.List<TerraformingReloaded.Comets.CometLayer>(base.Layers(sizes));
+            for (int i = 0; i < layers.Count; i++)
+            {
+                var l = layers[i];
+                if (l.Name.StartsWith("cap ", StringComparison.Ordinal) && l.PuffBasis == "cap")
+                {
+                    double r = sizes.FireballMetres;
+                    layers[i] = new TerraformingReloaded.Comets.CometLayer(l.Name, l.Count, CapPuffMin * 1.5 * r, CapPuffMax * 1.5 * r, l.GrowsTo, l.ScreenShare, l.ReachMetres, l.PuffBasis, l.ReachBasis);
+                }
+            }
+            return layers;
+        }
     }
 
     /// <summary>
