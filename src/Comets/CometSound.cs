@@ -48,9 +48,10 @@ namespace TerraformingReloaded.Comets
         /// <summary>Which routes found their mixer group, for the log.</summary>
         public readonly string Report;
 
-        public CometSound(GameObject owner, float scale)
+        /// <param name="loudness">0 to 1 of the game's volume (CometRules.Loudness).</param>
+        public CometSound(GameObject owner, float loudness)
         {
-            _loudness = Mathf.Clamp01(0.45f + 0.2f * scale);
+            _loudness = Mathf.Clamp01(loudness);
             AudioMixerGroup external = Group("External", "World", "Master");
             AudioMixerGroup ground = Group("LocalPlayerInternal", "LocalPlayer", "Master");
             _air = Source(owner, external);

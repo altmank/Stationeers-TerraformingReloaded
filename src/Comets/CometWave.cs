@@ -10,10 +10,10 @@ using UnityEngine;
 namespace TerraformingReloaded.Comets
 {
     /// <summary>
-    /// What the pressure wave reaches (docs/COMET.md sections 4 and 5): the structures facing the
-    /// outside whose limit it passes, and the players outdoors. Every machine works out the same list
-    /// of structures from its own copy of the world, for the sounds; only the host breaks them, with
-    /// the game's own damage, which syncs. Main thread only.
+    /// What the pressure wave does (docs/COMET.md sections 4 and 5): the game's own break, which side of a
+    /// structure is outdoors, the push and the suit damage on a player outdoors, and the sounds of what
+    /// breaks. Which structures and players it reaches is the impact's one pass, <see cref="CometZonePass"/>.
+    /// Main thread only.
     /// </summary>
     internal static class CometWave
     {
@@ -22,58 +22,8 @@ namespace TerraformingReloaded.Comets
         private static readonly int CompositeFail = Animator.StringToHash("CompositeWallFail");
         private static readonly int GlassStress = Animator.StringToHash("GlassWallStress");
 
-        /// <summary>One structure the wave reaches hard enough to break or to creak.</summary>
-        public sealed class Hit
-        {
-            public Structure Structure;
-            public Vector3 At;
-            public float Distance;
-            public double PeakKPa;
-            public double LimitKPa;
-            public bool Breaks;
-
-            /// <summary>The game's sound set for it, by hash; 0 for none.</summary>
-            public int Sound;
-        }
-
-        /// <summary>Every structure the wave breaks or makes creak, nearest first.</summary>
-        public static List<Hit> Structures(Vector3 impact, double moles, CometRules rules)
-        {
-            List<Hit> hits = new List<Hit>();
-            GridController.AllStructuresPool.ForEach((Action<Structure>)(structure =>
-            {
-                if (structure == null || structure.maxPressureDelta <= 0f || structure.Indestructable || structure.IsBroken || structure.CanAirPass)
-                {
-                    return;
-                }
-                Vector3 at = structure.CenterPosition;
-                float distance = Vector3.Distance(impact, at);
-                double peak = rules.PeakKPa(moles, distance);
-                double limit = structure.maxPressureDelta;
-                bool breaks = rules.Breaks(peak, limit);
-                bool window = IsGlass(structure) && structure is Wall;
-                if (!breaks && !(window && rules.Creaks(peak, limit)))
-                {
-                    return;
-                }
-                if (!FacesOutside(structure))
-                {
-                    return;
-                }
-                hits.Add(new Hit
-                {
-                    Structure = structure,
-                    At = at,
-                    Distance = distance,
-                    PeakKPa = peak,
-                    LimitKPa = limit,
-                    Breaks = breaks,
-                    Sound = breaks ? FailSound(structure) : GlassStress,
-                });
-            }));
-            hits.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-            return hits;
-        }
+        /// <summary>The game's creak of a window taken past most of its limit.</summary>
+        internal static int StressSound => GlassStress;
 
         /// <summary>
         /// The break is the game's own: damage set to the maximum, which on the host syncs, switches
@@ -193,14 +143,14 @@ namespace TerraformingReloaded.Comets
             return away.sqrMagnitude > 1e-6f ? away.normalized : Vector3.forward;
         }
 
-        private static bool IsGlass(Structure structure)
+        internal static bool IsGlass(Structure structure)
         {
             return structure is Wall wall
                 ? wall.WallMaterialType == Wall.WallMaterial.Glass
                 : structure.PrefabName != null && structure.PrefabName.IndexOf("Glass", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static int FailSound(Structure structure)
+        internal static int FailSound(Structure structure)
         {
             if (IsGlass(structure))
             {

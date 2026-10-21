@@ -250,7 +250,8 @@ namespace TerraformingReloaded.Comets
             _ = CometArt.SmokeSheet;
             _ = CometArt.BillowSheet;
             _ = CometArt.FireballSheet;
-            _sound = new CometSound(gameObject, _plan.Scale);
+            // As loud as the wave is strong where this machine's listener is when the show starts.
+            _sound = new CometSound(gameObject, (float)_rules.Loudness(_rules.PeakKPa(_plan.Moles, Vector3.Distance(Listener(), _impact))));
             _drawn = new GameObject("Drawn").transform;
             _drawn.SetParent(transform, false);
             FollowDrawnGround();
@@ -1120,40 +1121,29 @@ namespace TerraformingReloaded.Comets
             StringBuilder log = new StringBuilder();
             log.Append(string.Format(c, "[TR comet] event {0} impact at {1}", _event.Sequence, _impact));
 
-            // Structures: every machine works out the same list for the sound; the host breaks them.
+            // The impact's one pass over every structure and every player: what ground zero destroys, what the
+            // fireball burns, what the wave breaks or makes creak and where the falling rocks come down. Every
+            // machine makes the same list for the sounds; the host changes the world.
             if (!_plan.Preview)
             {
-                List<CometWave.Hit> hits = CometWave.Structures(_impact, moles, _rules);
-                int breaks = 0;
-                foreach (CometWave.Hit hit in hits)
-                {
-                    CometWave.Hit h = hit;
-                    if (h.Breaks)
+                List<CometZonePass.Timed> pass = CometZonePass.Run(_event, _impact, moles, _sizes, Effective.Celestial, _rules, _host,
+                    (clips, at) =>
                     {
-                        breaks++;
-                    }
-                    When((float)_rules.ArrivalSeconds(h.Distance), () =>
-                    {
-                        if (h.Breaks && _host)
+                        if (_render)
                         {
-                            CometWave.Break(h.Structure);
+                            _sound.Structure(clips, at);
                         }
-                        if (_render && h.Sound != 0)
-                        {
-                            _sound.Structure(h.Sound, h.At);
-                        }
-                    });
-                }
-                log.Append(string.Format(c, "; structures: {0} break, {1} creak", breaks, hits.Count - breaks));
-                if (hits.Count > 0)
+                    }, out string zones);
+                foreach (CometZonePass.Timed timed in pass)
                 {
-                    log.Append(string.Format(c, ", nearest {0} at {1:N0} m ({2:0.#} kPa against {3:0} kPa)",
-                        hits[0].Structure != null ? hits[0].Structure.PrefabName : "?", hits[0].Distance, hits[0].PeakKPa, hits[0].LimitKPa));
+                    _cues.Add(new Cue(timed.At, timed.Act));
                 }
+                log.Append("; ").Append(zones);
 
-                // Players outdoors: the host damages suits through the game's collision hit.
+                // Players outdoors past ground zero: the host damages suits through the game's collision hit.
                 if (_host)
                 {
+                    ZoneReach reach = CometZones.Shipped.ReachFor(moles, Effective.Celestial);
                     foreach (Human human in Human.AllHumans)
                     {
                         if (human == null || human.OrganBrain == null || !human.OrganBrain.IsOnline || human.IsDead)
@@ -1165,7 +1155,7 @@ namespace TerraformingReloaded.Comets
                         CometRules.Push push = _rules.PushFor(peak);
                         log.Append(string.Format(c, "; player {0} at {1:N0} m, {2:0.#} kPa, band {3}{4}", human.DisplayName, distance, peak, push.Band,
                             CometWave.Outdoors(human) ? " outdoors" : " indoors"));
-                        if (push.SuitImpulse > 0.0)
+                        if (push.SuitImpulse > 0.0 && CometZones.Shipped.ZoneAt(distance, reach) != CometZone.GroundZero)
                         {
                             Human who = human;
                             When((float)_rules.ArrivalSeconds(distance), () =>
@@ -1419,7 +1409,7 @@ namespace TerraformingReloaded.Comets
             if (s >= _stormFrom)
             {
                 float since = s - _stormFrom;
-                float level = Mathf.Clamp01(since / 8f) * Mathf.Clamp01((70f - since) / 25f) * Mathf.Clamp01(0.5f + 0.2f * _plan.Scale);
+                float level = Mathf.Clamp01(since / 8f) * Mathf.Clamp01((70f - since) / 25f);
                 Human local = InventoryManager.ParentHuman;
                 _sound.Storming(Listener(), level, local != null && !CometWave.Outdoors(local));
             }
