@@ -68,6 +68,15 @@ namespace TerraformingReloaded.Comets
         private CometSound _sound;
         private float _day;
 
+        /// <summary>
+        /// Everything that stands on the ground or flies down to it, placed at real positions and
+        /// moved as one to where this camera sees the ground (<see cref="FollowDrawnGround"/>).
+        /// </summary>
+        private Transform _drawn;
+
+        /// <summary>How far below its real height the ground at the impact is drawn for this camera, this frame.</summary>
+        private float _drop;
+
         private Vector3 _start;
         private Vector3 _impact;
         private Vector3 _travel;
@@ -205,13 +214,16 @@ namespace TerraformingReloaded.Comets
             _ = CometArt.Thump;
             _ = CometArt.SmokeSheet;
             _sound = new CometSound(gameObject, _scale);
+            _drawn = new GameObject("Drawn").transform;
+            _drawn.SetParent(transform, false);
+            FollowDrawnGround();
             if (_t < ApproachSeconds)
             {
                 BuildHead();
             }
             Debug.Log(string.Format(CultureInfo.InvariantCulture,
-                "[TR comet] show of event {0}: {1:N0} mol, scale {2:0.00}, impact {3} at {4:N0} m, start {5}, joined at t={6:0.0} s, far clip {7:N0} -> {8:N0}, shaders {9}, sound {10}",
-                comet.Sequence, _plan.Moles, _scale, _impact, Vector3.Distance(eye, _impact), _start, _joinedAt, _originalFar, _camera.farClipPlane, CometArt.ShaderReport, _sound.Report));
+                "[TR comet] show of event {0}: {1:N0} mol, scale {2:0.00}, impact {3} at {4:N0} m, drawn {5:0.0} m lower for this camera, start {6}, joined at t={7:0.0} s, far clip {8:N0} -> {9:N0}, shaders {10}, sound {11}",
+                comet.Sequence, _plan.Moles, _scale, _impact, Vector3.Distance(eye, _impact), _drop, _start, _joinedAt, _originalFar, _camera.farClipPlane, CometArt.ShaderReport, _sound.Report));
         }
 
         // ---------------------------------------------------------------- the head
@@ -219,8 +231,8 @@ namespace TerraformingReloaded.Comets
         private void BuildHead()
         {
             _head = new GameObject("Head").transform;
-            _head.SetParent(transform, false);
-            _head.position = _start;
+            _head.SetParent(_drawn, false);
+            _head.localPosition = _start;
             _head.rotation = Quaternion.LookRotation(_travel);
 
             _coma = NewGlow("Coma", CometArt.Glow, additive: true, CometArt.OuterQueue);
@@ -322,11 +334,11 @@ namespace TerraformingReloaded.Comets
         private void BuildImpact()
         {
             Transform at = new GameObject("Impact").transform;
-            at.SetParent(transform, false);
-            at.position = _impact;
+            at.SetParent(_drawn, false);
+            at.localPosition = _impact;
 
             _flashLight = NewLight("Flash", at);
-            _flashLight.transform.position = _impact + Vector3.up * _radius;
+            _flashLight.transform.localPosition = Vector3.up * _radius;
 
             _flashCore = NewGlow("Flash core", CometArt.Glow, additive: true, CometArt.OuterQueue);
             _fireGlow = NewGlow("Fire glow", CometArt.Glow, additive: true, CometArt.InnerQueue);
@@ -470,7 +482,7 @@ namespace TerraformingReloaded.Comets
             // The cap: the column flattening out where it stops rising, in the comet's colours.
             _capTransform = new GameObject("Cap").transform;
             _capTransform.SetParent(at, false);
-            _capTransform.position = _impact + Vector3.up * _radius;
+            _capTransform.localPosition = Vector3.up * _radius;
             _cap = NewParticles("Cap smoke", _capTransform, Blended(CometArt.SmokeSheet), 800);
             main = _cap.main;
             main.loop = true;
@@ -599,7 +611,9 @@ namespace TerraformingReloaded.Comets
                     new[] { (0f, 0f), (1f, 0.1f), (0f, 1f) }));
             }
 
-            // Burning pieces coming back down out of the sky, around the player too.
+            // Burning pieces coming back down out of the sky, around the player too. Left out of the
+            // drawn frame: it falls all the way from the player to the impact, and is seen landing
+            // near the player, where the ground is drawn where it is.
             _debrisRain = NewParticles("Debris rain", transform, Additive(CometArt.Glow, CometArt.OuterQueue), 180);
             Vector3 middle = Vector3.Lerp(_camera.transform.position, _impact, 0.55f);
             _debrisRain.transform.position = new Vector3(middle.x, _impact.y + _plumeHeight * 1.1f, middle.z);
@@ -645,7 +659,7 @@ namespace TerraformingReloaded.Comets
             rect.offsetMax = Vector2.zero;
             _flash.color = new Color(1f, 1f, 1f, 0f);
             Vector3 look = _camera.transform.forward;
-            Vector3 toImpact = (_impact - _camera.transform.position).normalized;
+            Vector3 toImpact = (_drawn.TransformPoint(_impact) - _camera.transform.position).normalized;
             _flashView = _late ? 0f : 0.35f + 0.65f * Mathf.Clamp01(Vector3.Dot(look, toImpact));
 
             Budget();
@@ -659,6 +673,20 @@ namespace TerraformingReloaded.Comets
         }
 
         // ---------------------------------------------------------------- the clock
+
+        /// <summary>
+        /// The terrain shader draws ground lower the further it is from the camera (the world's
+        /// curvature), so a show placed at real heights floats above the distant ground it lands on.
+        /// The drawn frame is moved by the drop at the impact for this camera, and recentred with the
+        /// terrain in the orbital view, so the impact sits on the ground as drawn and the approach
+        /// still ends there. The path moves as one and stays straight: the game curves nothing in the
+        /// sky. Per viewer and per frame, so it is never sent.
+        /// </summary>
+        private void FollowDrawnGround()
+        {
+            Vector3 drawn = CometTerrain.Drawn(_impact, _camera.transform.position, out _drop);
+            _drawn.localPosition = drawn - _impact;
+        }
 
         private void Update()
         {
@@ -726,6 +754,7 @@ namespace TerraformingReloaded.Comets
             {
                 return;
             }
+            Drawn(FollowDrawnGround);
             float frame = Time.unscaledDeltaTime;
             if (!_impacted)
             {
@@ -801,7 +830,8 @@ namespace TerraformingReloaded.Comets
             float x = Mathf.Clamp01(_t / ApproachSeconds);
             const float k = 4.6f;
             float u = (Mathf.Exp(k * x) - 1f) / (Mathf.Exp(k) - 1f);
-            _head.position = Vector3.LerpUnclamped(_start, _impact, u);
+            Vector3 path = Vector3.LerpUnclamped(_start, _impact, u);
+            _head.localPosition = path;
             float heat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, 1f, x));
             float glowGain = Mathf.Lerp(1f, 0.7f, _day);
 
@@ -809,10 +839,9 @@ namespace TerraformingReloaded.Comets
             Color hot = new Color(1f, 0.72f, 0.38f);
             Color now = Color.Lerp(cool, hot, heat);
             float flicker = 1f + 0.08f * Mathf.Sin(_t * 31f) * heat;
-            _coma.Show(_head.position, 420f * _scale * (1f + 0.7f * heat), now, (1.1f + 1.4f * heat) * flicker * glowGain, 1f);
-            _core.Show(_head.position, 110f * _scale * (1f + 0.8f * heat), Color.white, 2f, 1f);
+            _coma.Show(path, 420f * _scale * (1f + 0.7f * heat), now, (1.1f + 1.4f * heat) * flicker * glowGain, 1f);
+            _core.Show(path, 110f * _scale * (1f + 0.8f * heat), Color.white, 2f, 1f);
 
-            _headLight.transform.position = _head.position;
             _headLight.color = now;
             _headLight.intensity = 1.5f + 12f * heat * heat;
             _headLight.range = 2500f + 5000f * heat;
@@ -997,7 +1026,7 @@ namespace TerraformingReloaded.Comets
                 if (_render)
                 {
                     When(arrives + 0.05f, () => _sound.Boom());
-                    When(arrives + 0.2f, () => _sound.Explosions(Listener(), _impact));
+                    When(arrives + 0.2f, () => _sound.Explosions(Listener(), _drawn != null ? _drawn.TransformPoint(_impact) : _impact));
                     When(arrives + 2.5f, () => _sound.Tail());
                     _stormFrom = arrives + 3f;
                     // Debris bursting high in the sky, at random points the seed decides.
@@ -1077,7 +1106,7 @@ namespace TerraformingReloaded.Comets
             _skyGlow.Show(_impact + Vector3.up * _plumeHeight * 0.5f, 28f * _radius, _gasColour, 0.55f * Mathf.Exp(-s / 30f) * Mathf.Clamp01(s / 0.5f) * skyFade * glowGain, 1f);
 
             float capRise = 1f - Mathf.Exp(-s / 7f);
-            _capTransform.position = _impact + Vector3.up * (_radius + _plumeHeight * capRise);
+            _capTransform.localPosition = Vector3.up * (_radius + _plumeHeight * capRise);
             float fire = 1f - 0.6f * steam;
             float smokeMore = 1f + 0.35f * _day;
             var emission = _stem.emission;
@@ -1248,7 +1277,7 @@ namespace TerraformingReloaded.Comets
         private Glow NewGlow(string name, Texture texture, bool additive, int queue)
         {
             GameObject go = new GameObject(name);
-            go.transform.SetParent(transform, false);
+            go.transform.SetParent(_drawn, false);
             go.AddComponent<MeshFilter>().sharedMesh = CometArt.Quad;
             MeshRenderer renderer = go.AddComponent<MeshRenderer>();
             renderer.shadowCastingMode = ShadowCastingMode.Off;
@@ -1288,7 +1317,17 @@ namespace TerraformingReloaded.Comets
             main.loop = false;
             main.duration = 60f;
             main.maxParticles = max;
-            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            // In the drawn frame for what stands on the ground or flies down to it, so particles
+            // already out move with the ground as drawn; the rest, around the player, in the world.
+            if (_drawn != null && parent.IsChildOf(_drawn))
+            {
+                main.simulationSpace = ParticleSystemSimulationSpace.Custom;
+                main.customSimulationSpace = _drawn;
+            }
+            else
+            {
+                main.simulationSpace = ParticleSystemSimulationSpace.World;
+            }
             main.cullingMode = ParticleSystemCullingMode.AlwaysSimulate;
             main.scalingMode = ParticleSystemScalingMode.Shape;
             var emission = system.emission;
@@ -1385,7 +1424,8 @@ namespace TerraformingReloaded.Comets
             trails.ratio = 1f;
             trails.lifetime = new ParticleSystem.MinMaxCurve(lifetime);
             trails.minVertexDistance = Mathf.Max(2f, minVertexDistance);
-            trails.worldSpace = true;
+            // Trail points stay with their particles: in the world, or in the drawn frame as it moves.
+            trails.worldSpace = system.main.simulationSpace == ParticleSystemSimulationSpace.World;
             trails.dieWithParticles = true;
             trails.inheritParticleColor = true;
             trails.sizeAffectsWidth = true;
@@ -1476,11 +1516,14 @@ namespace TerraformingReloaded.Comets
                 _tint = material.HasProperty("_TintColor") ? Shader.PropertyToID("_TintColor") : Shader.PropertyToID("_Color");
             }
 
-            /// <summary><paramref name="gain"/> 1 is the colour as given; the shaders reach 2, which blooms.</summary>
+            /// <summary>
+            /// At a real position, in the drawn frame. <paramref name="gain"/> 1 is the colour as given;
+            /// the shaders reach 2, which blooms.
+            /// </summary>
             public void Show(Vector3 position, float size, Color colour, float gain, float alpha)
             {
                 _renderer.enabled = size > 0f && alpha > 0.002f && gain > 0.002f;
-                _transform.position = position;
+                _transform.localPosition = position;
                 _transform.localScale = Vector3.one * Mathf.Max(0.01f, size);
                 _material.SetColor(_tint, new Color(colour.r * gain * 0.5f, colour.g * gain * 0.5f, colour.b * gain * 0.5f, Mathf.Clamp01(alpha) * 0.5f));
             }
