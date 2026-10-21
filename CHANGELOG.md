@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.4 (prototype)
+
+- **Two copies of the mod in one game now say so.** With the Workshop copy and a local copy both enabled, the game
+  loads both; the second used to report that the planet's methods "did not all convert" and leave the planet as
+  shipped, which read like a broken install. It now logs `Terraforming Reloaded is loaded twice (<first> and <second>);
+  only the first is active` and stays out of the way, and the first copy runs as normal. Keep one of the two.
+
 ## 0.22.3 (prototype)
 
 - **A comet's cloud no longer drops out of sight partway through its rise.** The column of smoke used

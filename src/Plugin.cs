@@ -14,16 +14,30 @@ namespace TerraformingReloaded
     {
         public const string PluginGuid = "xceled.stationeers.terraformingreloaded";
         public const string PluginName = "Terraforming Reloaded";
-        public const string PluginVersion = "0.22.3";
+        public const string PluginVersion = "0.22.4";
 
         /// <summary>The game build the patches were last checked against. Advisory only.</summary>
         private const string TestedGameVersion = "0.2.6428.27798";
+
+        /// <summary>The AppDomain slot holding the path of the copy of the mod that started first in this game.</summary>
+        private const string LoadedSlot = "xceled.stationeers.terraformingreloaded.loaded";
 
         private void Awake()
         {
             Log.InfoSink = Logger.LogInfo;
             Log.WarnSink = Logger.LogWarning;
             Log.ErrorSink = Logger.LogError;
+
+            // Two copies in one game (a Workshop subscription beside a local copy, both enabled) are two assemblies,
+            // each with statics of its own; the second would find the tank's call sites already rewritten by the
+            // first and report a failed conversion. The process-wide slot says which copy started first.
+            string here = typeof(Plugin).Assembly.Location;
+            if (AppDomain.CurrentDomain.GetData(LoadedSlot) is string first && first != here)
+            {
+                Logger.LogError($"Terraforming Reloaded is loaded twice ({first} and {here}); only the first is active. Keep one copy: disable or remove the other.");
+                return;
+            }
+            AppDomain.CurrentDomain.SetData(LoadedSlot, here);
 
             BindConfig();
 
