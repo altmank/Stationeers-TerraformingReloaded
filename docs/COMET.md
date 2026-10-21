@@ -664,7 +664,13 @@ a bigger comet is drawn with bigger puffs, not more of them. `CometArt` makes tw
   through `CameraController.Instance`, set only off batch mode) threw every frame from the rig's sun on, before
   it set anything, so the rig's sky was never rebuilt and the darker sky never drawn in its frames. A played
   game, a client or a dedicated server cannot meet it: off batch mode the instance is set when the game
-  starts, and a dedicated server never has a sun, so the rebuild returns before that line.
+  starts, and a dedicated server never has a sun, so the rebuild returns before that line. The controller stays
+  the instance after the last shot: the rig used to clear it then, with its sun still in, so the rebuild threw
+  again every frame (`AtmosphericScattering.cs:348`) until `run.ps1`, which looks for the rig's done file every
+  3 s, stopped the instance. By the code that is the one way the rebuild still threw in a rig run, which fits
+  the 24 to 76 NullReferenceExceptions each run's Unity log held in one burst near its end; not yet confirmed
+  by a run. The one that stays is the game's own, once at start in batch mode (`GameManager.MajorUpdatePopup`,
+  `GameManager.cs:1442`).
 - `tools/CometShot` waits for the terrain its camera asked for: every block the game's own rule
   (`LodManager.CalculateLods`) gives its requester at every level in the requester's requested set, no request,
   mesh or collider work left, the mesh counts unchanged for a second, and ground under the camera. The game's

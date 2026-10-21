@@ -70,7 +70,6 @@ namespace TerraformingReloaded.CometShot
         private Vector3 _eye;
         private Quaternion _look;
         private CameraLodRequester _requester;
-        private bool _gaveController;
         private List<LodGroup> _wanted;
         private Vector3 _wantedFor = new Vector3(float.NaN, 0f, 0f);
         private float _quietSince = -1f;
@@ -427,7 +426,6 @@ namespace TerraformingReloaded.CometShot
                 controller.MainCamera = _camera;
             }
             CameraController.Instance = controller;
-            _gaveController = true;
             Logger.LogInfo("CometShot: camera controller '" + controller.name + "' made the instance for the sky, main camera '" + controller.MainCamera.name + "'"
                 + (controller.MainCamera == _camera ? " (the one shooting)" : " (not the one shooting)") + ", third-person camera " + (controller.ThirdController != null ? "there" : "missing"));
         }
@@ -711,10 +709,8 @@ namespace TerraformingReloaded.CometShot
                 _requester.BeingDestroyed = true;
                 LodManager.EnqueueRequesterToRemove(_requester);
             }
-            if (_gaveController)
-            {
-                CameraController.Instance = null;
-            }
+            // The controller stays the instance: the sky's per-frame rebuild reads it whenever there is a sun
+            // (AtmosphericScattering.ManagerUpdate), and the sun stays until the instance is stopped.
             BepInEx.Logging.Logger.CreateLogSource("CometShot").LogInfo("CometShot: done");
             File.WriteAllText(Path.Combine(_outDir, "done.txt"), "done");
         }
