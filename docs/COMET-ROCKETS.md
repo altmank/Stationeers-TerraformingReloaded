@@ -304,7 +304,7 @@ section, `Celestial terraforming`.
 |---|---|---|
 | CutSharePerCycle | share of the site moved into the comet per Cut cycle | to be derived: mining cycle time and head wear, so a whole site costs a set number of head swaps |
 | GasArrivingShare | share of the gas left after the trip that reaches the planet | to be derived |
-| DiscRadiusMetres | R in the sky rule | to be derived: far enough that the safe distance fits inside, near enough that the impact can be seen (the game's far clip and the measured terrain curvature) |
+| DiscRadiusMetres | R in the sky rule | to be derived: far enough that the safe distance fits inside, near enough that the impact can be seen (the game's far clip and the measured terrain curvature), and how much of the disc may lie past the voxel world's edge (Mars2 is 4096 m across; past it the impact takes its nearest edge's height, since 0.16.1) |
 | SecondsBetweenPasses | real time from one pass to the next | to be derived: long enough to plan a pass, short enough not to wait an evening |
 | LineShiftPerOrbit | how far the line moves between passes | to be derived from the orbit's inclination and the world's turn rate |
 | CorrectionMetresPerDeltaV | reach per unit of reserve Δv | to be derived |
