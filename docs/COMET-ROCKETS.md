@@ -28,8 +28,8 @@ Game facts below are from the decompile; file and line references are kept out o
 | Cut | the site | runs Cut with drill heads | the comet's size, so its gas and its mass |
 | Rig | the site | delivers engines as payloads, one per Rig | the comet's thrust |
 | Fuel | the site | transfers fuel from the rocket, or burns the comet's own ice into fuel | how far it can go, and the reserve |
-| Fly | the map | sets the comet's destination to the low-orbit hub | nothing new: rocket travel |
-| Bring down | the orbit hub | burns while the comet is where they want it in the sky | where it lands |
+| Fly | the map | sets the comet's destination to Entry, the planet's orbit node | nothing new: rocket travel |
+| Bring down | Entry, the planet's orbit node | sets a target, then burns at the right moment in the comet's pass | where it lands |
 
 ## Cut
 
@@ -84,53 +84,69 @@ about 16,000 mol of fuel. Doubling the comet doubles the fuel.
 
 ## Bring it down (the new part)
 
+Approved by LU 2026-10-21. "Entry" below is the game's name for the planet's orbit node: the first stop on the
+space map after launch, and the only place the game lets a payload be dropped to the ground.
+
+### What it is judged against
+
+1. Landing well is a skill, and skill lowers the risk.
+2. A player can skip the skill, and then their base has a real chance of being hit.
+3. It never lands out of sight. Every landing is a show, and some risk always remains.
+4. It is built from how the game already works.
+5. It is cheap to compute and simple to build.
+6. In multiplayer, other players' bases are not at risk just because they exist.
+7. A supermassive comet brought down badly is a catastrophe.
+
+### The mechanic: aim with coordinates, deliver with timing
+
+1. **It parks at Entry**, where the game already brings things from orbit to the ground. It waits there for as
+   long as it takes, as a rocket can.
+2. **The player sets a target with PositionX and PositionZ**, the logic values the payload drop uses, on an
+   avionics unit fitted during Rig. Rig needs it anyway: without avionics nothing can set the comet's
+   destination or fire its burn.
+3. **Each orbit the comet passes over the map along a line**, and the line shifts sideways every orbit as the
+   planet turns. The line comes from the comet's real place in the game's sky (below).
+4. **When the player burns sets where on that line it comes down**: the point under the comet at that moment,
+   by the sky rule below.
+5. **Fuel left at Entry steers it from that point toward the target**, up to a reach set by the reserve and
+   capped by engine thrust during entry.
+6. **It lands** on the target if the target is within reach, otherwise as close as the fuel gets it.
+7. **It is shown** by the comet in the sky for everyone; on the game's Map motherboard (the map screen in a
+   computer) as two icons, the target and "lands here if you burn now", which slides along the line during a
+   pass; and by logic readouts, so a chip can time the burn.
+
 ### The comet in the sky
 
-At the low-orbit hub the comet becomes a body in the game's own sky, the system that moves the moons. It rises,
-crosses the sky and sets, and its path shifts from one orbit to the next as the planet turns, so some passes go
-over a base and some do not.
+At Entry the comet becomes a body in the game's own sky, the system that moves the moons.
 
 - Its position is worked out from the game's shared clock and its orbit, so every player sees it in the same
   place with nothing sent per frame.
-- The game puts the observer at the planet's centre, so it looks the same from anywhere on the map.
+- The game puts the observer at the planet's centre, so it looks the same from anywhere on the map. It rises,
+  crosses the sky and sets, and its path shifts from one orbit to the next as the planet turns.
 - The game compresses sky time by the world's day length (a "2 hour" orbit loops in 97 s of real time on Mars
-  and 1.3 s on Venus, calculated from the code). Each world's orbit is picked for a sensible real time between
-  passes. **Tuning number.**
-- It waits there for as long as it takes, as a rocket can.
+  and 1.3 s on Venus, calculated from the code), so each world's orbit is set from a real time between passes.
 
-### Where a burn lands
+### The sky rule: from the comet's place in the sky to a point on the ground
 
-When the deorbit burn fires, the comet lands in the compass direction it is in the sky, at a distance set by
-its height:
+The point under the comet is in the compass direction the comet is in, at a distance set by its height:
 
-distance = R x (90° - its height in the sky) / 180°
+distance from the pad = R x (90° - its height in the sky) / 180°
 
-| Comet when you burn | Lands |
+| Comet | Point |
 |---|---|
-| straight overhead | on the launch pad of the rocket that fired the burn |
+| straight overhead | the launch pad of the rocket that set the comet's target |
 | on the horizon | half of R out |
-| straight below, the planet's far side | at R, the edge of the disc |
+| straight below, the planet's far side | R out, the edge of the disc |
 
-R is the disc radius, about 8 km. **Tuning number.** It never lands out of play: the far side of the planet
-maps to the edge of the disc, so every landing can be seen.
+R is the disc radius. Nothing lands out of play: the far side of the planet maps to the edge of the disc.
 
-The fuel left in the comet at the hub can move the landing point sideways, in a direction set through logic.
-How far = the reserve Δv x a correction constant, and thrust caps how much of the reserve can be spent during
-entry. **Tuning numbers.**
+### Skipping the skill
 
-### Tracking, or not
+Burn at any moment, with no target or with a target out of reach. The comet comes down near wherever the sky
+rule puts it, a random point in the disc around the pad. A small comet usually does no harm; a big one has a
+real chance of wrecking the base.
 
-- **By eye.** The comet is visible in the sky. Nearly overhead means do not burn.
-- **Celestial Scanner.** The game's scanner shows a dot, the name and the distance for every sky body, through
-  terrain, so the comet is easy to find. It draws no orbit lines.
-- **Ground Telescope.** It locks onto the comet within 5° and reads it within 2°. Its aim angles are the
-  comet's direction and height, so they give the landing point directly; it also reads where the comet is in
-  its orbit and the orbit period. During any storm the orbit readings go blank, which a chip that burns on its
-  own has to allow for.
-- **Not tracking.** Burn at any moment. The comet is wherever it happens to be, so it lands at a random point
-  in the disc. A small comet usually does no harm; a big one has a real chance of wrecking the base.
-
-Chance that an untracked burn breaks the base's windows, for an 8 km disc, from the wave rule in `COMET.md`:
+Chance that a random landing breaks the base's windows, for an 8 km disc, from the wave rule in `COMET.md`:
 
 | Comet | Wave breaks windows out to | Chance |
 |---|---|---|
@@ -140,20 +156,51 @@ Chance that an untracked burn breaks the base's windows, for an 8 km disc, from 
 
 Ground zero on the pad itself is about 0.4 %. Calculated, not measured.
 
+### How each goal is met
+
+| Goal | How |
+|---|---|
+| 1. Skill | pick a target on a pass that comes near it, carry the fuel to cover the rest, burn at the right moment |
+| 2. Skipping it | burn whenever: it lands where the sky puts it, near the pad, with a real chance of hitting the base |
+| 3. Always seen, always some risk | every landing is within R of the pad; a big comet's wave and debris reach far even when well aimed |
+| 4. The game's own pieces | the payload drop's coordinates, the drop from Entry, rocket fuel and thrust, the game's sky, the Map motherboard |
+| 5. Cheap | one sky position per frame, one landing calculation per burn, the existing impact pass |
+| 6. Multiplayer | the line stays near the burning player's own pad, so another base is only at risk if it is close to that pad |
+| 7. Catastrophe | a big comet gets little reach per unit of fuel and has the biggest wave, so a careless burn wrecks things |
+
+### Rejected, and why
+
+| Option | Fails on |
+|---|---|
+| Coordinates alone, exact like the payload drop | 1, 2: no risk at all |
+| A random natural landing point | 1: luck, not skill |
+| A beacon on the ground | LU rejected it |
+| The sky rule alone, with no target | 1: a time can be chosen, a place cannot |
+| The far side lands out of sight | 3: LU rejected it |
+| A push bar at the site, coasting, a catcher, tracking precision | LU rejected them earlier (no cause for the comet to move, distance for free, two rockets, no game precedent) |
+
+### Tracking
+
+- **By eye.** Nearly overhead means the point is near the pad.
+- **Map motherboard.** The two icons above.
+- **Celestial Scanner.** Shows a dot, the name and the distance for every sky body, through terrain. No orbit
+  lines.
+- **Ground Telescope.** Locks onto the comet within 5° and reads it within 2°. Its aim angles are the comet's
+  direction and height, so they give the point directly. During any storm the orbit readings go blank, which a
+  chip that burns on its own has to allow for.
+
 ### Warning and gas
 
-When a deorbit starts, every player gets the time to impact and their distance from the landing point.
-
-70 % of the gas left after the trip arrives; the rest burns up on entry. **Open:** LU has not confirmed a fixed
-share.
+When a deorbit starts, every player gets the time to impact and their distance from the landing point. A share
+of the gas left after the trip arrives; the rest burns up on entry (configurable, below).
 
 ### What goes wrong
 
 | Plan | Result |
 |---|---|
 | Not enough fuel for the route | stops partway and is lost |
-| Burn without tracking | lands at a random point in the disc |
-| Burn with the comet high in the sky | lands near the pad |
+| Burn without a target or timing | lands at a random point in the disc |
+| Target out of reach of the fuel | lands as close as the fuel gets it |
 | Misjudged timing, or a chip caught by a storm | lands where the sky put it, maybe near a base |
 | Supermassive comet, any landing | its wave and debris reach most of the disc |
 
@@ -239,6 +286,64 @@ Proposed: Standard, K about 5, which makes a median comet about 2.3M mol. **Open
   so that tracker cannot aim at it. The Ground Telescope has no such limit.
 - **New rocket actions** mean patching the rocket's action lookup, its progress bars and the actions panel,
   with the save keeping the game's own mode and a sidecar for ours, so a save still loads without the mod.
+
+## Configuration: Celestial terraforming
+
+LU, 2026-10-21: every tuning number gets a calculated, fact-based default and is configurable, all in one config
+section, `Celestial terraforming`.
+
+- **Each default is derived, not picked.** Beside each one, this document gives the game facts and the
+  arithmetic it comes from. Where no game fact applies, it says what the number is set to achieve and how that
+  was worked out.
+- **The host's values rule.** The host decides every comet; values that clients compute with (the orbit, the
+  sky rule, the disc) are sent to them with TR's planet sync, as other settings already are.
+- **Ranges live in one place**, as `Settings.Limits` does today, so the config and any saved value are checked
+  against the same bounds.
+
+| Setting | What it sets | Default derived from |
+|---|---|---|
+| CutSharePerCycle | share of the site moved into the comet per Cut cycle | to be derived: mining cycle time and head wear, so a whole site costs a set number of head swaps |
+| GasArrivingShare | share of the gas left after the trip that reaches the planet | to be derived |
+| DiscRadiusMetres | R in the sky rule | to be derived: far enough that the safe distance fits inside, near enough that the impact can be seen (the game's far clip and the measured terrain curvature) |
+| SecondsBetweenPasses | real time from one pass to the next | to be derived: long enough to plan a pass, short enough not to wait an evening |
+| LineShiftPerOrbit | how far the line moves between passes | to be derived from the orbit's inclination and the world's turn rate |
+| CorrectionMetresPerDeltaV | reach per unit of reserve Δv | to be derived |
+| EntryWindowSeconds | how long the deorbit burn can run, so thrust caps usable reserve | to be derived |
+| GroundZeroMetresAt1e6 | r0 at 1e6 mol; other zones scale from it | to be derived |
+| FireballRadiusFactor, DebrisRadiusFactor | zone radii as multiples of r0 | to be derived |
+| MaxDamagingRocks | the debris cap | from the cost rule |
+| MineralRemovalPerKg | air a mineral comet removes per kilogram | to be derived |
+| CometSizeMultiplier (K) | a comet's gas as a multiple of its site's | 5, from the balance table, until measured |
+
+Names are working names. The table is filled in as each piece is built.
+
+## Proof as it is built
+
+LU, 2026-10-21: prove each mechanic works as it is built, and that it still works once joined to the rest.
+
+Each piece is done only when all three hold:
+
+1. **The rule is checked on its own.** Every rule that decides an outcome (the sky rule, the reach, the travel
+   arithmetic, the zones, the losses) is a pure function with a self-check that runs at load and in
+   `tools/PatchCheck`, with mutants that must fail, as `CometRules` and `FireRule` are checked today.
+2. **It works in the game.** A headless run on bt drives it end to end and prints the line that proves it, read
+   back from the log. A rendered run on bt shoots it where it is visual.
+3. **It survives integration.** After each piece, the earlier pieces' runs are run again on the same build, and
+   the standing TR regression (`run.ps1`, `-SaveLoad`, `-Reset`, one `-Model`) still passes. Save and load in
+   the middle of every stage is part of each run.
+
+Build order, each stage proven before the next starts:
+
+| Stage | Piece | Proof in the game |
+|---|---|---|
+| 1 | the two show bugs: impact height and the curved distant ground | rig shot: the impact sits on the ground the player sees |
+| 2 | the config section, and the pure rules | PatchCheck with mutants |
+| 3 | the comet as a map object, flying by the rocket rule, saved and loaded | a comet with set mass, thrust and fuel reaches Entry in the calculated time, and one short of fuel stops where calculated |
+| 4 | Cut, Rig and Fuel actions | the comet's moles, mass and fuel after each action match the rules |
+| 5 | the sky body, the telescope, the Map motherboard icons | the telescope locks on and reads the calculated values; the icon sits where the sky rule says |
+| 6 | the deorbit and the landing | landings land where the rule says, with and without reserve, and an untracked burn lands in the disc |
+| 7 | the impact zones | structures at measured distances end as the table says |
+| 8 | multiplayer | a dedicated server and a rendered client on bt see the same comet, icon and impact |
 
 ## Open
 
