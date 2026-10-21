@@ -280,14 +280,22 @@ if ($Storm -and $StormTick -le 0) { throw '-Storm needs -StormTick, the tick to 
 
 # Only what a run creates is removed afterwards.
 $names = 'mods', 'saves', 'scripts', 'thumbnails', 'modconfig.xml', 'modrepos.xml'
-# A settings file already there is the machine's own: the game rewrites it, so it is kept and put back, as
-# tools/CometShot does. One the run creates is removed.
+# A settings file already there is the machine's own, and it can point SavePath at the machine's real saves
+# (bt's does) and turn autosave on. So for the run it is moved aside, next to itself, and the game makes its
+# own defaults, which save under the game folder. Afterwards the run's file is removed and the machine's is
+# moved back. An interrupted run leaves the aside file; -Clean moves it back.
 $settingFile = Join-Path $GameDir 'setting.xml'
+$settingAside = Join-Path $GameDir 'setting.xml.tr-aside'
 
 if ($Clean) {
     # A run that is interrupted never reaches its own cleanup, and every run after it then refuses to
     # start. This is that cleanup on its own: the same names, the same folder, nothing else.
     $left = @($names | Where-Object { Test-Path (Join-Path $GameDir $_) })
+    if (Test-Path $settingAside) {
+        if (Test-Path $settingFile) { Remove-Item $settingFile -Force }
+        Move-Item $settingAside $settingFile
+        Write-Host "Moved the machine's own setting.xml back into ${GameDir}."
+    }
     if ($left.Count -eq 0) {
         Write-Host "Nothing from a previous run is left in ${GameDir}."
         return
@@ -306,7 +314,14 @@ $preexisting = if ($TestServer) { @() } else { @($names | Where-Object { Test-Pa
 if ($preexisting.Count -gt 0) {
     throw "Already present in the game folder: $($preexisting -join ', '). A headless run would mix with them; move them aside first."
 }
-$settingSaved = if (-not $TestServer -and (Test-Path $settingFile)) { [System.IO.File]::ReadAllBytes($settingFile) } else { $null }
+if (-not $TestServer -and (Test-Path $settingAside)) {
+    throw "A previous run left the machine's setting.xml aside as $settingAside. Run with -Clean to move it back first."
+}
+$settingMoved = $false
+if (-not $TestServer -and (Test-Path $settingFile)) {
+    Move-Item $settingFile $settingAside
+    $settingMoved = $true
+}
 
 $bepLog = Join-Path $runDir 'BepInEx\LogOutput.log'
 $curvesFile = Join-Path $runDir 'BepInEx\config\TerraformingReloaded.curves.xml'
@@ -1641,7 +1656,7 @@ finally {
             $path = Join-Path $GameDir $name
             if (Test-Path $path) { Remove-Item $path -Recurse -Force }
         }
-        if ($settingSaved) { [System.IO.File]::WriteAllBytes($settingFile, $settingSaved) }
-        elseif (Test-Path $settingFile) { Remove-Item $settingFile -Force }
+        if (Test-Path $settingFile) { Remove-Item $settingFile -Force }
+        if ($settingMoved) { Move-Item $settingAside $settingFile }
     }
 }

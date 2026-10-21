@@ -55,9 +55,15 @@ $preexisting = @($names | Where-Object { Test-Path (Join-Path $GameDir $_) })
 if ($preexisting.Count -gt 0) {
     throw "Already present in the game folder: $($preexisting -join ', '). A previous run was interrupted; remove them first."
 }
-# A settings file already there is the machine's own: the game rewrites it, so it is kept and put back.
+# A settings file already there is the machine's own, and it can point SavePath at the machine's real saves
+# and turn autosave on, so a long run could autosave there. For the run it is moved aside, next to itself, and
+# the game makes its own defaults; afterwards the run's file is removed and the machine's is moved back.
 $settingFile = Join-Path $GameDir 'setting.xml'
-$settingSaved = if (Test-Path $settingFile) { [System.IO.File]::ReadAllBytes($settingFile) } else { $null }
+$settingAside = Join-Path $GameDir 'setting.xml.tr-aside'
+if (Test-Path $settingAside) {
+    throw "A previous run left the machine's setting.xml aside as $settingAside. Move it back to setting.xml first."
+}
+$settingMoved = $false
 
 if ($ModPackage) {
     $modDll = Join-Path $ModPackage 'TerraformingReloaded.dll'
@@ -101,6 +107,7 @@ try {
     $env:TR_COMETSHOT_SUN = $Sun
     $env:TR_COMETSHOT_TERRAIN_WAIT = $TerrainWait.ToString([cultureinfo]::InvariantCulture)
     Remove-Item $bepLog -ErrorAction SilentlyContinue
+    if (Test-Path $settingFile) { Move-Item $settingFile $settingAside; $settingMoved = $true }
     $game = Start-Process $exe -WorkingDirectory $GameDir -PassThru -ArgumentList @('-batchmode', '-screen-fullscreen', '0', '-screen-width', "$Width", '-screen-height', "$Height", '-logFile', "`"$unityLog`"", '-new', $World)
     Write-Host "Started off-screen instance, PID $($game.Id), on a new $World"
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -124,6 +131,9 @@ finally {
         $path = Join-Path $GameDir $name
         if (Test-Path $path) { Remove-Item $path -Recurse -Force }
     }
-    if ($settingSaved) { [System.IO.File]::WriteAllBytes($settingFile, $settingSaved) }
+    if ($settingMoved) {
+        if (Test-Path $settingFile) { Remove-Item $settingFile -Force }
+        Move-Item $settingAside $settingFile
+    }
     elseif (Test-Path $settingFile) { Remove-Item $settingFile -Force }
 }
