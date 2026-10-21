@@ -128,6 +128,18 @@
                with the fuel it had, B stranded where it was, and C must fly on from exactly where it was
                saved and arrive when the rule says. The mod's own line for each comet at the save and at
                the load are compared here, field by field.
+    -CometActions  The rocket actions that make and send a comet (docs/COMET-ROCKETS.md, stage 4), run by
+               a real rocket spawned from the game's own prefabs (engine mount, miner with a Basic drill
+               head, Medium gas fuel tank, Large payload bay with a Payload Delivery Container holding two
+               Pumped Gas engine kits). Three instances of one world. The first discovers real sites and
+               runs Cut at an ice site (the comet's moles against the rule from the site's own figures,
+               the site's depletion against the game's own), Rig by Deploy (two kits, two engines), Burn on
+               a comet of methane and oxygen at a second site, Cut at a mineral site, then Fuel, every tick
+               judged against the rule from the tank's own gas, and saves while Fuel runs. The second loads
+               it: the rocket must be back in Fuel where its comet waits, Fuel must go on by the rule, and
+               Launch must send the comet to arrive when the rule says. The mod's own line for each comet at
+               the save and the load are compared here. The third loads the same save with the mod removed:
+               it must load, with the rocket there and idle.
     -MenuPressure  The mix the new-game menu builds to describe a world must be the shipped planet,
                not the resized one it is playing.
     -Schedule  The two storm rules (docs/STORMS.md). Nothing else can reach them: -Storm and -Weather
@@ -207,6 +219,7 @@ param(
     [switch]$Rockets,
     [switch]$PlanetBurn,
     [switch]$CometFlight,
+    [switch]$CometActions,
     [int]$BurnCase = 0,
     [switch]$BurnOff,
     [int]$BurnTicks = 4800,
@@ -267,8 +280,9 @@ if ($TestServer) {
     if (Get-Process rocketstation_DedicatedServer -ErrorAction SilentlyContinue) { throw 'The test server is already running: one user at a time.' }
     if (Test-Path (Join-Path $TestServerRoot 'test.lock.busy')) { throw 'The test server is marked busy (test.lock.busy).' }
 }
-if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Upgrade, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip, $Space, $Rockets, $PlanetBurn, $CometFlight | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Upgrade, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld, -Strip, -Space, -Rockets, -PlanetBurn and -CometFlight.' }
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Upgrade, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip, $Space, $Rockets, $PlanetBurn, $CometFlight, $CometActions | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Upgrade, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld, -Strip, -Space, -Rockets, -PlanetBurn, -CometFlight and -CometActions.' }
 if ($CometFlight -and $Vanilla) { throw 'Without the mod there are no comets on the space map.' }
+if ($CometActions -and $Vanilla) { throw '-CometActions loads its own save without the mod as its third instance.' }
 if ($PlanetBurn -and $Vanilla) { throw 'Without the mod the planet never burns, which is what -BurnOff checks with the mod loaded.' }
 if (($BurnCase -lt 0) -or ($BurnCase -gt 5)) { throw '-BurnCase is 1 to 5, or 0 for every case.' }
 if (($BurnCase -ne 0 -or $BurnOff) -and -not $PlanetBurn) { throw '-BurnCase and -BurnOff only apply to -PlanetBurn.' }
@@ -360,7 +374,7 @@ $envKeys = @(
     'TR_LIVECHECK_STRIP_PER_CELL', 'TR_LIVECHECK_STRIP_FLOOR', 'TR_LIVECHECK_STRIP_SHARE',
     'TR_LIVECHECK_WALKCOST', 'TR_LIVECHECK_SIDECAR_TICK',
     'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_SPACE_TICK', 'TR_LIVECHECK_ROCKETS_TICK', 'TR_LIVECHECK_BURN_CASE', 'TR_LIVECHECK_BURN_SWITCH', 'TR_LIVECHECK_BURN_TICK', 'TR_LIVECHECK_BURN_TICKS', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK', 'TR_LIVECHECK_SESSIONS', 'TR_LIVECHECK_RAINSAVE', 'TR_LIVECHECK_UPGRADE',
-    'TR_LIVECHECK_COMETFLIGHT', 'TR_LIVECHECK_COMETFLIGHT_MADE')
+    'TR_LIVECHECK_COMETFLIGHT', 'TR_LIVECHECK_COMETFLIGHT_MADE', 'TR_LIVECHECK_COMETACTIONS', 'TR_LIVECHECK_COMETACTIONS_ROCKET')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -1044,6 +1058,97 @@ try {
         }
         if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join ' / ')" }
         Write-Host 'LiveCheck OK: a comet flew the game''s route from a real site to Entry in the rule''s time, one short of fuel stopped where the rule says and stayed, the site a comet held stayed on the map, and a save in the middle of a flight loaded with every comet where it was: one parked at Entry with its fuel, one stranded at the same place, and one flying on from the same second to arrive on time, every node each refers to the same after the load.'
+        return
+    }
+
+    if ($CometActions) {
+        # Three instances of one world: the actions and a save while Fuel runs; the load, Fuel on and Launch;
+        # the same save loaded without the mod.
+        if ($TimeoutSeconds -lt 900) { $TimeoutSeconds = 900 }
+        $station = 'trcometactions'
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETACTIONS = 'make' } `
+            { param($l) @($l -match 'LiveCheck: actions (phase make done|FAIL)').Count -gt 0 } 'Cut, Rig, Burn, a mineral Cut and Fuel, and the save'
+        Assert-ModLive $log
+        Start-Sleep -Seconds 20
+        $made = @(Get-Content $bepLog)
+        $keptMake = Join-Path $env:TEMP 'tr-livecheck-cometactions-make.log'
+        $made | Set-Content $keptMake
+        Stop-Game
+        $first = @(@($made -match 'LiveCheck: actions ') | ForEach-Object { $_ -replace '.*LiveCheck: actions ', '' })
+        $first | Write-Host
+        Write-Host "  the whole log is in $keptMake"
+        $failed = @($first -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+        $rocketLine = @($first -match '^rocket \| .*\(id (\d+)\)')
+        if ($rocketLine.Count -ne 1 -or $rocketLine[0] -notmatch '\(id (\d+)\)') { throw 'LiveCheck FAILED: the first instance reported no rocket.' }
+        $rocketId = $Matches[1]
+        $files = @(Get-ChildItem (Join-Path $saveDir $station) -Recurse -File -Filter '*.save' -ErrorAction SilentlyContinue)
+        if ($files.Count -eq 0) { throw "LiveCheck FAILED: no save was written under saves\$station." }
+        $saved = @{}
+        foreach ($line in @($made -match '\[TR comet map\] saved comet ')) {
+            $text = $line -replace '.*\[TR comet map\] saved ', ''
+            if ($text -match '^comet (\d+) ') { $saved[[int]$Matches[1]] = $text.Trim() }
+        }
+        $savedRocket = @($made -match "\[TR comet actions\] saved rocket $rocketId running Fuel")
+
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETACTIONS = 'load'; TR_LIVECHECK_COMETACTIONS_ROCKET = $rocketId } `
+            { param($l) @($l -match 'LiveCheck: actions (done|FAIL)').Count -gt 0 } 'the save to load, Fuel to go on, and the comet to be launched and arrive'
+        Assert-ModLive $log
+        $keptLoad = Join-Path $env:TEMP 'tr-livecheck-cometactions-load.log'
+        $log | Set-Content $keptLoad
+        Stop-Game
+        $second = @(@($log -match 'LiveCheck: actions ') | ForEach-Object { $_ -replace '.*LiveCheck: actions ', '' })
+        $second | Write-Host
+        Write-Host "  the whole log is in $keptLoad"
+        $failed = @($second -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+
+        $judged = @()
+        $loaded = @{}
+        foreach ($line in @($log -match '\[TR comet map\] loaded comet ')) {
+            $text = $line -replace '.*\[TR comet map\] loaded ', ''
+            if ($text -match '^comet (\d+) ') { $loaded[[int]$Matches[1]] = $text.Trim() }
+        }
+        foreach ($id in @($saved.Keys | Sort-Object)) {
+            $same = $loaded.ContainsKey($id) -and $saved[$id] -eq $loaded[$id]
+            $judged += "actions saveload $(if ($same) { 'PASS' } else { 'FAIL' }) | saved: $($saved[$id]) | loaded: $($loaded[$id])"
+        }
+        $back = @($log -match "\[TR comet actions\] rocket $rocketId is back to Fuel after the load$")
+        $loadedRocket = @($log -match "\[TR comet actions\] loaded rocket $rocketId running Fuel")
+        $judged += "actions mode $(if ($savedRocket.Count -eq 1 -and $loadedRocket.Count -eq 1 -and $back.Count -eq 1) { 'PASS' } else { 'FAIL' }) | rocket $rocketId saved running Fuel $($savedRocket.Count), read back $($loadedRocket.Count), back in Fuel $($back.Count)"
+
+        # The same save, without the mod: the unmodded game loads it, the rocket there and idle.
+        Remove-Item (Join-Path $mods 'TerraformingReloaded') -Recurse -Force
+        if ($TestServer) {
+            $only = "'" + (Join-Path $mods 'TRLiveCheck') + "'"
+            & powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
+            if ($LASTEXITCODE -ne 0) { throw 'The test server setup failed.' }
+        }
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETACTIONS = 'vanilla'; TR_LIVECHECK_COMETACTIONS_ROCKET = $rocketId } `
+            { param($l) @($l -match 'LiveCheck: actions vanilla ').Count -gt 0 -and @(Get-Rows $l).Count -ge 2 } 'the unmodded game to load the save'
+        $keptVanilla = Join-Path $env:TEMP 'tr-livecheck-cometactions-vanilla.log'
+        $log | Set-Content $keptVanilla
+        Stop-Game
+        if ($log -match 'Terraforming Reloaded\] Active:') { throw 'The mod loaded in the unmodded phase.' }
+        $third = @(@($log -match 'LiveCheck: actions vanilla ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' })
+        $third | Write-Host
+        Write-Host "  the whole log is in $keptVanilla"
+        $judged += "actions unmodded $(if (@($third -match '^actions vanilla PASS').Count -eq 1) { 'PASS' } else { 'FAIL' }) | the unmodded game loaded the save with $(@(Get-Rows $log).Count) planet samples"
+        $judged | Write-Host
+
+        $problems = @($judged -match ' FAIL ')
+        if ($saved.Count -lt 3) { $problems += "the mod logged $($saved.Count) comets at the save, expected 3" }
+        foreach ($want in '^cut PASS', '^rig PASS', '^mineral PASS') {
+            if (@($first -match $want).Count -ne 1) { $problems += "the first instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        if (@($first -match '^burn PASS').Count -lt 2) { $problems += 'the first instance judged fewer than two Burn cycles' }
+        if (@($first -match '^fuel tick PASS .* before the save').Count -lt 6) { $problems += 'the first instance judged fewer than six Fuel ticks' }
+        if (@($second -match '^fuel tick PASS .* after the load').Count -lt 4) { $problems += 'the second instance judged fewer than four Fuel ticks after the load' }
+        foreach ($want in '^loaded PASS', '^launch PASS', '^done') {
+            if (@($second -match $want).Count -ne 1) { $problems += "the second instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join ' / ')" }
+        Write-Host 'LiveCheck OK: a real rocket cut a comet at a real ice site by the rule while the site depleted as the game depletes it and no ice was made, rigged it with two engines from two kits, burnt a comet''s methane and oxygen into fuel two to one, cut a mineral comet, and fuelled the comet by the rule tick by tick; a save while it fuelled loaded with every comet as it was and the rocket back in Fuel, which went on by the rule; Launch sent the comet to Entry in the rule''s time; and the unmodded game loaded the same save with the rocket there and idle.'
         return
     }
 

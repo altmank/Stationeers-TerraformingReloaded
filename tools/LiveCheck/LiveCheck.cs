@@ -286,6 +286,11 @@ namespace TerraformingReloaded.LiveCheck
         // -CometFlight (CometFlight.cs), held the same way.
         private object _cometFlight;
 
+        // -CometActions (CometActions.cs): the modded phases, and the phase without the mod, held apart so
+        // that one never loads the mod's types.
+        private object _cometActions;
+        private object _cometVanilla;
+
         private void Awake()
         {
             _instance = this;
@@ -300,6 +305,15 @@ namespace TerraformingReloaded.LiveCheck
             if (Environment.GetEnvironmentVariable("TR_LIVECHECK_COMETFLIGHT") != null)
             {
                 StartCometFlight();
+            }
+            string actions = Environment.GetEnvironmentVariable("TR_LIVECHECK_COMETACTIONS");
+            if (actions == "vanilla")
+            {
+                StartCometVanilla();
+            }
+            else if (actions != null)
+            {
+                StartCometActions();
             }
             // Sample at the top of the planet tick: it runs on the simulation thread after the
             // previous tick's atmosphere workers have been joined and before this tick's start, so
@@ -397,6 +411,30 @@ namespace TerraformingReloaded.LiveCheck
         private void StepCometFlight()
         {
             ((CometFlightCheck)_cometFlight).Step();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StartCometActions()
+        {
+            _cometActions = CometActionsCheck.FromEnvironment(Logger, RunCommand);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StepCometActions()
+        {
+            ((CometActionsCheck)_cometActions).Step();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StartCometVanilla()
+        {
+            _cometVanilla = CometActionsVanilla.FromEnvironment(Logger);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StepCometVanilla()
+        {
+            ((CometActionsVanilla)_cometVanilla).Step();
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -512,6 +550,14 @@ namespace TerraformingReloaded.LiveCheck
             if (_cometFlight != null)
             {
                 StepCometFlight();
+            }
+            if (_cometActions != null)
+            {
+                StepCometActions();
+            }
+            if (_cometVanilla != null)
+            {
+                StepCometVanilla();
             }
             if (RainSave.Length > 0 && !_rainDone && GameManager.GameTickCount >= 15)
             {
