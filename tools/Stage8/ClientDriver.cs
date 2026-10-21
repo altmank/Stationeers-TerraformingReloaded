@@ -45,6 +45,8 @@ namespace TerraformingReloaded.Stage8
         private float _joinAskedAt = -1f;
         private static bool _finishedJoining;
         private float _posWritten = -10f;
+        private double _joinedClock = double.NaN;
+        private float _addedSeenAt = -1f;
 
         // Facing and standing.
         private bool _hold;
@@ -217,6 +219,7 @@ namespace TerraformingReloaded.Stage8
             Bus.Judge(name, true, string.Format(Bus.C, "{0} s after asking | ClientFinishedJoining {1} | OwnerHuman {2} ({3}) | game state {4} | client {5} | the host's planet {6} | gate {7}",
                 Bus.F(Time.realtimeSinceStartup - _joinAskedAt, 1), _finishedJoining, NetworkClient.OwnerHuman.DisplayName, NetworkClient.OwnerHuman.ReferenceId, GameManager.GameState,
                 NetworkManager.LocalClientId, Gate.HostPlanet, Gate.Describe()));
+            _joinedClock = Clock;
             Vector3 at = Me.transform.position;
             Bus.Write("client.ready", new Dictionary<string, string>
             {
@@ -334,17 +337,28 @@ namespace TerraformingReloaded.Stage8
             }
         }
 
+        /// <summary>
+        /// The planet sync after the join: the host's planet states keep arriving, each one bit for bit a state the
+        /// host wrote within 2 s of this game's clock when it read it, over several sync windows; and the host's
+        /// change to its planet (1,000 mol of carbon dioxide added once this player is in) arrives as a new state.
+        /// The state read at the join is left out: it is read before this game has the host's clock.
+        /// </summary>
         private void JudgeSync()
         {
-            var reads = SyncDigest.ReadSoFar();
+            Dictionary<string, string> added = Bus.Read("server.gas-added");
             Dictionary<string, string> host = Bus.Read("server.sync");
             Dictionary<string, string> settings = Bus.Read("server.settings");
-            if (reads.Length == 0 || host == null || settings == null)
+            if (added == null || host == null || settings == null)
             {
-                Overdue("a planet state from the host", 60.0);
+                Overdue("the server's change to its planet after the join", 300.0);
                 return;
             }
-            Dictionary<string, double> written = new Dictionary<string, double>();
+            double addedAt = Bus.D(added, "clock");
+            if (_addedSeenAt < 0f)
+            {
+                _addedSeenAt = Time.realtimeSinceStartup;
+            }
+            List<(string Digest, double Clock)> written = new List<(string, double)>();
             int count = (int)Bus.L(host, "count");
             for (int i = 0; i < count; i++)
             {
@@ -352,22 +366,29 @@ namespace TerraformingReloaded.Stage8
                 int at = w?.LastIndexOf('@') ?? -1;
                 if (at > 0)
                 {
-                    written[w.Substring(0, at)] = double.Parse(w.Substring(at + 1), Bus.C);
+                    written.Add((w.Substring(0, at), double.Parse(w.Substring(at + 1), Bus.C)));
                 }
             }
-            var matched = reads.Where(r => written.ContainsKey(r.Digest)).ToArray();
-            if (matched.Length == 0 && Time.realtimeSinceStartup - _stageReal < 30f)
+            var reads = SyncDigest.ReadSoFar();
+            var after = reads.Where(r => r.Clock > _joinedClock + 0.5).ToArray();
+            double Lag((string Digest, int Layout, double Clock) r) =>
+                written.Where(w => w.Digest == r.Digest).Select(w => r.Clock - w.Clock).OrderBy(Math.Abs).DefaultIfEmpty(double.NaN).First();
+            HashSet<string> before = new HashSet<string>(written.Where(w => w.Clock < addedAt).Select(w => w.Digest));
+            bool fresh = after.Any(r => r.Clock >= addedAt && !before.Contains(r.Digest) && Math.Abs(Lag(r)) < 2.0);
+            double span = after.Length > 0 ? after.Max(r => r.Clock) - after.Min(r => r.Clock) : 0.0;
+            double window = Math.Max(1.0, Settings.SyncIntervalSeconds);
+            bool enough = after.Length >= 3 && span >= 2.0 * window;
+            if (!(fresh && enough) && Time.realtimeSinceStartup - _addedSeenAt < 120f)
             {
                 return;
             }
-            // The closest in clock of the states this game read and the host wrote: the one read at the join comes
-            // before this game has the host's clock.
-            var first = matched.OrderBy(r => Math.Abs(r.Clock - written[r.Digest])).FirstOrDefault();
-            double lag = matched.Length > 0 ? first.Clock - written[first.Digest] : double.NaN;
+            double worst = after.Length > 0 ? after.Max(r => Math.Abs(Lag(r))) : double.NaN;
             bool layouts = reads.All(r => r.Layout == 7 || r.Layout == -1) && reads.Any(r => r.Layout == 7);
-            bool sync = matched.Length > 0 && Math.Abs(lag) < 2.0 && layouts;
-            Bus.Judge("client planet sync", sync, string.Format(Bus.C, "{0} planet states read, {1} of them the very state the host wrote; the nearest in clock, {2}, read at clock {3:R}, written at {4:R} ({5:0.###} s) | layout bytes {6}",
-                reads.Length, matched.Length, first.Digest, first.Clock, matched.Length > 0 ? written[first.Digest] : double.NaN, lag, string.Join(",", reads.Select(r => r.Layout).Distinct())));
+            bool sync = fresh && enough && worst < 2.0 && layouts;
+            Bus.Judge("client planet sync", sync, string.Format(Bus.C,
+                "{0} planet states read since the join (clock {1:R}) over {2:0.#} s, each the very state the host wrote within {3:0.###} s of this clock at its reading | the host's change at clock {4:R} {5} | {6} read in all, the host wrote {7} | layout bytes {8} | host sync window {9:0.#} s",
+                after.Length, _joinedClock, span, worst, addedAt, fresh ? "arrived as a new state" : "did NOT arrive", reads.Length, written.Count,
+                string.Join(",", reads.Select(r => r.Layout).Distinct()), window));
             string hostCelestial = Bus.S(settings, "celestial");
             string mine = string.Join(";", Effective.Celestial.ToArray().Select(Bus.R));
             bool same = hostCelestial == mine && Bus.S(settings, "ghg") == Bus.R(Effective.GhgResponseScale) && Bus.S(settings, "density") == Bus.R(Effective.DensityResponseScale)
@@ -450,7 +471,14 @@ namespace TerraformingReloaded.Stage8
             {
                 case "wait":
                     Dictionary<string, string> flying = Bus.Read("server.flying");
-                    if (flying == null || !CometMap.Views().Any(v => v.State == MapCometState.Flying && v.AtNode == 0L))
+                    Dictionary<string, string> charted = Bus.Read("server.charted");
+                    if (flying == null || charted == null || !CometMap.Views().Any(v => v.State == MapCometState.Flying && v.AtNode == 0L))
+                    {
+                        return;
+                    }
+                    // The nodes the server charted, charted here too: the map is built from them when it opens.
+                    string[] ids = (Bus.S(charted, "ids") ?? "").Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (!ids.All(id => SpaceMapNode.Get(long.Parse(id, Bus.C))?.IsCharted == true))
                     {
                         return;
                     }

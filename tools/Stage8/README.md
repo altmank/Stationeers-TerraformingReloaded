@@ -133,7 +133,7 @@ From the server driver:
 | `server up` | the world runs unpaused, at least 5 game ticks in 10 s, every comet part of the mod installed, its rules' checks passed, a space map with Entry |
 | `server no falling rocks` | `terraform set MaxDamagingRocks 0` took |
 | `server sees the client` | the joined player's body is online on the server within 1.5 m of where their own game says it is (the owner stream reaches the host) |
-| `server set up` | the two comets made and sent, the rocket, its bay and the two motherboards spawned, the suit and helmet worn |
+| `server set up` | the two comets made and sent, the rocket, its bay and the two motherboards spawned, the suit and helmet worn. Before it, the server adds 1,000 mol of carbon dioxide to its planet (a quiet world's planet does not change from one sync to the next) and charts the comet's route the game's way, by its parent nodes' chart points, since the rocket map draws only charted nodes and the sites under them |
 | `server sky body` | comet A in the server's sky, the game's body within 0.01 degrees of the sky rule |
 | `server burn A` | A lands within 1 m of the bay's target, its event at the landing's point and clock, and the player's spot (the wave over 200 kPa, outside the fireball, inside the world) worked out |
 | `server suit damage A` | the suit and helmet took damage across the wave's arrival, the wave over 200 kPa where the player stood |
@@ -151,11 +151,11 @@ From the client driver:
 | Line | PASS means |
 |---|---|
 | `client joined`, `client joined late`, `client joined again` | after the join: `ClientFinishedJoining` fired or the game runs, `OwnerHuman` set, `GameState.Running`, the mod has the host's planet |
-| `client planet sync` | a planet state this game read and applied is bit for bit one the host wrote, read within 2 s of the host's clock when written; the layout byte is 7 |
+| `client planet sync` | after the join (the state read at the join comes before this game has the host's clock), at least 3 planet states read over 2 sync windows, each bit for bit one the host wrote within 2 s of this game's clock when it read it; the 1,000 mol of carbon dioxide the server adds to its planet once the player is in arrive here as a new state; the layout byte is 7 |
 | `client host settings` | the Celestial terraforming, temperature and sky settings in force here are the host's |
 | `client shared clock` | this game's clock and the server's, read at the same wall time (one machine), within 0.5 s |
 | `client comet list` | at each clock the server wrote its comets at, this game's comets at that clock are the same (node ids, hop, progress, fuel to 1e-9), at least 3 times, once with a comet between two nodes and once with one parked |
-| `client rocket map icon` | the rocket map opened on the Rocket Control motherboard: every comet's icon where the game's own rule (a lerp between the hop's two nodes, 14 px below) puts this game's comet, a comet between two nodes among them |
+| `client rocket map icon` | the rocket map opened on the Rocket Control motherboard, once the nodes the server charted are charted here: every comet's icon where the game's own rule (a lerp between the hop's two nodes, 14 px below) puts this game's comet, a comet between two nodes among them |
 | `client sky body` | comet A's direction at the server's clock, worked out here from this game's own body, within 1e-6 of the server's; the game's body within 0.01 degrees of the rule now |
 | `client map motherboard icons` | the bay's aim at the server's clock worked out here: sky point and landing within 1e-6 m of the server's; this game's live aim the rule's from its own direction; and the Map motherboard's panel draws both comet icons (target and landing) at those positions |
 | `client fall A` | this game's copy of A's fall: the same landing point, clock and moles as the server's |

@@ -367,6 +367,10 @@ namespace TerraformingReloaded.Stage8
             bool pass = off <= 1.5 && age < 5.0;
             Bus.Judge("server sees the client", pass, string.Format(Bus.C, "client {0} id {1}: its game puts it at {2}, {3:0.0} s ago; the server at {4}, {5:0.###} m apart",
                 _clientName, _clientId, theirs, age, ours, off));
+            // A change to the planet once the player is in, for the client to see arrive with the planet sync: a quiet
+            // world's planet does not move from one sync to the next. Added at the planet's own temperature.
+            RunCommand("gas", "add", "CarbonDioxide", "1000");
+            Bus.Write("server.gas-added", new Dictionary<string, string> { { "clock", Bus.R(Clock) }, { "moles", "1000" } });
             DressPlayer();
             SetUp();
         }
@@ -425,6 +429,7 @@ namespace TerraformingReloaded.Stage8
             }
             RunCommand("comet", "send", _cometA.ToString(Bus.C));
             RunCommand("comet", "send", _cometD.ToString(Bus.C));
+            ChartRoute(_cometA);
             Spawn<LaunchMount>("StructureLaunchMount", new Vector3(300f, 300f, -400f));
             EngineFuselage mount = Spawn<EngineFuselage>("StructureEngineMountTypeA1", new Vector3(100f, 400f, 100f));
             RocketNetwork network = mount?.RocketNetwork;
@@ -454,6 +459,63 @@ namespace TerraformingReloaded.Stage8
                 { "bay", _bay.ReferenceId.ToString(Bus.C) },
             });
             Next("flying");
+        }
+
+        /// <summary>
+        /// The rocket map draws only charted nodes and the sites under them (MapView.AddLocationsToMap and
+        /// AddMapLocation), and a new world has charted only Entry, so a comet's icon has nowhere to stand. A player
+        /// sees a site only after charting its way there; the game charts a node when its parent node's chart
+        /// points reach the connection's difficulty (SpaceMapNode.OnChartPointsUpdated), which is what a rocket's
+        /// scan gives. Every Static node on the comet's route and above it gets charted that way; one whose parent
+        /// keeps no chart points is set charted directly. Both are sent to every player as the game sends them.
+        /// </summary>
+        private void ChartRoute(int cometId)
+        {
+            object comet = null;
+            foreach (object c in (Array)AccessTools.Property(typeof(CometMap), "All").GetValue(null))
+            {
+                if ((int)AccessTools.Field(c.GetType(), "Id").GetValue(c) == cometId)
+                {
+                    comet = c;
+                }
+            }
+            long[] route = comet == null ? new long[0] : (long[])AccessTools.Field(comet.GetType(), "Route").GetValue(comet) ?? new long[0];
+            long site = comet == null ? 0L : (long)AccessTools.Field(comet.GetType(), "SiteId").GetValue(comet);
+            List<string> done = new List<string>();
+            HashSet<long> nodes = new HashSet<long>();
+            foreach (long id in new[] { site }.Concat(route))
+            {
+                for (SpaceMapNode n = SpaceMapNode.Get(id); n != null; n = n.ParentConnection?.Parent)
+                {
+                    if (!nodes.Add(n.ReferenceId) || (n.NodeType != NodeType.Static && n.NodeType != NodeType.Entry) || n.IsCharted)
+                    {
+                        continue;
+                    }
+                    NodeConnection up = n.ParentConnection;
+                    string how;
+                    try
+                    {
+                        if (up?.Parent != null && up.Parent.ChartData != null)
+                        {
+                            up.Parent.ChartPoints = Math.Max(up.Parent.ChartPoints, up.Difficulty);
+                        }
+                        how = n.IsCharted ? "charted by its parent's chart points" : "set charted";
+                        if (!n.IsCharted)
+                        {
+                            n.IsCharted = true;
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        // The setter refreshes the rocket screen after it has set the flag and flagged it to be sent.
+                        how = "charted, the rocket screen's refresh threw " + e.GetType().Name;
+                    }
+                    done.Add(n.DisplayName + " (" + n.ReferenceId.ToString(Bus.C) + "): " + how);
+                }
+            }
+            List<long> shown = nodes.Where(id => SpaceMapNode.Get(id)?.IsCharted == true).ToList();
+            Bus.Info("charted for the rocket map | route " + string.Join(",", route) + " from site " + site + " | " + (done.Count == 0 ? "nothing needed charting" : string.Join("; ", done)));
+            Bus.Write("server.charted", new Dictionary<string, string> { { "ids", string.Join(";", shown.Select(id => id.ToString(Bus.C))) } });
         }
 
         private int Make(int index, string moles, string gas, double route, double premix, double reserve)
