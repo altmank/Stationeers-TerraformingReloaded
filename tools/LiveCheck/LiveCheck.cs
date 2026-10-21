@@ -302,6 +302,9 @@ namespace TerraformingReloaded.LiveCheck
         // -CometZones (CometZones.cs): the same way.
         private object _cometZones;
 
+        // -CometDebug (CometDebug.cs): the same way.
+        private object _cometDebug;
+
         private void Awake()
         {
             _instance = this;
@@ -347,6 +350,10 @@ namespace TerraformingReloaded.LiveCheck
             if (Environment.GetEnvironmentVariable("TR_LIVECHECK_COMETZONES") != null)
             {
                 StartCometZones();
+            }
+            if (Environment.GetEnvironmentVariable("TR_LIVECHECK_COMETDEBUG") != null)
+            {
+                StartCometDebug();
             }
             // Sample at the top of the planet tick: it runs on the simulation thread after the
             // previous tick's atmosphere workers have been joined and before this tick's start, so
@@ -504,6 +511,18 @@ namespace TerraformingReloaded.LiveCheck
         private void StepCometZones()
         {
             ((CometZonesCheck)_cometZones).Step();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StartCometDebug()
+        {
+            _cometDebug = CometDebugCheck.FromEnvironment(Logger, CommandAnswer);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StepCometDebug()
+        {
+            ((CometDebugCheck)_cometDebug).Step();
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -671,6 +690,10 @@ namespace TerraformingReloaded.LiveCheck
             if (_cometZones != null)
             {
                 StepCometZones();
+            }
+            if (_cometDebug != null)
+            {
+                StepCometDebug();
             }
             if (RainSave.Length > 0 && !_rainDone && GameManager.GameTickCount >= 15)
             {
@@ -2808,12 +2831,15 @@ namespace TerraformingReloaded.LiveCheck
         }
 
         /// <summary>Runs the mod console command the way the console would and logs what it answered.</summary>
-        private void RunCommand(params string[] args)
+        private void RunCommand(params string[] args) => CommandAnswer(args);
+
+        /// <summary>Runs the mod console command the way the console would, logs what it answered and returns it.</summary>
+        private string CommandAnswer(params string[] args)
         {
             if (!Util.Commands.CommandLine.CommandsMap.TryGetValue("terraform", out Util.Commands.CommandBase command))
             {
                 Logger.LogInfo("LiveCheck: cmd terraform is not registered");
-                return;
+                return "";
             }
             string answer;
             try
@@ -2825,6 +2851,7 @@ namespace TerraformingReloaded.LiveCheck
                 answer = "THREW " + e;
             }
             Logger.LogInfo("LiveCheck: cmd " + string.Join(" ", args) + " -> " + answer.Replace("\r", "").Replace("\n", " / "));
+            return answer;
         }
 
         /// <summary>
