@@ -52,6 +52,8 @@ namespace TerraformingReloaded.CometShot
         private string _spot;
         private float _sunHeight;
         private float _terrainWait;
+        private float _fov;
+        private float _back;
 
         private int _stage;
         private float _stageStart;
@@ -77,8 +79,7 @@ namespace TerraformingReloaded.CometShot
             }
             CultureInfo c = CultureInfo.InvariantCulture;
             _outDir = Setting("TR_COMETSHOT_DIR", Path.Combine(Path.GetTempPath(), "tr-cometshot"));
-            _times = Setting("TR_COMETSHOT_TIMES", "2,8,13,15,15.6,16.05,16.3,17,19,22,26,32,45,70")
-                .Split(',').Select(s => float.Parse(s.Trim(), c)).OrderBy(t => t).ToList();
+            _times = Times(Setting("TR_COMETSHOT_TIMES", "2,8,13,15,15.6,16.05,16.3,17,19,22,26,32,45,70"));
             _width = int.Parse(Setting("TR_COMETSHOT_W", "1600"), c);
             _height = int.Parse(Setting("TR_COMETSHOT_H", "900"), c);
             _pitch = float.Parse(Setting("TR_COMETSHOT_PITCH", "-6"), c);
@@ -88,8 +89,63 @@ namespace TerraformingReloaded.CometShot
             string sun = Setting("TR_COMETSHOT_SUN", "0.35");
             _sunHeight = sun == "any" ? float.NaN : float.Parse(sun, c);
             _terrainWait = float.Parse(Setting("TR_COMETSHOT_TERRAIN_WAIT", "90"), c);
+            _fov = float.Parse(Setting("TR_COMETSHOT_FOV", "0"), c);
+            _back = float.Parse(Setting("TR_COMETSHOT_BACK", "0"), c);
             Directory.CreateDirectory(_outDir);
-            Logger.LogInfo("CometShot: armed, '" + _command + "' -> " + _outDir);
+            Logger.LogInfo(string.Format(c, "CometShot: armed, '{0}' -> {1}, {2} shots from {3:0.##} to {4:0.##} s", _command, _outDir, _times.Count,
+                _times.Count > 0 ? _times[0] : 0f, _times.Count > 0 ? _times[_times.Count - 1] : 0f));
+        }
+
+        /// <summary>
+        /// The shot times: a comma-separated list of seconds after the command, where an item may also
+        /// be 'every=<s> until=<s>' with an optional 'from=<s>' (default: one step in), for a shot every
+        /// so many seconds over a stretch. Sorted, each time once.
+        /// </summary>
+        private static List<float> Times(string spec)
+        {
+            CultureInfo c = CultureInfo.InvariantCulture;
+            SortedSet<float> times = new SortedSet<float>();
+            foreach (string item in spec.Split(','))
+            {
+                string part = item.Trim();
+                if (part.Length == 0)
+                {
+                    continue;
+                }
+                if (!part.Contains("="))
+                {
+                    times.Add(float.Parse(part, c));
+                    continue;
+                }
+                float every = float.NaN;
+                float until = float.NaN;
+                float from = float.NaN;
+                foreach (string token in part.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string[] pair = token.Split('=');
+                    float value = pair.Length == 2 ? float.Parse(pair[1], c) : float.NaN;
+                    switch (pair[0])
+                    {
+                        case "every": every = value; break;
+                        case "until": until = value; break;
+                        case "from": from = value; break;
+                        default: throw new FormatException("'" + token + "' in the shot times is not every=, until= or from=");
+                    }
+                }
+                if (float.IsNaN(from))
+                {
+                    from = every;
+                }
+                if (!(every > 0f) || float.IsNaN(until) || until < from || (until - from) / every > 5000f)
+                {
+                    throw new FormatException("'" + part + "' needs every= above 0 and until= at or past from=, and no more than 5,000 shots");
+                }
+                for (int i = 0; from + i * every <= until + 1e-4f; i++)
+                {
+                    times.Add((float)Math.Round(from + i * every, 3));
+                }
+            }
+            return times.ToList();
         }
 
         private static string Setting(string name, string fallback)
@@ -202,6 +258,10 @@ namespace TerraformingReloaded.CometShot
                     camera.targetTexture ? camera.targetTexture.name : "screen", camera.transform.parent ? camera.transform.parent.name : "none"));
             }
 
+            if (_fov > 0f)
+            {
+                _camera.fieldOfView = _fov;
+            }
             Stand();
             SkyAndSun();
             _stack = Camera.allCameras
@@ -246,11 +306,20 @@ namespace TerraformingReloaded.CometShot
                 }
             }
             float? ground = Surface(flat.x, flat.z);
-            _eye = new Vector3(flat.x, (ground ?? 300f) + EyeHeight, flat.z);
             float yaw = _yaw == "centre"
                 ? (new Vector2(flat.x, flat.z).sqrMagnitude < 1f ? 0f : Mathf.Atan2(-flat.x, -flat.z) * Mathf.Rad2Deg)
                 : float.Parse(_yaw, c);
             _look = Quaternion.Euler(_pitch, yaw, 0f);
+            if (_back > 0f)
+            {
+                // Stood back along the view, on the ground there if the voxel world reaches, else at
+                // the spot's own height: the view keeps its bearing and takes in more of the sky.
+                Vector3 behind = Quaternion.Euler(0f, yaw, 0f) * Vector3.back * _back;
+                flat += new Vector3(behind.x, 0f, behind.z);
+                ground = Surface(flat.x, flat.z) ?? ground;
+                what += string.Format(c, ", stood {0:N0} m back", _back);
+            }
+            _eye = new Vector3(flat.x, (ground ?? 300f) + EyeHeight, flat.z);
             Logger.LogInfo(string.Format(c, "CometShot: standing at {0} ({1}), voxel ground {2}, world size {3}, curvature {4}, facing yaw {5:0.0} pitch {6:0.0}",
                 _eye, what, ground.HasValue ? ground.Value.ToString("0.0", c) : "none", VoxelConstants.Size, VoxelConstants.WorldCurvature, yaw, _pitch));
         }
@@ -412,6 +481,10 @@ namespace TerraformingReloaded.CometShot
         private void Pose()
         {
             _camera.transform.SetPositionAndRotation(_eye, _look);
+            if (_fov > 0f)
+            {
+                _camera.fieldOfView = _fov;
+            }
             foreach (Camera camera in _stack)
             {
                 if (camera == _camera || camera.transform.IsChildOf(_camera.transform))
@@ -465,8 +538,8 @@ namespace TerraformingReloaded.CometShot
             _readback.Apply(false);
             string file = Path.Combine(_outDir, string.Format(CultureInfo.InvariantCulture, "shot{0:00}_t{1:000.00}.png", _shot++, since));
             File.WriteAllBytes(file, _readback.EncodeToPNG());
-            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture, "CometShot: shot t={0:0.00} -> {1} (far {2:N0}, sun height {3:0.000}, sun {4:0.00})",
-                since, file, _camera.farClipPlane, OrbitalSimulation.WorldSunVector.y, OrbitalSimulation.WorldSun ? OrbitalSimulation.WorldSun.intensity : 0f));
+            Logger.LogInfo(string.Format(CultureInfo.InvariantCulture, "CometShot: shot t={0:0.00} -> {1} (far {2:N0}, fov {3:0.#}, sun height {4:0.000}, sun {5:0.00})",
+                since, file, _camera.farClipPlane, _camera.fieldOfView, OrbitalSimulation.WorldSunVector.y, OrbitalSimulation.WorldSun ? OrbitalSimulation.WorldSun.intensity : 0f));
             ImpactOnGround();
         }
 
