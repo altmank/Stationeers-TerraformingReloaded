@@ -206,3 +206,114 @@ nothing drifts.
 - **Gas:** the planet gains exactly the comet's moles (LiveCheck's balance, after the event).
 - **Arithmetic:** the wave formula, the safe distance and the push table get a self-check like the mod's other
   rules.
+
+## As built (0.16.0)
+
+Built to sections 1 to 9. What differs from the text above, and why. Nothing here has run in the game yet:
+the code builds, `tools/PatchCheck` binds the sky patches to their targets and runs the rules' check with
+the wrong rules it must catch, and every game API below was read in the decompile. Section 10 is still to do.
+
+**Where it lives.** `src/Comets/CometRules.cs` holds every number of sections 2, 3, 5 and 8 and their check;
+`CometReactions.cs` section 6's strengths; `CometEvent.cs` the event; `CometDirector.cs` the event in force
+and its delivery; `CometNet.cs` the instant message; `CometSite.cs` section 2; `CometWave.cs` sections 4 and
+5; `CometSound.cs` section 7; `CometShow.cs` the timeline and the drawing; `src/Patching/CometSky.cs` section
+8; `src/Sync.cs` layout 5.
+
+**1. The event.**
+- The comet first shows 1 s after the command and lands 15 s after that, so the impact is still 16 s after
+  the command, as in the prototype and as `tools/CometShot` times its shots.
+- The host works out the reaction strengths (section 6) and sends them with the event, so no client judges
+  them from its own copy of the planet's air.
+- `terraform comet stop` is sent to clients too, as the same event marked called off. A client remembers
+  the last event called off, so a planet sync written just before the stop cannot start it again.
+- The host keeps the event in force, and in the planet sync, until its darker sky has cleared (impact plus
+  330 s), so a player who joins late still gets the sky. A second comet can be sent once the first show
+  has ended (115 s), which replaces it.
+- The message is processed on the main thread: LaunchPadBooster reads its packets from
+  `NetworkManager.ManagerUpdate` (its transpiler on `ReceiveEvents` calls `ReceiveUnknownEvent`, then
+  `ConnectionState.ReceiveMessage` calls `Process`). Read in the installed `LaunchPadBooster.dll`. The event
+  is handed to the director all the same, as the planet sync's is, and acted on in the director's Update.
+- The planet sync only writes anything while the planet's coupling is on (`Gate.Enabled()`, as before), so
+  on a world where the mod stands down a player who joins late gets no comet; the message still reaches
+  everyone already joined.
+- A client with LaunchPadBooster but without this mod logs an unknown message and drops it.
+- Leaving the world, by any route, drops the event, the show and the darker sky.
+- A dedicated server, or any machine with no camera or no graphics device, plays the timeline without
+  drawing or sounding anything: the gas, the breaks and the suit damage still happen there.
+- Particle systems are seeded from the event, as is every other random choice in the show. Different frame
+  rates still step them differently, so two machines see the same show, not the same particles.
+
+**2. Where it lands.**
+- `range=` left out lands at the safe distance from where the host stands, the nearest allowed point,
+  rather than the prototype's 1,500 m + 900 m x scale.
+- The search: outward along the bearing in 100 m steps to 20 km, then bearings 15, 30, ... 180 degrees
+  either side, nearer first. Nothing within 20 km: the comet is refused and the reply says why.
+- Structures are judged in 100 m squares, each standing at its centre with half its diagonal (71 m) added to
+  the safe distance, so the check stays cheap on a large base and never lets one closer. Every player
+  counts, online or not.
+- The approach is judged from the impact back up the path, every 100 m, using the height above the impact's
+  ground, until the path is higher than the safe distance. Both sides it can come in from are tried.
+- A dedicated server has no view: it looks from the first player online, else from the world origin facing
+  north.
+
+**3. The wave.** As written, with one addition: the wave stops growing at 1e9 mol
+(`CometRules.WaveMolesCap`), where the show stops growing. The command takes up to 1e12 mol, and without
+the cap a comet past about 3e9 mol would break reinforced windows at the safe distance, against this
+section's own rule. The wave is worked out no closer than 100 m to the impact, so it stays finite.
+
+**4. Structures.**
+- The breakable test also skips anything air already passes through (`CanAirPass`), which covers open doors
+  and gratings, as the game's own stress check does.
+- Facing the outside: for a structure on a face, the two cells either side of each face it blocks are
+  looked up in the world's rooms (`RoomController.World.GetRoom`); for one that fills a cell rather than a
+  face, the six cells next to it are. No room on one side is outdoors.
+- Only windows creak: glass walls taken past 80 % of their limit and not broken. Glass doors that hold do
+  not.
+- The fail sound of a structure that is not a wall comes from its prefab name (Glass, Composite, else
+  metal); a wall's from its material.
+
+**5. Players.**
+- The hardest push holds the part away from the impact at 18.3 m/s, so with the upward 6 to 8 m/s the whole
+  never passes the game's 20 m/s: 14 to 18.3 away rather than 14 to 20. The gentlest band pushes upward 0.5
+  to 1.5 m/s.
+- The suit damage is the game's `Human.OnNetworkCollision` with an impulse of 2 to 4, rising with the peak.
+  The game scales it by 3 for a suit and passes up to 6 times that through as stun (the space suit), so the
+  worst case is 72 stun, under the 100 that knocks a player out. A player already stunned can still be
+  pushed over it. A player just respawned (`Invulnerability`) is spared. Only players online are hurt.
+- Outdoors is not in a room, not in a slot, and not locked to a seat.
+- `preview` changes nothing in the world: no gas, no breaks, no suit damage, no push and no break sounds.
+  It still draws, sounds, shakes the camera and darkens the sky.
+
+**6. Reactions.** Burning is hypergolic share plus the smaller of the fuel share and the oxidiser share plus
+4 times the planet air's oxidiser share (a fireball draws in several times its own volume of air), clamped
+to 1. Steam counts water, steam and polluted water; dry ice carbon dioxide; toxic pollutant and
+hydrochloric acid; ionised nitrogen and helium; a liquid counts as its gas. Worked cases are checked by
+`tools/PatchCheck`.
+
+**7. Sound.**
+- The ground route is the `LocalPlayerInternal` group: its filter follows the helmet's own air with a floor
+  of 1,500 Hz, so the thump reaches a player in a vacuum. The air route is `External`. Either falls back to
+  the next group if a game update renames it, and the log says which were found.
+- The air rush starts at a third of the approach, the sonic boom at 60 %, the roar is timed to end at the
+  impact.
+- The far rocket landing is a raw clip (`Sfx_RocketLandFar`) found by name among the clips the game has
+  loaded; if it is not loaded the tail is the rumble alone, and the log says so.
+- The storm loop is the game's `Storm` outdoors and `StormSheltered` indoors, crossfaded.
+- A player who joins after a moment has passed does not hear it.
+
+**8. The sky.** As written. The postfixes are an Extra (`comet sky`) and, like every Extra, are applied
+only once the mod's required patches are in; on a game build the mod stands down for, there is no darker
+sky.
+
+**9. Visual fidelity.**
+- Soft particles are the legacy `Particles/Additive` and `Particles/Alpha Blended` shaders with
+  `SOFTPARTICLES_ON` and a 30 m fade. `Particles/Additive (Soft)` is a blend mode, not a depth fade, and
+  takes no tint, so the show could not fade it.
+- Draw order is by render queue: fire glow (3050) before smoke (3100), so the smoke covers it from every
+  side; the comet, flash, shock front, sparks, ejecta and debris (3150) over everything.
+- By day the glow is drawn down to 55 % and smoke up to 128 % of its night opacity, and the column and cap
+  emit up to 35 % more.
+- The whole show is held under 6,000 particles.
+- The rig does not time frames itself. The show logs its own frame time, mean and worst, for the
+  approach, the first 10 s after the impact and the rest, when it ends, and the rig's log carries that line.
+- The head is the prototype's glow, not a model.

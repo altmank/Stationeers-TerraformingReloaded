@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.16.0 (prototype)
+
+- **A comet's impact now reaches your base.** The bigger the comet, the stronger the pressure wave that
+  spreads from where it lands, at the speed of sound. Windows, doors, walls and hatches that face the
+  outside break the moment the wave reaches them, if it is stronger than they are built to take, and the
+  air goes out through them as through any broken window. A window with a room on both sides, deep inside a
+  base, is sheltered by the rooms around it and holds. Reinforced windows and walls hold against every comet.
+  What breaks at the nearest a comet may land:
+
+  | Comet | Nearest it lands | Breaks there |
+  |---|---|---|
+  | 100,000 mol | 2,000 m | nothing |
+  | 1,000,000 mol | 2,250 m | nothing |
+  | 10,000,000 mol | 2,500 m | ordinary windows and glass doors |
+  | 100,000,000 mol | 2,750 m | also composite walls, window shutters and hatches |
+  | 1,000,000,000 mol and up | 3,000 m | also airlocks |
+
+  A base further away gets less: at twice the distance, a quarter of the push on its walls. This is a game
+  rule set by the comet's size, not worked out from the planet's air, so a comet hits a base on thin-aired
+  Mars as hard as one on Venus.
+- **A comet always comes down in the distance.** It never lands nearer than 1,750 to 3,000 m (more for a
+  bigger comet) to any structure or player, and never passes low over a base on its way in. Without
+  `range=` it lands as near as that allows, where you are looking. If where you asked is too close, it lands
+  further out or turns aside, and the reply says where.
+- **Standing outside when the wave arrives is a risk.** A small comet gives a shove. A medium one throws you
+  a few metres. A huge one throws you hard and damages your suit and helmet at once, so they leak until you
+  repair them with duct tape. It is not strong enough to knock you out on its own. Everyone feels the ground shake, indoors too.
+- **Everyone sees and hears it.** In multiplayer every player sees and hears the same comet at the same
+  moment, wherever they are, and a player who joins while it is falling or settling sees the rest of it. The
+  host's game decides everything and breaks the structures; each player is thrown on their own game. Host
+  and joining players must all run this version.
+- **The explosion shows what the comet is made of.** Water flashes out a white dome and climbs as a white
+  column. A fuel (volatiles, hydrogen, hydrazine) with oxygen or nitrous oxide, brought by the comet or in
+  the planet's air, bursts into a second, bigger fireball a moment later and glows longer. Carbon dioxide
+  rolls out along the ground as a grey-white fog. Pollutant and hydrochloric acid leave a yellow-green haze
+  that settles and lingers. Nitrogen and helium make the cloud shimmer blue-violet and the flash sharper. A
+  mixed comet shows each, as strongly as its share.
+- **It sounds like one.** An air rush and a roar build as it falls, and a sonic boom as it comes through the
+  sky. The impact is silent: the sound arrives seconds later, as far behind the flash as the impact is away,
+  first as a thump through the ground, then the boom and the long rumble, then the wind of the wave with
+  glass breaking and creaking at the structures it reaches. Debris bursts in the sky afterwards and a storm
+  passes. It all follows your volume settings, and thin air and your helmet muffle it like any other sound,
+  so on an airless world you feel the thump and hear no boom.
+- **The sky goes darker afterwards.** The dust thrown up dims the sky, the daylight and the sun, from 15 %
+  for a small comet to 55 % for the largest, darkest after half a minute and back to normal after about five
+  minutes. Only the look changes: solar panels make what they made before.
+- **It reads better in daylight.** The smoke is thicker and rolls as it rises, the glow stays inside the
+  cloud, and the fire no longer cuts hard edges into the ground.
+- `preview` still shows and sounds the whole comet and darkens the sky, and now also breaks nothing and
+  throws and hurts nobody, as well as adding no gas.
+
 ## 0.15.0 (prototype)
 
 - **New: call a comet down on the planet.** `terraform comet <mol> <gas>:<share> ...` sends a comet
