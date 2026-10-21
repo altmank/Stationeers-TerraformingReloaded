@@ -279,7 +279,10 @@ if ($CustomWorld -and $Vanilla) { throw 'Without the mod there is nothing to say
 if ($Storm -and $StormTick -le 0) { throw '-Storm needs -StormTick, the tick to force the event on at.' }
 
 # Only what a run creates is removed afterwards.
-$names = 'mods', 'saves', 'scripts', 'thumbnails', 'modconfig.xml', 'modrepos.xml', 'setting.xml'
+$names = 'mods', 'saves', 'scripts', 'thumbnails', 'modconfig.xml', 'modrepos.xml'
+# A settings file already there is the machine's own: the game rewrites it, so it is kept and put back, as
+# tools/CometShot does. One the run creates is removed.
+$settingFile = Join-Path $GameDir 'setting.xml'
 
 if ($Clean) {
     # A run that is interrupted never reaches its own cleanup, and every run after it then refuses to
@@ -303,6 +306,7 @@ $preexisting = if ($TestServer) { @() } else { @($names | Where-Object { Test-Pa
 if ($preexisting.Count -gt 0) {
     throw "Already present in the game folder: $($preexisting -join ', '). A headless run would mix with them; move them aside first."
 }
+$settingSaved = if (-not $TestServer -and (Test-Path $settingFile)) { [System.IO.File]::ReadAllBytes($settingFile) } else { $null }
 
 $bepLog = Join-Path $runDir 'BepInEx\LogOutput.log'
 $curvesFile = Join-Path $runDir 'BepInEx\config\TerraformingReloaded.curves.xml'
@@ -1637,5 +1641,7 @@ finally {
             $path = Join-Path $GameDir $name
             if (Test-Path $path) { Remove-Item $path -Recurse -Force }
         }
+        if ($settingSaved) { [System.IO.File]::WriteAllBytes($settingFile, $settingSaved) }
+        elseif (Test-Path $settingFile) { Remove-Item $settingFile -Force }
     }
 }
