@@ -789,6 +789,18 @@ Fuel, Burn) sends the list to every player at most every 2 s.
 | **The darker sky's depth is 0.55 (1 - e^(-tau)), tau as the yield to the 1/2** (the dust over the cap's area, the cap growing as W^(1/4)), 0.15 at 1e5: 0.053 at 1e4, 0.349 at 1e6, 0.527 at 1e7, 0.55 from 1e8 | the sky follows the yield as the rest of the show does | The 0.16 log scale: 0.25 at 1e6 and 0.35 at 1e7, and a 1e4 comet as dark as a 1e5 one |
 | The storm loop after the sound passes follows the loudness alone | one rule for every sound | The 0.16 log scale on top of the loudness |
 
+### Stage 8, as built (0.22.1)
+
+| Decision | Goal served | Alternative, and why it lost |
+|---|---|---|
+| The harness has its own dedicated server and its own client, copied into `G:\TRStage8`, each with its own data folder by StationeersLaunchPad's `SavePathOverride` | bt's other servers, its own game and its real saves are never touched | LiveCheck's `-TestServer`: it refuses whenever bt's servers run, stops its server the moment a client starts, and forces two other mods and a password |
+| One driver plugin for both ends, its role from the environment, the two ends trading what they saw through small files in the run's folder | the mod's own networking is what is proved, so the harness adds none: it never touches `Mod.Networking` | A driver message of its own over LaunchPadBooster: a second path between the games beside the one under test |
+| Values are compared at a clock one end names: the server writes what it has at its clock, the client works its own out at that same clock by the mod's rules | the same, to the last bits, on every machine, whatever the frames and the network delay | Comparing what each shows in its own frame: never the same moment, so only a tolerance as wide as a frame's motion |
+| The client joins with the game's own `join` command 1.25 s after the game's data has loaded | the way StationeersLaunchPad's own auto-join does it; the game's `-join` launch argument runs before the main menu exists | `-join` on the command line |
+| The console comet is called by the client with the game's `serverrun`, and a joined player's command is aimed from that player (`CometInvoker`) | "where you are looking" for a player on a dedicated server | The first player online only: on a server with several players the comet would come down by whoever joined first |
+| In phase load the server is held paused until the client has joined again | the fall lands with the client there, at the clock it was saved to land at | Letting it run: 42 s of the fall left, less than a client takes to load |
+| `MaxDamagingRocks` is 0 for the run | the suit damage judged is the wave's alone | Leaving rocks on: a rock may land on the player, whose damage then cannot be told from the wave's |
+
 ## Proof as it is built
 
 LU, 2026-10-21: prove each mechanic works as it is built, and that it still works once joined to the rest.
@@ -816,6 +828,14 @@ Build order, each stage proven before the next starts:
 | 6 | the deorbit and the landing | landings land where the rule says, with and without reserve, and an untracked burn lands in the disc |
 | 7 | the impact zones | structures at measured distances end as the table says |
 | 8 | multiplayer | a dedicated server and a rendered client on bt see the same comet, icon and impact |
+
+Stage 8 is the multiplayer proof, `tools/Stage8` (0.22.1), written, not yet run: a dedicated server and a rendered
+client of their own on bt, judged line by line (`tools/Stage8/README.md`). Building it confirmed, from the code,
+that a console comet on a dedicated server was aimed from the scene's main camera, which a batch-mode scene keeps
+and never draws; 0.22.1 aims it from the player who ran it, else the first player online (`CometViewpoint`,
+checked at load and by `tools/PatchCheck` with five wrong rules, `COMET.md` section 2). The run also covers what no
+headless run can: stage 3's map icon, stage 5's Map motherboard icons and sky body on a client, stage 6's warning
+on a player's own console, and stage 7's push and suit damage on a player.
 
 Stage 7 is in 0.22.0, proof (1) and (2) written, (2) not yet run: `CometZones` (the zones, the heat zone at the drawn
 fireball, the burn, the rocks' chance, cap, order and time) is checked at load, chained into the comet rules'

@@ -251,7 +251,9 @@ dedicated server at least for readouts; it is a player's account, not a measurem
 
 - **The per-update warning and the sync bandwidth** need a multiplayer session to measure.
 - **Not seen on a second machine:** the sky and the host's settings reaching a joining player
-  (0.10.1). Both are worked out from code only.
+  (0.10.1). Both are worked out from code only. `tools/Stage8` (bt only, written for 0.22.1 and not yet run)
+  judges the planet sync, the host's settings and every comet path with a dedicated server and a rendered client
+  on one machine.
 - **The planet goes out about 20 times per sync window.** Harmless; sending once needs state the
   sync does not keep.
 - **A joining player without the mod** (possible only beside another LaunchPadBooster networking mod)
