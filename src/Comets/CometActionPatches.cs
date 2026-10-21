@@ -307,7 +307,8 @@ namespace TerraformingReloaded.Comets
             int kitsUsed = 0;
             foreach (Slot slot in container.Slots)
             {
-                if (!(slot?.Get() is MultiConstructor kit) || room - engines <= 0)
+                // A kit already on its way out (destroyed this frame, still in its slot until Unity removes it) counts for nothing.
+                if (!(slot?.Get() is MultiConstructor kit) || kit.BeingDestroyed || room - engines <= 0)
                 {
                     continue;
                 }
@@ -326,7 +327,7 @@ namespace TerraformingReloaded.Comets
                 kitsUsed += used;
                 if (used >= kit.Quantity)
                 {
-                    OnServer.Destroy(kit);
+                    UseUp(kit);
                 }
                 else
                 {
@@ -343,6 +344,28 @@ namespace TerraformingReloaded.Comets
                 ? string.Format(CultureInfo.InvariantCulture, "[TR comet actions] Rig at {0}: rocket {1} delivered {2} engine kits, comet {3} now has {4} engines ({5:R} kg with its engines)",
                     site.DisplayName, rocket.ReferenceId, kitsUsed, rigged.Id, rigged.Engines, rigged.CometKg + CelestialRules.EngineMassKg * rigged.Engines)
                 : "[TR comet actions] Rig at " + site.DisplayName + " used kits but added no engines: " + refused);
+        }
+
+        /// <summary>
+        /// A kit used up whole: out of its slot now, then destroyed. OnServer.Destroy alone leaves it in the
+        /// slot until the end of the frame, because Unity defers a GameObject's destruction and only then does
+        /// DynamicThing.OnDestroy empty the slot; this does the same emptying first, the way OnDestroy does it,
+        /// so nothing that looks at the container in the meantime finds the kit there.
+        /// </summary>
+        private static void UseUp(MultiConstructor kit)
+        {
+            Slot slot = kit.ParentSlot;
+            Thing parent = slot?.Parent;
+            if (slot != null)
+            {
+                slot.Empty();
+                kit.ParentSlot = null;
+                if (parent != null)
+                {
+                    parent.OnChildExitInventory(kit);
+                }
+            }
+            OnServer.Destroy(kit);
         }
 
         /// <summary>Kits of this stack one Pumped Gas engine takes to build, or 0 when the kit builds none.</summary>

@@ -72,6 +72,9 @@ namespace TerraformingReloaded.LiveCheck
         private RocketPayloadBay _bay;
         private DeliveryPayload _container;
         private int _cometId;
+        private readonly List<MultiConstructor> _kits = new List<MultiConstructor>();
+        private double _rigSeenClock = double.NaN;
+        private int _rigKitsAtDeploy;
 
         // Cut: the site before the first cycle.
         private float _densityBefore, _richnessBefore;
@@ -306,6 +309,7 @@ namespace TerraformingReloaded.LiveCheck
                 if (kit != null)
                 {
                     kit.Quantity = 1;
+                    _kits.Add(kit);
                     kits++;
                 }
             }
@@ -452,15 +456,31 @@ namespace TerraformingReloaded.LiveCheck
                 Overdue("Rig delivering two engines");
                 return;
             }
-            SetMode(RocketMode.None);
-            int kitsLeft = _container.Slots.Count(s => s?.Get() is MultiConstructor);
+            int kitsInSlots = _container.Slots.Count(s => s?.Get() is MultiConstructor);
+            if (double.IsNaN(_rigSeenClock))
+            {
+                // The frame the engines are counted in: the kits must already be out of the container.
+                _rigSeenClock = Clock;
+                _rigKitsAtDeploy = kitsInSlots;
+                SetMode(RocketMode.None);
+                return;
+            }
+            if (Clock - _rigSeenClock < 2.0)
+            {
+                return;
+            }
+            // Two seconds on: the kit objects themselves must be gone, not only out of their slots.
+            int kitsAlive = _kits.Count(k => k != null && !k.BeingDestroyed);
+            int kitsDestroyed = _kits.Count(k => k == null);
             bool kept = _bay.Payload == (IRocketPayload)_container;
-            bool pass = comet.Id == _cometId && comet.Engines == 2 && kitsLeft == 0 && kept;
-            Info(string.Format(CultureInfo.InvariantCulture, "rig {0} | comet {1} | engines {2} | kits left in the container {3} | container {4} | kg {5:R}, with its engines {6:R}",
-                pass ? "PASS" : "FAIL", comet.Id, comet.Engines, kitsLeft, kept ? "still in the bay" : "GONE", comet.CometKg, comet.CometKg + CelestialRules.EngineMassKg * comet.Engines));
+            bool pass = comet.Id == _cometId && comet.Engines == 2 && _rigKitsAtDeploy == 0 && kitsInSlots == 0 && kitsAlive == 0 && kitsDestroyed == _kits.Count && kept;
+            Info(string.Format(CultureInfo.InvariantCulture,
+                "rig {0} | comet {1} | engines {2} | kits in the container when the engines were counted {3}, 2 s later {4} | kit objects still alive {5}, destroyed {6} of {7} | container {8} | kg {9:R}, with its engines {10:R}",
+                pass ? "PASS" : "FAIL", comet.Id, comet.Engines, _rigKitsAtDeploy, kitsInSlots, kitsAlive, kitsDestroyed, _kits.Count, kept ? "still in the bay" : "GONE",
+                comet.CometKg, comet.CometKg + CelestialRules.EngineMassKg * comet.Engines));
             if (!pass)
             {
-                Fail("Rig did not turn the two engine kits into two engines on the comet");
+                Fail("Rig did not turn the two engine kits into two engines on the comet and use the kits up");
                 return;
             }
             StartBurn();
