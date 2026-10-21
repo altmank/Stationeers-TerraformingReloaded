@@ -305,6 +305,9 @@ namespace TerraformingReloaded.LiveCheck
         // -CometDebug (CometDebug.cs): the same way.
         private object _cometDebug;
 
+        // Comets are experimental and off by default; every comet scenario turns them on for its world once.
+        private bool _cometsOn;
+
         private void Awake()
         {
             _instance = this;
@@ -513,6 +516,26 @@ namespace TerraformingReloaded.LiveCheck
             ((CometZonesCheck)_cometZones).Step();
         }
 
+        /// <summary>
+        /// Once a world is running: comets on for it with terraform set, as a host turns them on, unless its own
+        /// settings file already has them on (a phase that loads a world an earlier phase turned them on in).
+        /// True once they are on.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private bool TurnCometsOn()
+        {
+            if (GameManager.GameState != GameState.Running || WorldSetting.Current == null || GameManager.GameTickCount < 2)
+            {
+                return false;
+            }
+            if (!TerraformingReloaded.Effective.CometsEnabled)
+            {
+                CommandAnswer("set", "CometsEnabled", "true");
+            }
+            Logger.LogInfo("LiveCheck: comets " + (TerraformingReloaded.Effective.CometsEnabled ? "on" : "STILL OFF") + " for this world | " + TerraformingReloaded.Patching.Gate.Describe());
+            return true;
+        }
+
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private void StartCometDebug()
         {
@@ -658,6 +681,10 @@ namespace TerraformingReloaded.LiveCheck
             if (_burn != null)
             {
                 StepPlanetBurn();
+            }
+            if ((_cometFlight ?? _cometActions ?? _cometSky ?? _cometLand ?? _cometZones) != null && !_cometsOn)
+            {
+                _cometsOn = TurnCometsOn();
             }
             if (_cometFlight != null)
             {

@@ -366,6 +366,9 @@ namespace TerraformingReloaded.Stage8
                 _stage = "done";
                 return;
             }
+            // Comets are experimental and off by default: this world turns them on, as a host does.
+            RunCommand("set", "CometsEnabled", "true");
+            Bus.Judge("server comets on", Effective.CometsEnabled && Gate.CometsEnabled(), "CometsEnabled " + Effective.CometsEnabled + ", comets " + (Gate.CometsEnabled() ? "live" : "NOT live"));
             RunCommand("set", "MaxDamagingRocks", "0");
             bool rocks = (int)Math.Round(Effective.Celestial.MaxDamagingRocks) == 0;
             Bus.Judge("server no falling rocks", rocks, "MaxDamagingRocks " + Bus.R(Effective.Celestial.MaxDamagingRocks) + ", so the suit damage judged is the wave's alone");

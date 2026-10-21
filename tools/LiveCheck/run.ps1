@@ -447,7 +447,7 @@ $envKeys = @(
     'TR_LIVECHECK_COMETLAND', 'TR_LIVECHECK_COMETLAND_FALLING', 'TR_LIVECHECK_COMETLAND_PARKED', 'TR_LIVECHECK_COMETLAND_IMPACT', 'TR_LIVECHECK_COMETLAND_TELESCOPE',
     'TR_LIVECHECK_COMETLAND_BAY', 'TR_LIVECHECK_COMETLAND_ROCKET', 'TR_LIVECHECK_COMETZONES', 'TR_LIVECHECK_COMETZONES_IDS',
     'TR_LIVECHECK_COMETDEBUG', 'TR_LIVECHECK_COMETDEBUG_ROCKET', 'TR_LIVECHECK_COMETDEBUG_AT', 'TR_LIVECHECK_COMETDEBUG_PARKED',
-    'TR_LIVECHECK_COMETDEBUG_STRANDED', 'TR_LIVECHECK_COMETDEBUG_SHARE')
+    'TR_LIVECHECK_COMETDEBUG_STRANDED', 'TR_LIVECHECK_COMETDEBUG_SHARE', 'TR_LIVECHECK_COMETDEBUG_STOPPED', 'TR_LIVECHECK_COMETDEBUG_FLOWN')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -1243,11 +1243,12 @@ try {
         $failed = @($first -match '^FAIL')
         if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
         $savingLine = @($first -match '^saving \| ')
-        if ($savingLine.Count -ne 1 -or $savingLine[0] -notmatch '^saving \| rocket (\d+) at (.+?) \| parked (\d+) fuel (\S+) \| parked (\d+) fuel (\S+) \| stranded (\d+) share (\S+) \|') {
+        if ($savingLine.Count -ne 1 -or $savingLine[0] -notmatch '^saving \| rocket (\d+) at (.+?) \| parked (\d+) fuel (\S+) \| parked (\d+) fuel (\S+) \| stranded (\d+) share (\S+) \| stopped (\d+) flown (\S+) \| comets off \|') {
             throw 'LiveCheck FAILED: the first instance reported no saving line.'
         }
         $debugEnv = @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETDEBUG = 'load'; TR_LIVECHECK_COMETDEBUG_ROCKET = $Matches[1]; TR_LIVECHECK_COMETDEBUG_AT = $Matches[2]
-            TR_LIVECHECK_COMETDEBUG_PARKED = "$($Matches[3])=$($Matches[4]);$($Matches[5])=$($Matches[6])"; TR_LIVECHECK_COMETDEBUG_STRANDED = $Matches[7]; TR_LIVECHECK_COMETDEBUG_SHARE = $Matches[8] }
+            TR_LIVECHECK_COMETDEBUG_PARKED = "$($Matches[3])=$($Matches[4]);$($Matches[5])=$($Matches[6])"; TR_LIVECHECK_COMETDEBUG_STRANDED = $Matches[7]; TR_LIVECHECK_COMETDEBUG_SHARE = $Matches[8]
+            TR_LIVECHECK_COMETDEBUG_STOPPED = $Matches[9]; TR_LIVECHECK_COMETDEBUG_FLOWN = $Matches[10] }
         $files = @(Get-ChildItem (Join-Path $saveDir $station) -Recurse -File -Filter '*.save' -ErrorAction SilentlyContinue)
         if ($files.Count -eq 0) { throw "LiveCheck FAILED: no save was written under saves\$station." }
         $saved = @{}
@@ -1281,13 +1282,17 @@ try {
         $judged | Write-Host
 
         $problems = @($judged -match ' FAIL ')
-        if ($saved.Count -lt 3) { $problems += "the mod logged $($saved.Count) comets at the save, expected 3" }
+        if ($saved.Count -lt 4) { $problems += "the mod logged $($saved.Count) comets at the save, expected 4" }
+        $rocketId = $debugEnv['TR_LIVECHECK_COMETDEBUG_ROCKET']
+        if (@($made -match "\[TR comet actions\] rocket $rocketId stopped Cut: comets are off for this world").Count -ne 1) { $problems += 'the mod did not stop the rocket''s Cut once when comets went off' }
+        if (@($made -match "\[TR comet actions\] saved rocket $rocketId running Cut \(idle until it goes back to it\)").Count -ne 1) { $problems += 'the save did not keep the stopped rocket''s Cut' }
+        if (@($log -match "\[TR comet actions\] rocket $rocketId is back to Cut after the load$").Count -ne 1) { $problems += 'the rocket did not go back to Cut once comets were on after the load' }
         if (@($first -match '^discover PASS').Count -ne 3) { $problems += 'the first instance did not judge three discoveries' }
         if (@($first -match '^move PASS').Count -ne 3) { $problems += 'the first instance did not judge three trips ended by the verb' }
-        foreach ($want in '^list PASS', '^game trip PASS', '^ground PASS', '^fill PASS', '^fill again PASS', '^arrive PASS', '^natural PASS', '^dry refused PASS', '^strand PASS', '^rocket log PASS', '^phase make done') {
+        foreach ($want in '^default off PASS', '^list PASS', '^game trip PASS', '^ground PASS', '^fill PASS', '^fill again PASS', '^arrive PASS', '^natural PASS', '^dry refused PASS', '^strand PASS', '^off PASS', '^off held PASS', '^rocket log PASS', '^phase make done') {
             if (@($first -match $want).Count -ne 1) { $problems += "the first instance did not print one '$($want.TrimStart('^'))' line" }
         }
-        foreach ($want in '^loaded rocket PASS', '^loaded comets PASS', '^cut PASS', '^done') {
+        foreach ($want in '^loaded rocket PASS', '^loaded off PASS', '^loaded comets PASS', '^on again PASS', '^cut PASS', '^done') {
             if (@($second -match $want).Count -ne 1) { $problems += "the second instance did not print one '$($want.TrimStart('^'))' line" }
         }
         if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join ' / ')" }

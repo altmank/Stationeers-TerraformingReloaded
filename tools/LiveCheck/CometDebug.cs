@@ -57,7 +57,7 @@ namespace TerraformingReloaded.LiveCheck
         private readonly Func<string[], string> _command;
         private readonly bool _load;
 
-        private enum Stage { Setup, Moved, GameTrip, Filled, Arrived, Natural, Stranded, Saving, Loaded, Cut, Done }
+        private enum Stage { Setup, Moved, GameTrip, Filled, Arrived, Natural, Stranded, Offing, Off, Saving, Loaded, Cut, Done }
 
         private Stage _stage = Stage.Setup;
         private double _stageClock;
@@ -165,7 +165,7 @@ namespace TerraformingReloaded.LiveCheck
             switch (_stage)
             {
                 case Stage.Setup when GameManager.GameTickCount >= StartTick:
-                    if (Discovered() && Build() && Listed() && Move(_ice, SiteNumber(_ice).ToString(C), "move to the ice site") && VerbTrip() && Move(Entry, "entry", "move to Entry"))
+                    if (CometsOn() && Discovered() && Build() && Listed() && Move(_ice, SiteNumber(_ice).ToString(C), "move to the ice site") && VerbTrip() && Move(Entry, "entry", "move to Entry"))
                     {
                         // The game's own trip back to the ice site, for the comparison: its destination, then its
                         // own instant move hop by hop.
@@ -199,6 +199,12 @@ namespace TerraformingReloaded.LiveCheck
                 case Stage.Stranded when _frames > 3:
                     Stranded();
                     break;
+                case Stage.Offing when _frames > 3:
+                    Offing();
+                    break;
+                case Stage.Off:
+                    Off();
+                    break;
                 case Stage.Saving when !_saved && _frames > 3:
                     Save();
                     break;
@@ -210,6 +216,16 @@ namespace TerraformingReloaded.LiveCheck
         }
 
         // ---- discover -----------------------------------------------------------------------------------
+
+        /// <summary>A new world has comets off, the default: first that every verb refuses, then on.</summary>
+        private bool CometsOn()
+        {
+            string refused = Cmd("discover");
+            bool off = !TerraformingReloaded.Effective.CometsEnabled && refused == "Comets are experimental and off for this world. Turn them on, at your own risk, with: terraform set CometsEnabled true";
+            string answer = Switch(true);
+            return Judge("default off", off && TerraformingReloaded.Effective.CometsEnabled && TerraformingReloaded.Patching.Gate.CometsEnabled(),
+                "a new world: comets " + (off ? "off" : "NOT OFF") + ", the verb answered '" + refused + "'; terraform set CometsEnabled true answered '" + answer.Split('\n')[0].Trim() + "'");
+        }
 
         private bool Discovered()
         {
@@ -566,12 +582,85 @@ namespace TerraformingReloaded.LiveCheck
             {
                 return;
             }
-            Next(Stage.Saving);
+            // A rocket running a comet action when comets go off.
+            _rocket.RocketMode = CometModes.Cut;
+            Info(string.Format(C, "mode | asked Cut | the rocket is in {0} at {1}", (byte)_rocket.RocketMode, _rocket.CurrentNode?.DisplayName));
+            if (_rocket.RocketMode != CometModes.Cut)
+            {
+                Fail("the game refused Cut at " + _rocket.CurrentNode?.DisplayName);
+                return;
+            }
+            // A comet in flight when comets go off: heavy, so its flight lasts minutes.
+            _f = MakeAndSend("1000000", "2", "100000", out double _);
+            Next(Stage.Offing);
+        }
+
+        // ---- comets off ---------------------------------------------------------------------------------
+
+        private int _f;
+        private double _fFlown;
+
+        /// <summary>The world's switch, through terraform set, as a host turns it.</summary>
+        private string Switch(bool on) => _command(new[] { "set", "CometsEnabled", on ? "true" : "false" });
+
+        private void Offing()
+        {
+            CometView f = CometMap.Views().FirstOrDefault(v => v.Id == _f);
+            if (f.State != MapCometState.Flying || !(f.FlownSeconds > 0.0) || _rocket.RocketMode != CometModes.Cut)
+            {
+                Overdue("comet " + _f + " under way, the rocket in Cut");
+                return;
+            }
+            Info("comets off answered | " + Switch(false));
+            Next(Stage.Off);
+        }
+
+        /// <summary>What comets off leaves, judged the same in both phases: nothing offered, shown or answered.</summary>
+        private bool JudgeOff(string what)
+        {
+            bool offered = new[] { CometModes.Cut, CometModes.Fuel, CometModes.Burn, CometModes.Launch }.Any(m => _mineral.HasAction(m) || _mineral.IsActionAvailable(m))
+                || Entry.HasAction(CometModes.Deorbit) || Entry.IsActionAvailable(CometModes.Deorbit);
+            string list = Cmd("list"), discover = Cmd("discover"), console = Cmd("1000", "CarbonDioxide", "preview"), rocket = Cmd("rocket");
+            const string Refused = "Comets are experimental and off for this world. Turn them on, at your own risk, with: terraform set CometsEnabled true";
+            bool verbs = new[] { list, discover, console, rocket }.All(a => a == Refused);
+            bool sky = CometSkyBodies.All.Length == 0;
+            CometView f = CometMap.Views().FirstOrDefault(v => v.Id == _f);
+            bool stopped = f.State == MapCometState.Flying && double.IsNaN(f.StartClock);
+            bool idle = _rocket.RocketMode == RocketMode.None;
+            return Judge(what, !offered && verbs && sky && stopped && idle && !TerraformingReloaded.Patching.Gate.CometsEnabled(), string.Format(C,
+                "comet actions offered {0} | the verbs refuse {1} ('{2}') | comets in the sky {3} | comet {4} {5}, {6} | rocket {7} in mode {8}",
+                offered ? "YES" : "none", verbs ? "all four" : "NOT all", list, CometSkyBodies.All.Length, _f, f.State,
+                double.IsNaN(f.StartClock) ? string.Format(C, "off the clock {0:R} s into its flight", f.FlownSeconds) : "STILL ON THE CLOCK", _rocket.ReferenceId, (byte)_rocket.RocketMode));
+        }
+
+        private bool _judgedOff;
+
+        private void Off()
+        {
+            // Past the game tick's main-thread moment, where a shorter sky list is published.
+            if (!_judgedOff && Clock - _stageClock > 1.5)
+            {
+                _judgedOff = true;
+                if (JudgeOff("off"))
+                {
+                    _fFlown = CometMap.Views().First(v => v.Id == _f).FlownSeconds;
+                }
+                return;
+            }
+            if (_judgedOff && Clock - _stageClock > 4.5)
+            {
+                double flown = CometMap.Views().First(v => v.Id == _f).FlownSeconds;
+                if (Judge("off held", flown == _fFlown && _rocket.RocketMode == RocketMode.None,
+                    string.Format(C, "3 s later, comet {0} still {1:R} s into its flight (was {2:R}), rocket mode {3}", _f, flown, _fFlown, (byte)_rocket.RocketMode)))
+                {
+                    Next(Stage.Saving);
+                }
+            }
         }
 
         /// <summary>
         /// A few frames after the last move, once every arrival is in the rocket log: one arrival a trip, the
-        /// verb's as the game's; then the save.
+        /// verb's as the game's; then the save, with comets off.
         /// </summary>
         private void Save()
         {
@@ -585,8 +674,8 @@ namespace TerraformingReloaded.LiveCheck
             CometView v = CometMap.Views().First(x => x.Id == _v);
             CometView n = CometMap.Views().First(x => x.Id == _n);
             CometView d = CometMap.Views().First(x => x.Id == _d);
-            Info(string.Format(C, "saving | rocket {0} at {1} | parked {2} fuel {3:R} | parked {4} fuel {5:R} | stranded {6} share {7:R} | at clock {8:R}",
-                _rocket.ReferenceId, CometMap.Identity(_rocket.CurrentNode), _v, v.FuelLeft, _n, n.FuelLeft, _d, d.RouteShare, Clock));
+            Info(string.Format(C, "saving | rocket {0} at {1} | parked {2} fuel {3:R} | parked {4} fuel {5:R} | stranded {6} share {7:R} | stopped {8} flown {9:R} | comets off | at clock {10:R}",
+                _rocket.ReferenceId, CometMap.Identity(_rocket.CurrentNode), _v, v.FuelLeft, _n, n.FuelLeft, _d, d.RouteShare, _f, _fFlown, Clock));
             Util.Commands.CommandLine.Process("file save");
             _saved = true;
             _stageClock = Clock;
@@ -609,7 +698,10 @@ namespace TerraformingReloaded.LiveCheck
                     {
                         _stageClock = Clock;
                     }
-                    Loaded();
+                    LoadedOff();
+                    break;
+                case Stage.Loaded:
+                    LoadedOn();
                     break;
                 case Stage.Cut:
                     WatchCut();
@@ -619,58 +711,94 @@ namespace TerraformingReloaded.LiveCheck
 
         private static string Env(string key) => Environment.GetEnvironmentVariable("TR_LIVECHECK_COMETDEBUG_" + key) ?? "";
 
-        private void Loaded()
+        private int _cyclesBefore;
+
+        /// <summary>The save loaded with comets off, as it was saved: everything kept, nothing offered or shown.</summary>
+        private void LoadedOff()
         {
             long.TryParse(Env("ROCKET"), NumberStyles.Integer, C, out long rocketId);
             _rocket = Referencable.Find<Rocket>(rocketId);
-            string[] parked = Env("PARKED").Split(';');
-            int.TryParse(Env("STRANDED"), NumberStyles.Integer, C, out _d);
-            bool skyReady = parked.All(p => int.TryParse(p.Split('=')[0], NumberStyles.Integer, C, out int id) && CometSkyBodies.For(id) != null);
-            if (_rocket == null || !skyReady || _frames < 10)
+            if (_rocket == null || Clock - _stageClock < 3.0)
             {
                 if (Clock - _stageClock > 60.0)
                 {
-                    Fail("the load brought back no rocket " + rocketId + ", or its parked comets are not in the sky");
+                    Fail("the load brought back no rocket " + rocketId);
                 }
                 return;
             }
             _miner = _rocket.RocketNetwork?.Internals.OfType<RocketMiner>().FirstOrDefault();
             _mineral = _rocket.CurrentNode;
+            int.TryParse(Env("STOPPED"), NumberStyles.Integer, C, out _f);
+            int.TryParse(Env("STRANDED"), NumberStyles.Integer, C, out _d);
             string end = TripEnd(_rocket);
-            if (!Judge("loaded rocket", CometMap.Identity(_rocket.CurrentNode) == Env("AT") && end == Ended && _miner != null,
-                string.Format(C, "rocket {0} at {1}, saved at {2} | {3} | miner {4}", rocketId, CometMap.Identity(_rocket.CurrentNode), Env("AT"), end, _miner != null ? "aboard" : "MISSING")))
+            if (!Judge("loaded rocket", CometMap.Identity(_rocket.CurrentNode) == Env("AT") && end == Ended && _miner != null && !TerraformingReloaded.Effective.CometsEnabled,
+                string.Format(C, "rocket {0} at {1}, saved at {2} | {3} | miner {4} | comets {5} for this world", rocketId, CometMap.Identity(_rocket.CurrentNode), Env("AT"), end,
+                    _miner != null ? "aboard" : "MISSING", TerraformingReloaded.Effective.CometsEnabled ? "ON" : "off")))
             {
                 return;
             }
+            if (!JudgeOff("loaded off") || !JudgeComets("loaded comets", false))
+            {
+                return;
+            }
+            CometView? waiting = CometMap.WaitingView(_mineral);
+            _cyclesBefore = waiting?.Cycles ?? 0;
+            _densityBefore = _mineral.Deposit.Density;
+            Info("comets on answered | " + Switch(true));
+            Next(Stage.Loaded);
+        }
+
+        /// <summary>
+        /// Every comet as the save kept it: the parked ones with their fuel (and, once comets are on, in the sky with
+        /// the rule's orbit), the stranded one at its share, the stopped one at its seconds (once on, flying on from them).
+        /// </summary>
+        private bool JudgeComets(string what, bool on)
+        {
             List<string> seen = new List<string>();
             bool comets = true;
-            foreach (string entry in parked)
+            SkyFrame? frame = CometSkyBodies.Frame();
+            foreach (string entry in Env("PARKED").Split(';'))
             {
                 string[] pair = entry.Split('=');
                 int id = int.Parse(pair[0], C);
                 double fuel = double.Parse(pair[1], C);
                 CometView view = CometMap.Views().FirstOrDefault(v => v.Id == id);
-                SkyFrame? frame = CometSkyBodies.Frame();
-                bool sky = frame != null && Elements(CometSkyBodies.For(id).Body, CometSkyBodies.OrbitOf(frame.Value, id));
+                CometSkyBodies.Shown shown = CometSkyBodies.For(id);
+                bool sky = on ? shown != null && frame != null && Elements(shown.Body, CometSkyBodies.OrbitOf(frame.Value, id)) : shown == null;
                 comets &= view.State == MapCometState.Arrived && view.AtNode == Entry.ReferenceId && view.FuelLeft == fuel && sky;
-                seen.Add(string.Format(C, "{0} {1} at {2} fuel {3:R} (saved {4:R}) sky {5}", id, view.State, CometMap.Identity(SpaceMapNode.Get(view.AtNode)), view.FuelLeft, fuel, sky ? "the rule's orbit" : "NO"));
+                seen.Add(string.Format(C, "{0} {1} at {2} fuel {3:R} (saved {4:R}) sky {5}", id, view.State, CometMap.Identity(SpaceMapNode.Get(view.AtNode)), view.FuelLeft, fuel,
+                    shown == null ? "none" : sky ? "the rule's orbit" : "ANOTHER orbit"));
             }
             CometView stranded = CometMap.Views().FirstOrDefault(v => v.Id == _d);
             double share = double.Parse(Env("SHARE"), C);
             comets &= stranded.State == MapCometState.Stranded && stranded.RouteShare == share;
             seen.Add(string.Format(C, "{0} {1} at {2:R} of its route (saved {3:R})", _d, stranded.State, stranded.RouteShare, share));
-            if (!Judge("loaded comets", comets, string.Join(" | ", seen)))
+            CometView f = CometMap.Views().FirstOrDefault(v => v.Id == _f);
+            double flown = double.Parse(Env("FLOWN"), C);
+            bool going = on ? f.State != MapCometState.Waiting && !double.IsNaN(f.StartClock) && f.FlownSeconds >= flown
+                : f.State == MapCometState.Flying && double.IsNaN(f.StartClock) && f.FlownSeconds == flown;
+            comets &= going;
+            seen.Add(string.Format(C, "{0} {1}, {2:R} s into its flight (saved {3:R}), {4}", _f, f.State, f.FlownSeconds, flown, double.IsNaN(f.StartClock) ? "off the clock" : "on the clock"));
+            return Judge(what, comets, string.Join(" | ", seen));
+        }
+
+        /// <summary>Comets on again: the sky back, the stopped flight flying on, and the rocket back in Cut, by the mod.</summary>
+        private void LoadedOn()
+        {
+            bool skyReady = Env("PARKED").Split(';').All(p => CometSkyBodies.For(int.Parse(p.Split('=')[0], C)) != null);
+            if (!skyReady || Clock - _stageClock < 1.5 || _rocket.RocketMode != CometModes.Cut)
+            {
+                if (Clock - _stageClock > 60.0)
+                {
+                    Fail(string.Format(C, "comets on again did not bring the parked comets back to the sky, or the rocket back to Cut (mode {0})", (byte)_rocket.RocketMode));
+                }
+                return;
+            }
+            if (!JudgeComets("on again", true))
             {
                 return;
             }
-            _densityBefore = _mineral.Deposit.Density;
-            _rocket.RocketMode = CometModes.Cut;
-            Info(string.Format(C, "mode | asked Cut | the rocket is in {0} at {1}", (byte)_rocket.RocketMode, _rocket.CurrentNode?.DisplayName));
-            if (_rocket.RocketMode != CometModes.Cut)
-            {
-                Fail("the game refused Cut at " + _rocket.CurrentNode?.DisplayName + ": " + TerraformingReloaded.Comets.CometActions.Explain(TerraformingReloaded.Comets.CometActions.Refusal(_rocket.CurrentNode, CometModes.Cut)));
-                return;
-            }
+            Info(string.Format(C, "mode | the rocket is back in {0} at {1} by the mod", (byte)_rocket.RocketMode, _rocket.CurrentNode?.DisplayName));
             Next(Stage.Cut);
         }
 
@@ -679,7 +807,7 @@ namespace TerraformingReloaded.LiveCheck
         private void WatchCut()
         {
             CometView? made = CometMap.WaitingView(_mineral);
-            if (made == null || made.Value.Cycles < 1)
+            if (made == null || made.Value.Cycles <= _cyclesBefore)
             {
                 Overdue("a Cut cycle at the mineral site");
                 return;
@@ -694,8 +822,8 @@ namespace TerraformingReloaded.LiveCheck
             double k = tuning.SizeMultiplierAt(size > 0.0 ? size : CelestialRules.StandardPlanetSize);
             double expected = CelestialRules.Shipped.CometMoles(d.TotalOreAtLocation, comet.Cycles * yield, tuning.CutSharePerCycle, k);
             bool pass = comet.Kind == CometKind.Mineral && Math.Abs(comet.OreUnits - expected) <= Relative * expected && d.Density < _densityBefore && _miner.QuantityMined == 0;
-            if (Judge("cut", pass, string.Format(C, "the moved rocket at {0}: comet {1} {2}, {3} cycles | ore {4:R} units (rule {5:R}: site {6} units, K {7:R}, head yield {8:R}) | site density {9:R} -> {10:R}",
-                CometMap.Identity(_mineral), comet.Id, comet.Kind, comet.Cycles, comet.OreUnits, expected, d.TotalOreAtLocation, k, yield, _densityBefore, d.Density)))
+            if (Judge("cut", pass, string.Format(C, "the moved rocket at {0}: comet {1} {2}, {3} cycles (had {4}) | ore {5:R} units (rule {6:R}: site {7} units, K {8:R}, head yield {9:R}) | site density {10:R} -> {11:R}",
+                CometMap.Identity(_mineral), comet.Id, comet.Kind, comet.Cycles, _cyclesBefore, comet.OreUnits, expected, d.TotalOreAtLocation, k, yield, _densityBefore, d.Density)))
             {
                 Info("done");
                 _stage = Stage.Done;

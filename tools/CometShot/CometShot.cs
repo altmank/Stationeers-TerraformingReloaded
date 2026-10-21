@@ -207,6 +207,8 @@ namespace TerraformingReloaded.CometShot
                         }
                         break;
                     case 2:
+                        // Comets are experimental and off by default: this world turns them on first.
+                        Logger.LogInfo("CometShot: comets on: " + Util.Commands.CommandLine.CommandsMap["terraform"].Execute(new[] { "set", "CometsEnabled", "true" }));
                         Logger.LogInfo("CometShot: firing 'terraform " + _command + "'");
                         string reply = Util.Commands.CommandLine.CommandsMap["terraform"].Execute(_command.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Prepend("comet").ToArray());
                         Logger.LogInfo("CometShot: reply: " + reply);
