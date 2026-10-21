@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.22.5 (prototype)
+
+- **Comets are now experimental and off by default.** Every world, new or saved, has no comets until you
+  turn them on for it with `terraform set CometsEnabled true`, at your own risk (or `CometsEnabled` in the
+  `Celestial terraforming` section of the config, for new worlds). Builds 0.16 to 0.22 had them always on; none
+  of those was published, but a world played on one shows its comets again only once you turn them on. Off,
+  nothing about comets is offered or shown, and the console comet and every comet command say they are off;
+  a world's comets are kept as they are: one in flight or coming down stops where it is, a rocket running a
+  comet action goes idle, and all of it carries on from where it stopped when comets are turned on again.
+- **Debug commands for setting up a comet situation by hand**, for the host, to test each stage of a comet in a
+  creative game without the long way round. `terraform comet discover [ice|mineral]` finds a new site of that
+  kind, as a finished Discover scan would. `terraform comet rocket` lists the rockets, with what each carries for
+  a comet; `terraform comet rocket <n> <site>|entry` ends the trip of a rocket already in space there at once, as
+  if it had just flown there, and `fill` tops up its fuel tanks with 2:1 methane and oxygen.
+  `terraform comet arrive <id>` brings a comet in flight to orbit now, with the fuel the trip would have left
+  it; a comet that would run out of fuel is not brought in, and `terraform comet arrive <id> strand` leaves it
+  where it would run out. Nothing changes for a game that does not use them.
+
 ## 0.22.4 (prototype)
 
 - **Two copies of the mod in one game now say so.** With the Workshop copy and a local copy both enabled, the game

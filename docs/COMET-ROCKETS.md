@@ -11,6 +11,9 @@ player is warned, and the impact brings its gas or takes air away (stage 6, 0.21
 near where it lands: ground zero, the fireball's heat, the wave and the falling rocks, in one pass (stage 7,
 0.22.0).
 
+Comets are experimental and off by default (0.22.5): each world turns them on with `terraform set CometsEnabled
+true`, at its player's own risk (*Comets off*, below).
+
 Game facts below are from the decompile; file and line references are kept out of this public repo.
 
 ## What LU decided (2026-10-20 and 21)
@@ -140,7 +143,8 @@ Its icon moves on the map as a rocket's does.
   engines=<n> fuel=<mol>` puts a comet at a discovered site (`terraform comet make` alone lists them by number
   and name); `terraform comet send <id>` sends it; `terraform comet list` shows each comet, where it is, its
   fuel, and when it reaches Entry or runs dry by the rule. `make` and `send` are host only and refuse unless
-  the save part is installed. Fuel is moles of the 2:1 premix.
+  the save part is installed. Fuel is moles of the 2:1 premix. The verbs for staging a situation by hand
+  (`discover`, `rocket`, `arrive`, 0.22.5) are in *Staging a situation in a game*, below.
 
 Worked example: an 18 t comet with 2 engines going from Mars Orbit to the Frozen Vapors node (383 Δv) burns
 for 223.5 s and uses 16,092 mol of fuel. That is the exact integral: the mass falls as the fuel burns, at the
@@ -587,6 +591,7 @@ section, `Celestial terraforming`.
 
 | Setting | What it sets | Default | Derived from |
 |---|---|---|---|
+| CometsEnabled | whether comets are on for the world: everything on this page, the console comet and the comet commands | off | Not a tuning number. LU, 2026-10-21: comets are experimental, off by default and enabled at the player's own risk. A switch of its own, not one of the numbers, so it is a plain on or off in the config, the world's file and the sync (*Comets off*, below) |
 | CutSharePerCycle | share of K times the site's gas added to the comet per Cut cycle | 0.001 | A drill head holds 100 and loses 1 with a chance of 0.1 / Health each cycle, so a Basic head (Health 1) lasts 1,000 cycles on average and an Ice head (Health 2) 2,000. 1 / 1,000 makes a whole comet one Basic head's life and half an Ice head's: with the head made for ice, no trip home for a new head on average. It is also the 1,000 cycles that mining out a middling Frozen Vapors site takes (Density 3, Richness 2, Size 2.5, by the game's depletion rule), so a comet costs the drilling of a typical site: 1,000 x (10 - 0.4 x 3) s = 2.4 h with one head of speed 1 |
 | CometSizeMultiplier | K on a Standard-size planet: a comet's gas, once the whole site is cut, as a multiple of the site's. The K in force follows the planet's size (`CelestialRules.SizeMultiplier`) | 5 | LU's rule that one site never delivers a third of a planet, read as a third of the air the planet needs before you can breathe outside without a suit. At Standard size (250,000 outdoor cells) that need is 125 mol per cell on Mars and 121 on the Moon (`BALANCE.md`), so a third is 10.08M mol for the Moon. The biggest ice site on Mars's or the Moon's map holds 2,785,190 mol (Density 8, Richness 3, Size 7: 116,050 units of 24 mol by the game's own sum, which it shows rounded to 100,000). At 70 % arriving, K x 0.7 x 2.785M under 10.08M gives K under 5.17: the largest whole K is 5. What a planet needs grows with its size and a site does not, so the K in force is this times the planet's size over 1/20, never under 1: Short (1/100) 1, Long (1/4) 25. The third then holds on every shipped size: Short 1.95M mol against 2.02M, Long 48.7M against 50.4M; `CelestialRules.Check` holds it at all three |
 | OrbitSeconds | real seconds for one orbit of a comet waiting at Entry, on every world; one pass per orbit | 372 | Phobos, the fastest body in Mars's sky, goes round it in 360 x 0.3189 / (687 x 4.494e-4) = 371.9 real seconds (its period, Mars's year, and Mars's sky clock `OrbitalSimulation.TimeScale`), and the Ground Telescope tracks it. A comet no faster across the sky stays trackable. Half the orbit, 186 s, is above the horizon (the game puts the observer at the planet's centre): long enough to read a telescope and burn. 3.2 passes in a 20 minute day. Each world's `Orbit.Period` is 372 x its own period x its TimeScale / 360 (`CelestialRules.OrbitPeriodDays`) |
@@ -919,6 +924,172 @@ a rendered run.
 Stage 2 is in 0.17.0: `src/Comets/CelestialTuning.cs` (the settings) and `src/Comets/CelestialRules.cs` (the
 rules), checked at load (the log says so) and by `tools/PatchCheck`, which also hands the check nineteen wrong
 rules it must catch and reads the game's own molar masses and burn ratio under the worked examples.
+
+## Staging a situation in a game
+
+Debug verbs (0.22.5), host only, for setting up each comet situation by hand in a creative game and checking it
+by eye, without discovering sites, flying rockets out or waiting out a flight. Each does what the game, or the
+comet rule, does at the end of the slow part it skips:
+
+| Verb | What it does | What it stands for |
+|---|---|---|
+| `terraform comet discover [ice\|mineral]` | a new site of that kind (either when left out), at the node nearest orbit that can still discover one, and the way to that node charted; prints the site's number and name | a Discover scan completing: the node's discovery points back to 0 and the game's own `SpaceMapNode.CreateSite`, its random pick narrowed to sites of that kind; charting as Chart scans chart, by the parent's chart points |
+| `terraform comet rocket` | every rocket by number: its name, where it is, what it is doing, its miners and drill heads, its payload bays and what is in them, its fuel tanks and the premix in each | |
+| `terraform comet rocket <n> <site>\|entry` | a rocket already in space ends its trip at that site (a number or name from `terraform comet make`) or at Entry, now | the game's own trip: its destination (`Rocket.ChangeTarget`), then hop by hop the game's `rocket instantmove` and its own travel step, which at the end runs the game's arrival (the rocket log's line, idle, the avionics' auto shut-off) and clears the trip. Refused for a rocket on its pad, climbing, landing or crewed |
+| `terraform comet rocket <n> [<site>\|entry] fill` | tops up the rocket's fuel tanks with 2:1 methane and oxygen, empty ones too; on the pad as well | the game's own `rocket refuel` figure, 30 MPa counted at 215 K, of the premix the Fuel action takes |
+| `terraform comet arrive <id>` | a comet in flight reaches Entry now, with the fuel the rule leaves it, and parks in the sky | its flight moved to the end the rule gives it, as if it had set off that long ago; every machine settles it as it settles any flight. A comet the rule runs dry is refused, with where it runs out |
+| `terraform comet arrive <id> strand` | a comet that runs dry stops now where its fuel would run out, for good | the same, to where the rule strands it |
+
+What every situation starts from, in a creative world:
+
+| Step | Do |
+|---|---|
+| 0 | `terraform set CometsEnabled true`: comets are experimental and off until a world turns them on. |
+| 1 | Build a rocket on a launch pad: an engine mount with a Pumped Gas engine, avionics, a battery and a gas fuel tank, plus the parts the situation below asks for. |
+| 2 | `terraform comet discover ice` (and `terraform comet discover mineral` for a mineral comet). Note the site number it prints. |
+| 3 | `terraform comet rocket` for the rocket's number, then `terraform comet rocket <n> fill`. |
+| 4 | Launch it to Entry with the game's own controls. The climb runs at the game's own speed; the verb only ends trips in space. |
+| 5 | `terraform comet rocket <n> <site>` puts it at the site, or `entry` back at Entry. `terraform comet list` shows every comet. |
+
+### Map flight
+
+| Step | Do |
+|---|---|
+| Build | nothing more |
+| Make and send | `terraform comet make <site> 100000 Water engines=2 fuel=40000`, then `terraform comet send <id>`; `make` says first whether that fuel reaches orbit |
+| Check | the comet's icon moves on the rocket map; `terraform comet list` shows its hop, its fuel and when it reaches orbit |
+| Skip the wait | `terraform comet arrive <id>` |
+| Running dry | `terraform comet make <site> 1000000 Water engines=1 fuel=5000`, send it; `terraform comet arrive <id>` refuses and says where it runs out; `terraform comet arrive <id> strand` leaves it there |
+
+### Parked in the sky
+
+| Step | Do |
+|---|---|
+| Build | nothing more; a Celestial Scanner to see it marked through the ground |
+| Commands | make and send as above, then `terraform comet arrive <id>` |
+| Check | the comet's glow and tail cross the sky once every `OrbitSeconds` (372 s); `terraform comet list` says it is in orbit |
+
+### Tracking: Ground Telescope and Map motherboard
+
+| Step | Do |
+|---|---|
+| Build | a Ground Telescope built facing north, with a chip or logic writers for its Horizontal and Vertical; a computer with a Map motherboard, its trackables switch on; a rocket with a Large payload bay |
+| Commands | a comet parked as above; `terraform comet rocket <n> entry` for the rocket with the bay |
+| Check | the telescope locks on with Horizontal set to the comet's bearing and Vertical to its angle down from straight up, and reads its orbit; the Map motherboard shows the target (orange) and where it lands now (icy blue), which slides as the comet passes |
+
+### Cut
+
+| Step | Do |
+|---|---|
+| Build | a Rocket Miner with a drill head (an Ice drill head cuts ice best) |
+| Commands | `terraform comet rocket <n> <ice site>`, then the Cut button on the rocket map screen |
+| Check | each drill cycle grows the site's comet (`terraform comet list`, the location panel's comet line); a mineral site makes a mineral comet |
+
+### Rig
+
+| Step | Do |
+|---|---|
+| Build | a Large payload bay holding a Payload Delivery Container with Pumped Gas engine kits |
+| Commands | a comet waiting at the site, by Cut or by `terraform comet make <site> 100000 Water engines=0 fuel=0`; `terraform comet rocket <n> <site>`; the game's Deploy |
+| Check | when the deploy finishes, each kit is an engine on the comet and the kits are gone; the container stays |
+
+### Fuel
+
+| Step | Do |
+|---|---|
+| Build | gas fuel tanks; `terraform comet rocket <n> fill` fills them |
+| Commands | a comet waiting at the site; `terraform comet rocket <n> <site>`; the Fuel button, and stop it when you like |
+| Check | the comet's fuel grows by what pairs two to one in 200 L of the rocket's stores a second; nitrogen or a methane excess stays behind |
+
+### Burn
+
+| Step | Do |
+|---|---|
+| Build | a Rocket Miner with a drill head |
+| Commands | `terraform comet make <site> 6000 Methane:2 Oxygen:1 engines=0 fuel=0` (no Mars site holds both, so a debug comet); `terraform comet rocket <n> <site>`; the Burn button |
+| Check | each drill cycle turns the comet's methane and oxygen into its fuel, two to one; the site is not touched |
+
+### Launch
+
+| Step | Do |
+|---|---|
+| Build | nothing more |
+| Commands | a comet with engines and fuel waiting at the site (Rig and Fuel, or `terraform comet make <site> 100000 Water engines=2 fuel=40000`); `terraform comet rocket <n> <site>`; the Launch button; `terraform comet arrive <id>` to skip the flight |
+| Check | the rocket goes back to idle; the comet flies to Entry, or runs dry where `make` said |
+
+### Aiming and Deorbit
+
+| Step | Do |
+|---|---|
+| Build | a rocket with a Large payload bay, and a chip or logic writers for the bay's PositionX and PositionZ |
+| Commands | a comet parked at Entry; `terraform comet rocket <n> entry`; set PositionX and PositionZ to the target (NaN for an untracked burn); the Deorbit button |
+| Check | the bay reads TargetX and TargetZ (where it lands now), DistanceKm, TimeToDestination (to the comet's next highest) and Maximum (its reach); every player is warned; it lands where TargetX and TargetZ said in the frame of the burn, 50 s later |
+
+### Impact zones
+
+| Step | Do |
+|---|---|
+| Build | structures out from where the comet will land: in ground zero, in the fireball, in the falling rocks, out in the wave (the radii for its size are in *Near the impact*) |
+| Commands | bring a rocket comet down as above, aimed beside them; `terraform set MaxDamagingRocks <n>` sets the cap on rocks that hit |
+| Check | what stands, breaks, burns or is hit by a rock against *Near the impact*'s table; the log's `[TR comet] event N impact at ...` line says what the pass found |
+
+### The console comet
+
+| Step | Do |
+|---|---|
+| Build | nothing |
+| Commands | `terraform comet 1000000 CarbonDioxide` where you look, `turn=<deg>` and `range=<m>` to move it, `K=<kelvin>` for its gas's temperature, `preview` to see it without its gas; `terraform comet stop` ends a show |
+| Check | the show, the wave and the gas (`terraform status`); it never comes down nearer a structure or player than is safe for its size, so it cannot stand in for the impact zones close in |
+
+### Staging verbs, as built (0.22.5)
+
+| Decision | Goal served | Alternative, and why it lost |
+|---|---|---|
+| `discover` makes the site by the game's own call at the end of a discovery (`CreateSite`, the node's points back to 0), with the random pick narrowed to sites of the kind asked | the game's own site, sent to every player and saved with the map; every one of a node's nine site slots goes to a site of the kind wanted | Setting the node's points to its difficulty and trying again until the kind comes up: every miss stays on the map and takes one of the node's nine slots |
+| The node is the nearest to orbit, by the game's route, that has a template of the kind and a free slot; the way to it is charted as Chart scans chart it | a rocket can scan only at a charted node, and a new world has only Entry charted | Only nodes already charted: the verb would refuse in a new world, the game it is for |
+| A trip is ended by the game's own destination and travel step, hop by hop as `rocket instantmove` ends one | the arrival's every effect is the game's: the rocket log's line, idle, the avionics' auto shut-off, the trip cleared, every field flagged to every player, the node in the save | `SetCurrentNode` alone: the destination, the transit and the mode stay as they were, with no arrival in the rocket log |
+| Only a rocket in space, not one crewed | a rocket's parts stand on its pad until it flies; the game sends a crewed rocket only to a launch pad | Moving a rocket off its pad: its structures would stay on the pad, or be moved by a path the game never takes |
+| `fill` is the game's own refuel figure, 30 MPa counted at 215 K, of exact 2:1 premix, into every fuel tank, empty ones too | the Fuel stage staged with what Fuel takes; the game's own figure | The game's `rocket refuel`: it skips an empty tank and any store holding anything but methane and oxygen, and splits 0.666 to 0.334 |
+| `arrive` moves the flight's start back by the whole flight, and lets the frame's settling park it | one way a flight ends, the rule's, the same on every machine and in the save | Writing the comet as parked: a second way for a flight to end, with its fuel and its start for clients and saves to be told separately |
+| A comet that runs dry is never brought to Entry; `strand` stops it where it runs out | LU's "no rescue if it runs dry" | Parking it anyway: a debug verb that makes a plan work that the rule says fails |
+| Rockets are numbered by the game's id | the numbers hold while no rocket is built or lost; a rocket's name has spaces | By name: the console splits arguments at spaces |
+
+`tools/LiveCheck/run.ps1 -CometDebug` is the in-game proof (`VERIFICATION.md`), for bt.
+
+## Comets off
+
+`CometsEnabled` (0.22.5), a world setting, off by default. Every comet feature asks one question,
+`Gate.CometsEnabled()`: this world's switch and the mod live (`Gate.Enabled()`), field reads only; a joining
+player's game asks the host's switch, which arrives with the host's planet (sync layout 8), and has comets off
+until then whatever its own config says.
+
+Off:
+
+- **Nothing is offered.** The comet actions (Cut, Fuel, Burn, Launch, Deorbit) are not offered at any node, their
+  buttons are hidden, and Deploy at a site is the game's own again (it does nothing there), so a Payload
+  Delivery Container of engine kits stays as it is. A drill cycle a rocket was part way through makes nothing.
+- **Nothing is shown.** No comet icon on the rocket map, no comet in the sky (it leaves at the game tick's
+  main-thread moment, as a comet brought down does), so no telescope lock, no Map motherboard icons, and the
+  payload bay's comet readouts are the game's own.
+- **Nothing is answered.** The console comet and every comet command say comets are experimental and off for this
+  world, with the `terraform set CometsEnabled true` that turns them on.
+- **Time stops for comets, and nothing is lost.** On the host, every flight and every fall on the clock is taken
+  off it where it stands, exactly as a save takes one off, and the impact event in force is called off, as
+  `terraform comet stop` calls one off. Saved while off, they are written as they stand; loaded while off they
+  stay off the clock. When comets are on again each goes back on the clock from the second it stopped at, and a
+  fall's impact event is made again, as after a load.
+- **A rocket running a comet action goes idle**, the game's own idle, and its action is kept: saved with the
+  world while off (the same comets entry, the game's own entry saying idle), and taken up again when comets are on,
+  as after a load. Deorbit, a burn of one moment, is not kept, as a save does not keep it.
+- The comets entry of the save is written and read while off as when on, and a site a comet holds stays on the
+  map, so turning comets off never costs a comet.
+
+| Decision | Goal served | Alternative, and why it lost |
+|---|---|---|
+| Off stops a flight or a fall where it stands, by the same off-the-clock state a save leaves it in, and it goes on from there when comets are on | off means off: nothing of a comet happens while the player has said no; and nothing is lost | Letting a flight or fall run on by the clock while off: a comet the player cannot see would arrive, and one coming down would land and hit a base with comets off |
+| A rocket in a comet action goes idle and takes it up again when comets are on | no rocket stuck in an action nothing runs, and none loses what it was doing | Leaving it in the mode: an action the node no longer offers, which the panel cannot show; dropping the action: the player sets it again by hand |
+| A joining player's game has comets off until the host's switch arrives, its own config aside | everyone sees what the host's world decides | Its own config until the host's arrives: comets shown for a moment on a world that has them off |
+| The console comet is behind the same switch | off means off, for the prototype too | Leaving it on: comets would still come down in a world that turned them off |
 
 ## Open
 

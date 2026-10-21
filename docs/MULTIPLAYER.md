@@ -96,6 +96,9 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
   falling: each comet's id, kind, size, where it lands and its fall on the shared clock, 61 bytes a fall. A
   reader that does not know the byte ignores the list. While a rocket action changes a comet every tick (Cut, Fuel, Burn), or a chip moves
   a bay's target, the host sends the list at most every 2 s.
+- **Whether comets are on.** Last, one byte: the host's `CometsEnabled` for its world. A joining player's game
+  shows and offers comets only once the host's planet has arrived with it on; its own config never turns them
+  on. Layout 8, 0.22.5 on.
 - **The comet in the sky.** Every machine, the dedicated server included, puts a comet parked at Entry into
   its own sky as a body circling the planet, from the list it already has: the orbit comes from the comet's
   id, the world and the host's Celestial terraforming settings, and the game places every body by the sky's
@@ -118,7 +121,7 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
   from it, and the comet's line from that player's own copy of the comets. The miner's cycles, the deploy, the
   fuel moving and the launch happen only where the game's simulation runs.
 - **The section's first byte says what follows.** 0 nothing, 1 the planet alone (0.10.0 and earlier),
-  2 the planet and the settings (0.10.1 to 0.11.3), 3 the planet, the settings and space (0.11.4 to 0.13.2), 4 those and the storm bounds (0.14.0 to 0.15.0), 5 those and the comet (0.16.0 and 0.16.1), 6 those and the Celestial terraforming settings (0.17.0), 7 those and the comets on the space map (0.18.0 on). A reader takes the planet from 1 to 7 and skips any other
+  2 the planet and the settings (0.10.1 to 0.11.3), 3 the planet, the settings and space (0.11.4 to 0.13.2), 4 those and the storm bounds (0.14.0 to 0.15.0), 5 those and the comet (0.16.0 and 0.16.1), 6 those and the Celestial terraforming settings (0.17.0), 7 those and the comets on the space map (0.18.0 to 0.22.4), 8 those and whether comets are on (0.22.5 on). A reader takes the planet from 1 to 8 and skips any other
   value; a layout, once shipped, keeps its byte and a new one takes the next. Mixed versions never
   meet in practice, because the exact version match above refuses the join, so this guards a
   hand-built or mis-versioned peer, not a supported mix: a 0.10.0 game reading a 2 would skip the

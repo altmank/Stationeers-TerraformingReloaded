@@ -64,6 +64,12 @@ the planet section of the save; the game reads that section with or without the 
   deep, and everything outdoors below it counts as under water. The amount of liquid that takes
   is fixed by the game and does not shrink with planet size.
 - **Heat.** Heat your base sheds outdoors warms the planet slightly and fades over time.
+- **Comets: an experimental option, off unless you turn it on.** It is off in every world until you
+  run `terraform set CometsEnabled true` in that world (or turn it on in the config for new worlds), at
+  your own risk: a comet brought down badly can wreck a base, yours included. Switched on, rockets can
+  cut comets from ice and mineral sites on the space map, fly them to the planet's orbit and bring them
+  down where you aim, adding gas to the air or blasting air away. Switched off again, a world's comets
+  stay as they are and carry on when it is turned back on.
 - **Small spills can gather at your base: an experimental option, off unless you turn it on.** It is
   off in every world until you run `terraform set TraceGasGatheringEnabled on` in that world (or turn
   it on in the config for new worlds). Switched on, a gas the planet's air holds only a trace of is
@@ -311,6 +317,8 @@ The few worth knowing before you start:
 - **`RocketsBurnCompletely`** (the `Rockets` section) is on by default. Rocket engines burn all of the
   propellant that runs out first instead of 96 % of it. Read the landing note under What to expect
   before turning it off on a world you have flown rockets in.
+- **`CometsEnabled`** (the `Celestial terraforming` section) is experimental and off by default; enable it at
+  your own risk. The rest of that section tunes comets.
 - **The `Trace gases` section** is experimental and off by default. It switches trace gas gathering on
   and decides how many times faster the air beside your base draws a gas the planet holds only a trace
   of, and how little counts as a trace. **`PlanetKeepsTraceGas`**, off by default, keeps in the planet
