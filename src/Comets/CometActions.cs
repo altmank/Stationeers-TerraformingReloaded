@@ -12,10 +12,10 @@ using Objects.Rockets.Scanning;
 namespace TerraformingReloaded.Comets
 {
     /// <summary>
-    /// The rocket modes the comet actions add (docs/COMET-ROCKETS.md, stage 4). Byte values the game's
+    /// The rocket modes the comet actions add (docs/COMET-ROCKETS.md, stages 4 and 6). Byte values the game's
     /// RocketMode does not use, so the network and a logic write carry them as they carry the game's own;
     /// only the save cannot, and is kept from ever seeing one (CometActionPatches.RocketSaveDataPostfix).
-    /// Rig is the game's own Deploy, at the comet's site.
+    /// Rig is the game's own Deploy, at the comet's site. Deorbit is run at Entry, the rest at a site.
     /// </summary>
     public static class CometModes
     {
@@ -23,10 +23,11 @@ namespace TerraformingReloaded.Comets
         public const RocketMode Fuel = (RocketMode)10;
         public const RocketMode Burn = (RocketMode)11;
         public const RocketMode Launch = (RocketMode)12;
+        public const RocketMode Deorbit = (RocketMode)13;
 
-        public static readonly RocketMode[] All = { Cut, Fuel, Burn, Launch };
+        public static readonly RocketMode[] All = { Cut, Fuel, Burn, Launch, Deorbit };
 
-        public static bool IsComet(RocketMode mode) => mode >= Cut && mode <= Launch;
+        public static bool IsComet(RocketMode mode) => mode >= Cut && mode <= Deorbit;
 
         /// <summary>The name a save keeps the mode by, or null for one that is not a comet action.</summary>
         public static string Name(RocketMode mode)
@@ -41,6 +42,8 @@ namespace TerraformingReloaded.Comets
                     return "Burn";
                 case Launch:
                     return "Launch";
+                case Deorbit:
+                    return "Deorbit";
                 default:
                     return null;
             }
@@ -73,6 +76,8 @@ namespace TerraformingReloaded.Comets
                     return "Burning the comet's ice into fuel";
                 case Launch:
                     return "Launching the comet";
+                case Deorbit:
+                    return "Bringing the comet down";
                 default:
                     return null;
             }
@@ -94,6 +99,11 @@ namespace TerraformingReloaded.Comets
         NoEngines,
         NoFuel,
         NotSent,
+        NotEntry,
+        NothingInOrbit,
+        NotInSky,
+        Busy,
+        NotBroughtDown,
     }
 
     /// <summary>
@@ -117,6 +127,10 @@ namespace TerraformingReloaded.Comets
             if (!_installed || CelestialRules.Verdict != null || (!NetworkManager.IsClient && !CometMap.SaveInstalled))
             {
                 return CometRefusal.Off;
+            }
+            if (mode == CometModes.Deorbit)
+            {
+                return DeorbitRefusal(node);
             }
             if (node == null || node.NodeType != NodeType.Generated)
             {
@@ -147,6 +161,41 @@ namespace TerraformingReloaded.Comets
                 default:
                     return CometRefusal.Off;
             }
+        }
+
+        /// <summary>
+        /// Deorbit: at Entry, with a comet parked there and in the sky for a bay to aim, and no other comet coming
+        /// down. Which bay aims is the rocket's; the action asks that when it fires (CometLand.Deorbit).
+        /// </summary>
+        private static CometRefusal DeorbitRefusal(SpaceMapNode node)
+        {
+            if (!CometLand.Installed)
+            {
+                return CometRefusal.Off;
+            }
+            if (node == null || node != SpaceMap.Current?.EntryNode)
+            {
+                return CometRefusal.NotEntry;
+            }
+            bool parked = false;
+            bool shown = false;
+            foreach (MapComet comet in CometMap.All)
+            {
+                if (comet.State == MapCometState.Arrived)
+                {
+                    parked = true;
+                    shown |= CometSkyBodies.For(comet.Id) != null;
+                }
+            }
+            if (!parked)
+            {
+                return CometRefusal.NothingInOrbit;
+            }
+            if (!shown)
+            {
+                return CometRefusal.NotInSky;
+            }
+            return CometLand.Busy() ? CometRefusal.Busy : CometRefusal.None;
         }
 
         private static CometRefusal CutRefusal(SpaceMapNode node, MapComet comet)
@@ -214,6 +263,16 @@ namespace TerraformingReloaded.Comets
                     return "The comet has no fuel: Fuel it first";
                 case CometRefusal.NotSent:
                     return "The comet could not be sent: see the Terraforming Reloaded log";
+                case CometRefusal.NotEntry:
+                    return "A comet is brought down from the planet's orbit";
+                case CometRefusal.NothingInOrbit:
+                    return "There is no comet waiting in orbit";
+                case CometRefusal.NotInSky:
+                    return "The comet is not in the sky yet";
+                case CometRefusal.Busy:
+                    return "Another comet is coming down";
+                case CometRefusal.NotBroughtDown:
+                    return "The comet could not be brought down: see the Terraforming Reloaded log";
                 default:
                     return "Comet action refused";
             }
@@ -387,6 +446,53 @@ namespace TerraformingReloaded.Comets
                 {
                     Log.Warn("[TR comet actions] rocket " + rocket.ReferenceId + " could not launch the comet at " + SpaceMapNode?.DisplayName + ": " + refused);
                     result = CometActions.Failure(CometRefusal.NotSent);
+                }
+                rocket.RocketMode = RocketMode.None;
+            }
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// Deorbit: fires the burn for the comet the rocket's payload bay aims, once, at the landing its aim gives
+    /// (CometLand.Deorbit), then puts the rocket back to idle, which closes the action on its next tick.
+    /// </summary>
+    internal sealed class DeorbitAction : RocketAction
+    {
+        private bool _done;
+
+        public DeorbitAction(SpaceMapNode node)
+            : base(null, node)
+        {
+        }
+
+        public override bool IsRocketMode(RocketMode rocketMode) => rocketMode == CometModes.Deorbit;
+
+        public override bool Evaluate(Rocket rocket, out RocketActionResult result)
+        {
+            if (_done)
+            {
+                return result = RocketActionResult.Success;
+            }
+            CometRefusal why = CometActions.Refusal(SpaceMapNode, CometModes.Deorbit);
+            return result = why == CometRefusal.None ? RocketActionResult.Success : CometActions.Failure(why);
+        }
+
+        public override void Start(Rocket rocket)
+        {
+        }
+
+        public override bool ProgressAction(float deltaTime, Rocket rocket, out RocketActionResult result)
+        {
+            result = RocketActionResult.Success;
+            if (!_done)
+            {
+                _done = true;
+                string refused = CometLand.Deorbit(rocket);
+                if (refused != null)
+                {
+                    Log.Warn("[TR comet land] rocket " + rocket.ReferenceId + " could not bring a comet down: " + refused);
+                    result = CometActions.Failure(CometRefusal.NotBroughtDown);
                 }
                 rocket.RocketMode = RocketMode.None;
             }

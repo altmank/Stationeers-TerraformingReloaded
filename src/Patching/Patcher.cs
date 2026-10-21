@@ -419,10 +419,16 @@ namespace TerraformingReloaded.Patching
             // unless the sky still keeps its bodies in the lists the comet joins and the sky rules pass their
             // own check.
             Extra(report, "comet sky body", () => Comets.CometSkyBodies.Apply());
+            // A comet leaving the sky makes the game's list of bodies shorter, which only the game tick's own
+            // main-thread moment may do: the logic tick, off that thread, counts the list and then indexes it.
+            Extra(report, "comet sky safe point", () => Comets.CometSkyBodies.ApplySafePoint(harmony));
             // Where a rocket at Entry would bring it down, read out through its payload bay.
             Extra(report, "comet aim readouts", () => Comets.CometAim.ApplyReadouts(harmony));
             // Its target and its landing as two icons on the Map motherboard.
             Extra(report, "comet map motherboard icons", () => Comets.CometSkyIcons.Apply(harmony));
+            // Deorbit (stage 6): a rocket at Entry brings the comet its bay aims down. Nothing of its own is
+            // patched; refused unless the rocket actions, the comets' save, the sky body and its safe point are in.
+            Extra(report, "comet deorbit", () => Comets.CometLand.Apply());
 
             return report;
         }

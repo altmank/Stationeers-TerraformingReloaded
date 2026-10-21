@@ -426,7 +426,10 @@ namespace TerraformingReloaded.Comets
     [XmlRoot("TerraformingReloadedComets")]
     public class CometSaveFile
     {
-        /// <summary>1: 0.18.0, ice comets only. 2: a comet's kind, its ore and its Cut cycles, and the rockets running a comet action.</summary>
+        /// <summary>
+        /// 1: 0.18.0, ice comets only. 2: a comet's kind, its ore and its Cut cycles, and the rockets running a
+        /// comet action. 3: every comet brought down and still falling (CometLandingRecord).
+        /// </summary>
         [XmlAttribute]
         public int Version = CometMap.SaveVersion;
 
@@ -439,6 +442,10 @@ namespace TerraformingReloaded.Comets
         /// </summary>
         [XmlElement("Rocket")]
         public List<CometRocketRecord> Rockets = new List<CometRocketRecord>();
+
+        /// <summary>Each comet brought down and still falling at the save: it lands at the same clock time after the load.</summary>
+        [XmlElement("Landing")]
+        public List<CometLandingRecord> Landings = new List<CometLandingRecord>();
     }
 
     /// <summary>A rocket and the comet action it was running at the save.</summary>

@@ -106,6 +106,49 @@ namespace TerraformingReloaded.Comets
             return null;
         }
 
+        /// <summary>
+        /// Host, main thread: the impact event of a comet brought down by rocket (CometLand), the console comet's
+        /// own, landing where and when its fall ends. Nothing about where it lands is decided here: no safe
+        /// distance, no turn. A mineral comet shows the air it throws up and no reaction.
+        /// </summary>
+        internal static CometEvent Land(CometLanding landing)
+        {
+            Install();
+            double total = landing.TotalMoles;
+            int count = Math.Max(1, landing.Gases.Length);
+            CometPlan plan = new CometPlan
+            {
+                Moles = landing.ShowMoles,
+                Types = landing.Gases.Length > 0 ? (Assets.Scripts.Atmospherics.Chemistry.GasType[])landing.Gases.Clone()
+                    : new[] { Assets.Scripts.Atmospherics.Chemistry.GasType.CarbonDioxide },
+                Shares = new double[count],
+            };
+            for (int i = 0; i < count; i++)
+            {
+                plan.Shares[i] = landing.Gases.Length == 0 ? 1.0 : total > 0.0 ? landing.Moles[i] / total : 1.0 / count;
+            }
+            Vector3 impact = new Vector3((float)landing.ImpactX, (float)landing.ImpactY, (float)landing.ImpactZ);
+            Vector3 travel = new Vector3((float)landing.TravelX, (float)landing.TravelY, (float)landing.TravelZ).normalized;
+            CometEvent comet = new CometEvent
+            {
+                Sequence = ++_sequence,
+                StartClock = landing.ImpactClock - CometEvent.ApproachSeconds,
+                Plan = plan,
+                Impact = impact,
+                Start = impact - travel * CometSite.PathLength(plan.Scale),
+                Travel = travel,
+                Seed = landing.Seed,
+                Reactions = landing.Kind == CometKind.Ice ? CometReactions.Of(plan.Types, plan.Shares, PlanetOxidiserShare()) : new CometReactions.Reactions(0.0, 0.0, 0.0, 0.0, 0.0),
+                RocketComet = landing.CometId,
+            };
+            Current = comet;
+            CometNet.Broadcast(comet);
+            _instance.Play(comet);
+            Debug.Log(string.Format(CultureInfo.InvariantCulture, "[TR comet] event {0}: comet {1} brought down by rocket, {2:N0} mol, scale {3:0.00}, seed {4}, starts at clock {5:R}, impact {6} (clock {7:R}), reactions {8}",
+                comet.Sequence, landing.CometId, plan.Moles, plan.Scale, comet.Seed, comet.StartClock, comet.Impact, comet.ImpactClock, comet.Reactions));
+            return comet;
+        }
+
         /// <summary>Host: stops the comet here and on every client. False when there is none.</summary>
         public static bool CallOff()
         {
@@ -189,6 +232,15 @@ namespace TerraformingReloaded.Comets
             catch (Exception e)
             {
                 CometMap.Fault("the comets in the sky stopped being kept this frame: " + e.Message);
+            }
+            // The comets brought down, falling: each warns once, and on the host lands when its fall is over.
+            try
+            {
+                CometLand.Step();
+            }
+            catch (Exception e)
+            {
+                CometLand.Fault("the falling comets stopped being stepped this frame: " + e.Message);
             }
             try
             {

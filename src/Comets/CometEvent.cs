@@ -43,6 +43,12 @@ namespace TerraformingReloaded.Comets
         public bool CalledOff;
 
         /// <summary>
+        /// Host only, never sent: the comet brought down by rocket this is the impact of, 0 for a console comet. Its
+        /// gas is CometLand's at the end of the fall, not the show's.
+        /// </summary>
+        public int RocketComet;
+
+        /// <summary>
         /// The clock every machine shares: the host's real-time seconds, sent to joining players and in
         /// every state update, and advanced each frame in between.
         /// </summary>

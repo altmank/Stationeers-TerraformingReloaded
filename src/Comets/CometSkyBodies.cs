@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Assets.Scripts;
 using Assets.Scripts.Objects;
@@ -28,6 +30,15 @@ namespace TerraformingReloaded.Comets
     /// list, published by one reference write once it is complete: a reader holds the old list or the new,
     /// neither of which is touched again. The game itself writes the lists only while a world loads.
     ///
+    /// A list that would be shorter than the one it replaces waits for the game tick's own main-thread
+    /// moment (<see cref="ApplySafePoint"/>). The Rocket Celestial Tracker counts the list and then indexes
+    /// it, in two reads, from the logic tick, which runs in the part of the game tick that leaves the main
+    /// thread; a list made shorter between the two reads would be indexed past its end. The game tick is one
+    /// loop that awaits each switch of thread, so none of its own off-thread work overlaps the moment on the
+    /// main thread just before it leaves it, where the sea's level is set (GlobalAtmosphereLiquid.UpdateLiquid).
+    /// A list made no shorter, a comet joining the sky, is published at once: every index valid in the old
+    /// list is valid in the new.
+    ///
     /// Main thread only, every frame (<see cref="Step"/>, from CometDirector). A world load or exit empties
     /// the game's lists; a body this no longer finds there is made again the next frame.
     /// </summary>
@@ -39,6 +50,8 @@ namespace TerraformingReloaded.Comets
         private static AccessTools.FieldRef<OrbitalSimulation, List<Celestial>> _all;
         private static AccessTools.FieldRef<OrbitalSimulation, Dictionary<int, Celestial>> _byHash;
         private static volatile bool _installed;
+        private static volatile bool _safePoint;
+        private static volatile bool _waiting;
         private static volatile Shown[] _shown = new Shown[0];
         private static int _faults;
 
@@ -59,6 +72,118 @@ namespace TerraformingReloaded.Comets
 
         /// <summary>The sky bodies are installed (Patcher's "comet sky body").</summary>
         public static bool Installed => _installed;
+
+        /// <summary>A comet leaves the sky at the game tick's own main-thread moment (Patcher's "comet sky safe point").</summary>
+        public static bool SafePointInstalled => _safePoint;
+
+        /// <summary>A shorter list is waiting for the game tick's main-thread moment; for tools/LiveCheck.</summary>
+        public static bool LeavingWaits => _waiting;
+
+        /// <summary>How many times a shorter list was published at the game tick's main-thread moment, and in a frame; for tools/LiveCheck.</summary>
+        public static int ShortenedAtSafePoint;
+        public static int ShortenedInFrame;
+
+        /// <summary>
+        /// Patcher's "comet sky safe point": a postfix on the sea's level, which the game tick sets on the main
+        /// thread just before it leaves it for its off-thread work, the logic tick among it. Refused unless the
+        /// game tick still does those in that order (<see cref="SafePointOrder"/>), from its own code.
+        /// </summary>
+        public static void ApplySafePoint(Harmony harmony, Func<MethodBase, List<string>> calls = null)
+        {
+            MethodInfo liquid = AccessTools.DeclaredMethod(typeof(GlobalAtmosphereLiquid), nameof(GlobalAtmosphereLiquid.UpdateLiquid), Type.EmptyTypes);
+            MethodInfo tick = AccessTools.DeclaredMethod(typeof(GameManager), "GameTick");
+            Type machine = tick?.GetCustomAttribute<AsyncStateMachineAttribute>()?.StateMachineType;
+            MethodInfo body = machine == null ? null : AccessTools.DeclaredMethod(machine, "MoveNext");
+            if (liquid == null || body == null)
+            {
+                throw new MissingMethodException("the game tick, or the sea's level it sets, is gone");
+            }
+            string wrong = SafePointOrder((calls ?? CallsOf)(body));
+            if (wrong != null)
+            {
+                throw new InvalidOperationException("the game tick no longer works the way the comet's leaving the sky relies on: " + wrong);
+            }
+            harmony.Patch(liquid, postfix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(CometSkyBodies), nameof(SafePointPostfix))));
+            _safePoint = true;
+        }
+
+        /// <summary>Every method a body calls, in the order its code has them, as declaring type and name.</summary>
+        private static List<string> CallsOf(MethodBase method)
+        {
+            List<string> calls = new List<string>();
+            foreach (CodeInstruction instruction in PatchProcessor.GetOriginalInstructions(method))
+            {
+                if (instruction.operand is MethodBase callee)
+                {
+                    calls.Add(callee.DeclaringType?.Name + "." + callee.Name);
+                }
+            }
+            return calls;
+        }
+
+        /// <summary>
+        /// Null when the game tick's body has the sea's level set once, before its one switch to other threads,
+        /// and the logic tick after that switch and before its one switch back to the main thread; else why not.
+        /// The calls are as declaring type and name, in the order the body's code has them.
+        /// </summary>
+        public static string SafePointOrder(IList<string> calls)
+        {
+            int liquid = -1;
+            int away = -1;
+            int logic = -1;
+            int back = -1;
+            int liquids = 0;
+            int aways = 0;
+            int backs = 0;
+            for (int i = 0; i < calls.Count; i++)
+            {
+                switch (calls[i])
+                {
+                    case "GlobalAtmosphereLiquid.UpdateLiquid":
+                        liquid = i;
+                        liquids++;
+                        break;
+                    case "UniTask.SwitchToThreadPool":
+                        away = i;
+                        aways++;
+                        break;
+                    case "LogicStack.LogicStackTick":
+                        logic = i;
+                        break;
+                    case "UniTask.SwitchToMainThread":
+                        back = i;
+                        backs++;
+                        break;
+                }
+            }
+            if (liquids != 1 || aways != 1 || backs != 1 || logic < 0)
+            {
+                return string.Format(CultureInfo.InvariantCulture, "it sets the sea's level {0} times, leaves the main thread {1} times, comes back {2} times, and {3} the logic tick",
+                    liquids, aways, backs, logic < 0 ? "never runs" : "runs");
+            }
+            if (!(liquid < away && away < logic && logic < back))
+            {
+                return "the sea's level is not set on the main thread before the tick leaves it, or the logic tick does not run while it is away";
+            }
+            return null;
+        }
+
+        /// <summary>The game tick's main-thread moment: a shorter list that waited for it is published now.</summary>
+        private static void SafePointPostfix()
+        {
+            if (!_waiting)
+            {
+                return;
+            }
+            try
+            {
+                Keep(true);
+            }
+            catch (Exception e)
+            {
+                Fault("A comet could not be taken out of the sky: " + e.Message);
+            }
+        }
 
         /// <summary>
         /// Patcher's "comet sky body": nothing is patched, but the two private lists of every body must be
@@ -124,7 +249,13 @@ namespace TerraformingReloaded.Comets
         }
 
         /// <summary>Main thread, every frame: the sky holds a body for every comet parked at Entry, and for nothing else.</summary>
-        internal static void Step()
+        internal static void Step() => Keep(false);
+
+        /// <summary>
+        /// The sky's comets made to match the comets parked at Entry. A list shorter than the one in force waits
+        /// for the game tick's main-thread moment (<paramref name="safePoint"/>) when that is installed.
+        /// </summary>
+        private static void Keep(bool safePoint)
         {
             if (!_installed)
             {
@@ -166,15 +297,20 @@ namespace TerraformingReloaded.Comets
             }
             if (!same)
             {
-                Rebuild(sky, frame.Value, standing, parked);
+                _waiting = !Rebuild(sky, frame.Value, standing, parked, safePoint || !_safePoint);
+            }
+            else
+            {
+                _waiting = false;
             }
         }
 
         /// <summary>
         /// The game's lists with these comets' bodies, in comet id order after every body of the world's own,
-        /// made new and published whole. A body whose comet and orbit are unchanged is kept.
+        /// made new and published whole. A body whose comet and orbit are unchanged is kept. A list shorter than
+        /// the one in force is published only when <paramref name="mayShorten"/>; false when it waits.
         /// </summary>
-        private static void Rebuild(OrbitalSimulation sky, SkyFrame frame, List<Shown> standing, List<int> parked)
+        private static bool Rebuild(OrbitalSimulation sky, SkyFrame frame, List<Shown> standing, List<int> parked, bool mayShorten)
         {
             RotatingCelestialBody planet = sky.PlayerBody;
             HashSet<Celestial> leaving = new HashSet<Celestial>();
@@ -233,6 +369,21 @@ namespace TerraformingReloaded.Comets
                 circling.Add(one.Body);
             }
 
+            if (after.Count < before.Count)
+            {
+                if (!mayShorten)
+                {
+                    return false;
+                }
+                if (_safePoint)
+                {
+                    ShortenedAtSafePoint++;
+                }
+                else
+                {
+                    ShortenedInFrame++;
+                }
+            }
             GuardTrackers(before, after);
             // The lookup and the planet's own list are read on the main thread only; the list of every body is
             // read on other threads, so it goes last, once everything it leads to is in place.
@@ -255,9 +406,10 @@ namespace TerraformingReloaded.Comets
             {
                 if (!after.Contains(gone))
                 {
-                    Log.Info("[TR comet sky] " + gone.Name + " left the sky");
+                    Log.Info("[TR comet sky] " + gone.Name + " left the sky" + (after.Count < before.Count ? (_safePoint ? ", at the game tick's main-thread moment" : ", in a frame") : ""));
                 }
             }
+            return true;
         }
 
         /// <summary>A comet's body, placed for the sky's present time before anything can see it. A body of the same id may only be one of the comets' own, leaving.</summary>

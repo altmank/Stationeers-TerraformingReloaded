@@ -18,7 +18,10 @@ namespace TerraformingReloaded.Comets
     /// were brought down now is the sky rule's point under it (CelestialRules.SkyPoint, from the direction the
     /// game's sky shows it in), moved toward the target by the reach of the fuel it has left
     /// (CelestialRules.ReachMetres, CelestialRules.Landing), inside the disc around the launch pad nearest the
-    /// target.
+    /// target. A bay whose target is not a number (a chip wrote NaN) aims untracked: the comet would come down at
+    /// the sky point alone, in the disc around the pad nearest the world's origin, with no fuel spent steering
+    /// (CelestialRules.Descend). A Deorbit action fires the burn at the landing its bay's aim gives that frame
+    /// (CometLand.Deorbit).
     ///
     /// The bay's target is not saved or sent by the game. The host reads every bay of every rocket at Entry
     /// each frame and sends the targets with the comets (CometMap's list, layout 3); every machine then works
@@ -32,7 +35,7 @@ namespace TerraformingReloaded.Comets
         /// <summary>How often the structures on the ground are gathered again, and the comet's next highest point worked out again.</summary>
         private const double SlowSeconds = 1.0;
 
-        /// <summary>A bay's target as the host read it.</summary>
+        /// <summary>A bay's target as the host read it; NaN for one that is not a point on the ground, which aims untracked.</summary>
         public readonly struct Target
         {
             public readonly long BayId;
@@ -45,6 +48,9 @@ namespace TerraformingReloaded.Comets
                 X = x;
                 Z = z;
             }
+
+            /// <summary>The target is a point on the ground; else the bay aims untracked.</summary>
+            public bool Tracked => !float.IsNaN(X) && !float.IsNaN(Z) && !float.IsInfinity(X) && !float.IsInfinity(Z);
         }
 
         /// <summary>One bay at Entry aiming one parked comet, as this machine works it out. A plain struct: net472 has no IsExternalInit.</summary>
@@ -53,8 +59,13 @@ namespace TerraformingReloaded.Comets
             public readonly long BayId;
             public readonly string RocketName;
             public readonly int CometId;
+
+            /// <summary>The bay's target; NaN untracked.</summary>
             public readonly double TargetX;
             public readonly double TargetZ;
+
+            /// <summary>The bay has a target; else the comet would come down at the sky point alone.</summary>
+            public readonly bool Tracked;
 
             /// <summary>The launch pad nearest the target, the disc's centre; the target itself when the map has no pad.</summary>
             public readonly double PadX;
@@ -71,6 +82,13 @@ namespace TerraformingReloaded.Comets
             /// <summary>How far, in metres, the fuel the comet has left can move where it lands.</summary>
             public readonly double Reach;
 
+            /// <summary>How far the burn would move it toward the target, in metres, and the moles of fuel that takes (CelestialRules.Descend).</summary>
+            public readonly double Steered;
+            public readonly double FuelSpent;
+
+            /// <summary>The fuel the comet has at Entry, which all of this was worked from.</summary>
+            public readonly double Fuel;
+
             /// <summary>Where it would land if it were brought down now.</summary>
             public readonly double LandX;
             public readonly double LandZ;
@@ -84,14 +102,29 @@ namespace TerraformingReloaded.Comets
             /// <summary>The direction the game's sky shows the comet in, which all of this was worked from.</summary>
             public readonly SkyVector Direction;
 
-            public Aim(long bayId, string rocketName, int cometId, double targetX, double targetZ, double padX, double padZ, bool onPad, double radius,
-                double skyX, double skyZ, double reach, double landX, double landZ, double nearestStructureMetres, double nextHighestClock, SkyVector direction)
+            /// <summary>The frame this was worked out in (UnityEngine.Time.frameCount) and the clock then.</summary>
+            public readonly int Frame;
+            public readonly double Clock;
+
+            /// <summary>Where a rocket comes to rest on the pad, its height the ground the impact falls back to with no voxels to read.</summary>
+            public readonly double PadY;
+
+            public Aim(long bayId, string rocketName, int cometId, double targetX, double targetZ, bool tracked, double padX, double padY, double padZ, bool onPad, double radius,
+                double skyX, double skyZ, double reach, double steered, double fuelSpent, double fuel, double landX, double landZ, double nearestStructureMetres, double nextHighestClock,
+                SkyVector direction, int frame, double clock)
             {
                 BayId = bayId;
                 RocketName = rocketName;
                 CometId = cometId;
                 TargetX = targetX;
                 TargetZ = targetZ;
+                Tracked = tracked;
+                PadY = padY;
+                Steered = steered;
+                FuelSpent = fuelSpent;
+                Fuel = fuel;
+                Frame = frame;
+                Clock = clock;
                 PadX = padX;
                 PadZ = padZ;
                 OnPad = onPad;
@@ -165,7 +198,7 @@ namespace TerraformingReloaded.Comets
             {
                 return;
             }
-            CometSkyBodies.Shown shown = Parked();
+            CometSkyBodies.Shown shown = Parked(out MapComet comet);
             if (!NetworkManager.IsClient)
             {
                 // Nothing is aimed while no comet is parked, so nothing is sent for it either.
@@ -186,11 +219,6 @@ namespace TerraformingReloaded.Comets
                 }
                 return;
             }
-            MapComet comet = CometMap.Find(shown.CometId);
-            if (comet == null)
-            {
-                return;
-            }
             double now = CometEvent.Clock;
             bool slow = now - _slowAt >= SlowSeconds || now < _slowAt;
             if (slow)
@@ -207,28 +235,46 @@ namespace TerraformingReloaded.Comets
             UnityEngine.Vector3 seen = shown.Body.WorldVector;
             SkyVector direction = new SkyVector(seen.x, seen.y, seen.z);
             double fuel = comet.At(now).FuelLeft;
-            double reach = CelestialRules.Shipped.ReachMetres(comet.CometKg, comet.Engines, fuel, tuning.CorrectionMetresPerDeltaV, tuning.EntryWindowSeconds, comet.FuelKgPerMole);
             double highest = NextHighestClock(frame.Value, shown, now, slow);
+            int frameCount = UnityEngine.Time.frameCount;
             Aim[] aims = new Aim[targets.Length];
             for (int i = 0; i < targets.Length; i++)
             {
                 Target target = targets[i];
-                bool onPad = NearestPad(pads, target.X, target.Z, out double padX, out double padZ);
+                bool tracked = target.Tracked;
+                // Untracked, the disc is the one around the pad nearest the world's origin, the same on every machine.
+                bool onPad = NearestPad(pads, tracked ? target.X : 0.0, tracked ? target.Z : 0.0, out double padX, out double padY, out double padZ);
                 GroundPoint sky = CelestialRules.Shipped.SkyPoint(padX, padZ, direction.X, direction.Y, direction.Z, radius);
-                GroundPoint land = CelestialRules.Shipped.Landing(sky, new GroundPoint(target.X, target.Z), reach, padX, padZ, radius);
+                Descent descent = CelestialRules.Shipped.Descend(sky, tracked ? new GroundPoint(target.X, target.Z) : (GroundPoint?)null, padX, padZ, radius,
+                    comet.CometKg, comet.Engines, fuel, tuning.CorrectionMetresPerDeltaV, tuning.EntryWindowSeconds, comet.FuelKgPerMole);
+                GroundPoint land = descent.Land;
                 double nearest = NetworkManager.IsClient ? double.NaN : Nearest(_ground, land.X, land.Z);
                 RocketPayloadBay bay = Referencable.Find<RocketPayloadBay>(target.BayId);
                 string rocket = bay?.RocketNetwork?.Rocket?.DisplayName ?? "a rocket";
-                aims[i] = new Aim(target.BayId, rocket, comet.Id, target.X, target.Z, padX, padZ, onPad, radius, sky.X, sky.Z, reach, land.X, land.Z, nearest, highest, direction);
+                aims[i] = new Aim(target.BayId, rocket, comet.Id, tracked ? target.X : double.NaN, tracked ? target.Z : double.NaN, tracked, padX, padY, padZ, onPad, radius,
+                    sky.X, sky.Z, descent.Reach, descent.Steered, descent.FuelSpent, fuel, land.X, land.Z, nearest, highest, direction, frameCount, now);
             }
             _aims = aims;
         }
 
-        /// <summary>The comet the rockets at Entry aim: the first parked there, by id, that is in the sky.</summary>
-        private static CometSkyBodies.Shown Parked()
+        /// <summary>
+        /// The comet the rockets at Entry aim: the first in the sky, by id, that is still parked. One brought down
+        /// is out of the parked comets at once, while its body may stay in the sky until the game tick's
+        /// main-thread moment takes it out (CometSkyBodies).
+        /// </summary>
+        private static CometSkyBodies.Shown Parked(out MapComet comet)
         {
-            CometSkyBodies.Shown[] all = CometSkyBodies.All;
-            return all.Length > 0 ? all[0] : null;
+            foreach (CometSkyBodies.Shown shown in CometSkyBodies.All)
+            {
+                MapComet found = CometMap.Find(shown.CometId);
+                if (found != null && found.State == MapCometState.Arrived)
+                {
+                    comet = found;
+                    return shown;
+                }
+            }
+            comet = null;
+            return null;
         }
 
         /// <summary>The disc in force on this world and planet size.</summary>
@@ -257,11 +303,9 @@ namespace TerraformingReloaded.Comets
                     }
                     float x = (float)bay.GetLogicValue(LogicType.PositionX);
                     float z = (float)bay.GetLogicValue(LogicType.PositionZ);
-                    // A chip can write anything; a target that is not a point on the ground aims at nothing.
-                    if (!float.IsNaN(x) && !float.IsInfinity(x) && !float.IsNaN(z) && !float.IsInfinity(z))
-                    {
-                        read.Add(new Target(bay.ReferenceId, x, z));
-                    }
+                    // A chip can write anything; a target that is not a point on the ground aims untracked.
+                    Target target = new Target(bay.ReferenceId, x, z);
+                    read.Add(target.Tracked ? target : new Target(bay.ReferenceId, float.NaN, float.NaN));
                 }
             }
             read.Sort((a, b) => a.BayId.CompareTo(b.BayId));
@@ -300,9 +344,13 @@ namespace TerraformingReloaded.Comets
         }
 
         /// <summary>The pad nearest a target, along the ground; the target itself, and false, when there is none.</summary>
-        public static bool NearestPad(List<UnityEngine.Vector3> pads, double x, double z, out double padX, out double padZ)
+        public static bool NearestPad(List<UnityEngine.Vector3> pads, double x, double z, out double padX, out double padZ) => NearestPad(pads, x, z, out padX, out _, out padZ);
+
+        /// <summary>The same, with where a rocket rests on that pad, its height; 0 with no pad.</summary>
+        public static bool NearestPad(List<UnityEngine.Vector3> pads, double x, double z, out double padX, out double padY, out double padZ)
         {
             padX = x;
+            padY = 0.0;
             padZ = z;
             double best = double.PositiveInfinity;
             foreach (UnityEngine.Vector3 pad in pads)
@@ -314,6 +362,7 @@ namespace TerraformingReloaded.Comets
                 {
                     best = d;
                     padX = pad.x;
+                    padY = pad.y;
                     padZ = pad.z;
                 }
             }
@@ -459,30 +508,43 @@ namespace TerraformingReloaded.Comets
             public readonly double Z;
             public readonly bool IsTarget;
 
-            public Icon(long id, string name, double x, double z, bool isTarget)
+            /// <summary>The aim it is drawn for, by its place in <see cref="All"/> as the icons were made.</summary>
+            public readonly int Aim;
+
+            public Icon(long id, string name, double x, double z, bool isTarget, int aim)
             {
                 Id = id;
                 Name = name;
                 X = x;
                 Z = z;
                 IsTarget = isTarget;
+                Aim = aim;
             }
         }
 
-        /// <summary>Two icons for every bay aiming a parked comet: its target, and where the comet lands if it is brought down now.</summary>
-        public static Icon[] Icons()
+        /// <summary>
+        /// The icons of every bay aiming a parked comet: its target, and where the comet lands if it is brought
+        /// down now. An untracked bay has no target, so only the second.
+        /// </summary>
+        public static Icon[] Icons() => IconsOf(_aims);
+
+        /// <summary>The icons of these aims.</summary>
+        public static Icon[] IconsOf(Aim[] aims)
         {
-            Aim[] aims = _aims;
-            Icon[] icons = new Icon[aims.Length * 2];
+            List<Icon> icons = new List<Icon>(aims.Length * 2);
             CultureInfo c = CultureInfo.InvariantCulture;
             for (int i = 0; i < aims.Length; i++)
             {
                 Aim aim = aims[i];
                 long id = -(1L << 42) - 2L * Math.Abs(aim.BayId);
-                icons[2 * i] = new Icon(id, string.Format(c, "Comet {0}: the target of {1}", aim.CometId, aim.RocketName), aim.TargetX, aim.TargetZ, true);
-                icons[2 * i + 1] = new Icon(id - 1L, string.Format(c, "Comet {0}: lands here if brought down now", aim.CometId), aim.LandX, aim.LandZ, false);
+                if (aim.Tracked)
+                {
+                    icons.Add(new Icon(id, string.Format(c, "Comet {0}: the target of {1}", aim.CometId, aim.RocketName), aim.TargetX, aim.TargetZ, true, i));
+                }
+                icons.Add(new Icon(id - 1L, string.Format(c, aim.Tracked ? "Comet {0}: lands here if brought down now" : "Comet {0}: lands here if brought down now, untracked", aim.CometId),
+                    aim.LandX, aim.LandZ, false, i));
             }
-            return icons;
+            return icons.ToArray();
         }
 
         private static void Fault(string message)

@@ -887,8 +887,9 @@ namespace TerraformingReloaded.Comets
         {
             _impacted = true;
             _late = _joinedAt > ApproachSeconds + 0.5f;
-            // The gas first: nothing drawn or heard may stand between the comet and the planet.
-            if (_host && !_late)
+            // The gas first: nothing drawn or heard may stand between the comet and the planet. A comet brought
+            // down by rocket delivers its own at the end of its fall (CometLand), whether or not a show plays.
+            if (_host && !_late && _event.RocketComet == 0)
             {
                 try
                 {

@@ -71,7 +71,7 @@ namespace TerraformingReloaded.Comets
             CometActions.MarkInstalled();
         }
 
-        /// <summary>The buttons for the four comet actions on the rocket map screen, and the panel's name for the action running.</summary>
+        /// <summary>The buttons for the five comet actions on the rocket map screen, and the panel's name for the action running.</summary>
         public static void ApplyButtons(Harmony harmony)
         {
             MethodInfo initialize = AccessTools.DeclaredMethod(typeof(LocationActionsPanel), nameof(LocationActionsPanel.Initialize));
@@ -192,6 +192,9 @@ namespace TerraformingReloaded.Comets
                             break;
                         case CometModes.Launch:
                             __result = new LaunchAction(__instance);
+                            break;
+                        case CometModes.Deorbit:
+                            __result = new DeorbitAction(__instance);
                             break;
                     }
                 }
@@ -512,7 +515,8 @@ namespace TerraformingReloaded.Comets
             {
                 RocketMode mode = __instance.RocketMode;
                 SpaceMapNode site = __instance.CurrentNode;
-                if (__result == null || site == null || (!CometModes.IsComet(mode) && mode != RocketMode.Deploy))
+                // Deorbit fires once and has no comet waiting at a site to show a line for.
+                if (__result == null || site == null || mode == CometModes.Deorbit || (!CometModes.IsComet(mode) && mode != RocketMode.Deploy))
                 {
                     return;
                 }
@@ -542,7 +546,7 @@ namespace TerraformingReloaded.Comets
         private static AccessTools.FieldRef<LocationProgressPanel, LocationPanel> _progressLocation;
         private static readonly Dictionary<LocationActionsPanel, RocketActionButton[]> Buttons = new Dictionary<LocationActionsPanel, RocketActionButton[]>();
 
-        private static readonly string[] ButtonNames = { "Cut", "Fuel", "Burn", "Launch" };
+        private static readonly string[] ButtonNames = { "Cut", "Fuel", "Burn", "Launch", "Deorbit" };
 
         /// <summary>The panel's own Mine button, copied once for each comet action, beside it.</summary>
         private static void PanelInitializePostfix(LocationActionsPanel __instance)

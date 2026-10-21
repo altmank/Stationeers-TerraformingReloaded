@@ -259,6 +259,8 @@ internal static class Program
         failures += CheckCelestial();
         failures += CheckCometMap();
         failures += CheckCometSky();
+        failures += CheckSafePoint();
+        failures += CheckDeorbit();
 
         Console.WriteLine(failures == 0 ? "OK" : failures + " problem(s)");
         return failures == 0 ? 0 : 1;
@@ -1450,6 +1452,7 @@ internal static class Program
         var parts = new (string Name, Action<HarmonyLib.Harmony> Apply)[]
         {
             ("comet sky body", _ => TerraformingReloaded.Comets.CometSkyBodies.Apply()),
+            ("comet sky safe point", h => TerraformingReloaded.Comets.CometSkyBodies.ApplySafePoint(h, CecilCallNames)),
             ("comet aim readouts", TerraformingReloaded.Comets.CometAim.ApplyReadouts),
             ("comet map motherboard icons", TerraformingReloaded.Comets.CometSkyIcons.Apply),
         };
@@ -1471,6 +1474,101 @@ internal static class Program
             }
         }
         return failures;
+    }
+
+    /// <summary>
+    /// The moment a comet leaves the sky: the game tick's own body, read from the assembly with Mono.Cecil, sets
+    /// the sea's level on the main thread before its one switch to other threads and runs the logic tick only
+    /// after it; and the order check refuses a tick that does them any other way.
+    /// </summary>
+    private static int CheckSafePoint()
+    {
+        int failures = 0;
+        MethodInfo tick = HarmonyLib.AccessTools.DeclaredMethod(typeof(Assets.Scripts.GameManager), "GameTick");
+        Type machine = tick?.GetCustomAttribute<System.Runtime.CompilerServices.AsyncStateMachineAttribute>()?.StateMachineType;
+        MethodInfo body = machine == null ? null : HarmonyLib.AccessTools.DeclaredMethod(machine, "MoveNext");
+        if (body == null)
+        {
+            Console.WriteLine("FAILED:  comet sky safe point: the game tick's body is gone");
+            return 1;
+        }
+        List<string> calls = CecilCallNames(body);
+        string order = TerraformingReloaded.Comets.CometSkyBodies.SafePointOrder(calls);
+        failures += Judge(order == null, "comet sky safe point: " + (order ?? "the game tick sets the sea's level on the main thread once, then leaves it once for its off-thread work, the logic tick among it, then comes back once"));
+        int liquid = calls.IndexOf("GlobalAtmosphereLiquid.UpdateLiquid");
+        int away = calls.IndexOf("UniTask.SwitchToThreadPool");
+        int logic = calls.IndexOf("LogicStack.LogicStackTick");
+        var wrongs = new (string What, List<string> Calls)[]
+        {
+            ("the sea's level set after the tick has left the main thread", Moved(calls, liquid, away + 1)),
+            ("the logic tick run before the tick leaves the main thread", Moved(calls, logic, away)),
+            ("the tick leaving the main thread twice", Inserted(calls, liquid, "UniTask.SwitchToThreadPool")),
+            ("no logic tick at all", calls.Where(c => c != "LogicStack.LogicStackTick").ToList()),
+        };
+        foreach (var wrong in wrongs)
+        {
+            string caught = TerraformingReloaded.Comets.CometSkyBodies.SafePointOrder(wrong.Calls);
+            failures += Judge(caught != null, "comet sky safe point order check refuses " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        return failures;
+    }
+
+    /// <summary>
+    /// Deorbit: its warning by its own check, and the part itself refused while a part it rests on is off. Here
+    /// the rocket actions only bind (their save guard needs Unity), so the refusal is what can be seen.
+    /// </summary>
+    private static int CheckDeorbit()
+    {
+        int failures = 0;
+        string warning = TerraformingReloaded.Comets.CometLand.CheckWarning();
+        failures += Judge(warning == null, "comet deorbit warning: " + (warning ?? "the seconds to impact, a player's distance and compass direction from it, or where it lands with no player, and what it brings or takes"));
+        bool refused = false;
+        try
+        {
+            TerraformingReloaded.Comets.CometLand.Apply();
+        }
+        catch (InvalidOperationException e)
+        {
+            refused = e.Message.Contains("rocket actions False");
+        }
+        failures += Judge(refused && !TerraformingReloaded.Comets.CometLand.Installed, "comet deorbit is refused while the rocket actions are off, as they are outside Unity");
+        return failures;
+    }
+
+    private static List<string> Moved(List<string> calls, int from, int to)
+    {
+        List<string> moved = new List<string>(calls);
+        string one = moved[from];
+        moved.RemoveAt(from);
+        moved.Insert(Math.Min(to, moved.Count), one);
+        return moved;
+    }
+
+    private static List<string> Inserted(List<string> calls, int at, string call)
+    {
+        List<string> more = new List<string>(calls);
+        more.Insert(at, call);
+        return more;
+    }
+
+    /// <summary>Every call a method makes, in its code's order, as declaring type and name, read through Mono.Cecil.</summary>
+    private static List<string> CecilCallNames(MethodBase method)
+    {
+        string path = method.Module.FullyQualifiedName;
+        if (!Modules.TryGetValue(path, out object read))
+        {
+            read = Mono.Cecil.ModuleDefinition.ReadModule(path);
+            Modules[path] = read;
+        }
+        Mono.Cecil.MethodDefinition definition = ((Mono.Cecil.ModuleDefinition)read).LookupToken(method.MetadataToken) as Mono.Cecil.MethodDefinition;
+        if (definition == null || !definition.HasBody)
+        {
+            throw new InvalidOperationException("Mono.Cecil did not find the body of " + method.DeclaringType + "." + method.Name);
+        }
+        return definition.Body.Instructions
+            .Where(i => (i.OpCode == Mono.Cecil.Cil.OpCodes.Call || i.OpCode == Mono.Cecil.Cil.OpCodes.Callvirt) && i.Operand is Mono.Cecil.MethodReference)
+            .Select(i => ((Mono.Cecil.MethodReference)i.Operand).DeclaringType.Name + "." + ((Mono.Cecil.MethodReference)i.Operand).Name)
+            .ToList();
     }
 
     private sealed class SkyTurnedFirst : TerraformingReloaded.Comets.CometSkyRules

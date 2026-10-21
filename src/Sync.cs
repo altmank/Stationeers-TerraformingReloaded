@@ -263,7 +263,8 @@ namespace TerraformingReloaded
                     : null;
                 double[] celestial = kind >= PlanetSettingsSpaceStormBoundsCometAndCelestial ? ReadCelestial(reader) : null;
                 Comets.CometAim.Target[] targets = null;
-                Comets.MapComet[] map = kind >= PlanetSettingsSpaceStormBoundsCometCelestialAndMap ? Comets.CometMap.Read(reader, out targets) : null;
+                Comets.CometLanding[] landings = null;
+                Comets.MapComet[] map = kind >= PlanetSettingsSpaceStormBoundsCometCelestialAndMap ? Comets.CometMap.Read(reader, out targets, out landings) : null;
                 if (!NetworkManager.IsClient || PlanetaryAtmosphereSimulation.GetGlobalGasMix() == null)
                 {
                     return;
@@ -274,7 +275,7 @@ namespace TerraformingReloaded
                 }
                 if (map != null)
                 {
-                    Comets.CometMap.FromHost(map, targets);
+                    Comets.CometMap.FromHost(map, targets, landings);
                 }
                 // Every take and clone divides by the tank volume.
                 if (data.GlobalGasMix.Volume.Value <= 0.0 || data.LiquidClouds.Volume.Value <= 0.0

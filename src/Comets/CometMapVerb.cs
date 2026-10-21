@@ -21,6 +21,7 @@ namespace TerraformingReloaded.Comets
     {
         public const string Usage = "Debug, for comets on the space map: "
             + "terraform comet make <site> <mol> <gas>[:<share>] [<gas>[:<share>] ...] engines=<n> fuel=<mol> puts a comet at a discovered site; "
+            + "terraform comet make <site> <units> Ore engines=<n> fuel=<mol> puts a mineral comet of that many units of ore there; "
             + "terraform comet make alone lists the sites, and <site> is a number from that list or a site's name. "
             + "terraform comet send <id> sends it to the planet's orbit by the game's rocket travel rule. "
             + "terraform comet list shows every comet, where it is and when it arrives. make and send are host only.";
@@ -88,6 +89,7 @@ namespace TerraformingReloaded.Comets
             }
             int engines = -1;
             double fuel = -1.0;
+            bool ore = false;
             List<Chemistry.GasType> types = new List<Chemistry.GasType>();
             List<double> shares = new List<double>();
             for (int i = 4; i < args.Length; i++)
@@ -117,15 +119,24 @@ namespace TerraformingReloaded.Comets
                     }
                     continue;
                 }
+                if (string.Equals(arg, "Ore", StringComparison.OrdinalIgnoreCase))
+                {
+                    ore = true;
+                    continue;
+                }
                 string wrongGas = CometVerb.AddGas(arg, gasNamed, gasNames, types, shares);
                 if (wrongGas != null)
                 {
                     return wrongGas;
                 }
             }
-            if (types.Count == 0)
+            if (ore && types.Count > 0)
             {
-                return "Name at least one gas for the comet. " + Usage;
+                return "A comet is of gas or of Ore, not both. " + Usage;
+            }
+            if (types.Count == 0 && !ore)
+            {
+                return "Name at least one gas for the comet, or Ore. " + Usage;
             }
             if (engines < 0 || fuel < 0.0)
             {
@@ -137,17 +148,19 @@ namespace TerraformingReloaded.Comets
                 total += share;
             }
             double[] amounts = shares.ConvertAll(s => moles * s / total).ToArray();
-            string refused = CometMap.Make(site, types.ToArray(), amounts, engines, fuel, out MapComet made);
+            string refused = CometMap.Make(site, types.ToArray(), amounts, engines, fuel, out MapComet made, ore ? moles : 0.0);
             if (refused != null)
             {
                 return refused;
             }
-            StringBuilder text = new StringBuilder(string.Format(c, "Comet {0} made at {1}: {2:N0} mol (", made.Id, Name(site), made.TotalMoles));
+            StringBuilder text = new StringBuilder(ore
+                ? string.Format(c, "Comet {0} made at {1}: {2:N0} units of ore", made.Id, Name(site), made.OreUnits)
+                : string.Format(c, "Comet {0} made at {1}: {2:N0} mol (", made.Id, Name(site), made.TotalMoles));
             for (int i = 0; i < made.Gases.Length; i++)
             {
                 text.Append(string.Format(c, "{0}{1} {2:N0}", i > 0 ? ", " : "", made.Gases[i], made.Moles[i]));
             }
-            text.Append(string.Format(c, "), {0:N1} t, {1} engine{2}, {3:N0} mol of fuel.", made.CometKg / 1000.0, engines, engines == 1 ? "" : "s", fuel));
+            text.Append(string.Format(c, "{0}, {1:N1} t, {2} engine{3}, {4:N0} mol of fuel.", ore ? "" : ")", made.CometKg / 1000.0, engines, engines == 1 ? "" : "s", fuel));
             if (RouteDeltaV(site, out double toEntry))
             {
                 Flight flight = CelestialRules.Shipped.Fly(made.CometKg, made.Engines, made.Fuel, toEntry, made.FuelKgPerMole);
@@ -191,9 +204,18 @@ namespace TerraformingReloaded.Comets
                     tuning.SizeMultiplierAt(size), size, tuning.CometSizeMultiplier));
             }
             CometView[] comets = CometMap.Views();
-            if (comets.Length == 0)
+            LandingView[] falling = CometLand.Falling();
+            if (comets.Length == 0 && falling.Length == 0)
             {
                 return text.Append(" None. terraform comet make puts one at a site.").ToString();
+            }
+            double now = CometEvent.Clock;
+            foreach (LandingView landing in falling)
+            {
+                text.AppendLine();
+                text.Append(double.IsNaN(landing.ImpactClock)
+                    ? string.Format(c, "  {0}: brought down, coming down at ({1:N0}, {2:N0}) (loaded, waiting for the clock)", landing.CometId, landing.ImpactX, landing.ImpactZ)
+                    : string.Format(c, "  {0}: brought down, lands at ({1:N0}, {2:N0}) in {3:N1} s", landing.CometId, landing.ImpactX, landing.ImpactZ, Math.Max(0.0, landing.ImpactClock - now)));
             }
             foreach (CometView comet in comets)
             {

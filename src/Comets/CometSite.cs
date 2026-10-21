@@ -71,7 +71,7 @@ namespace TerraformingReloaded.Comets
             float first = Mathf.Max(asked, safe);
             System.Random random = new System.Random(seed);
             float side = random.NextDouble() < 0.5 ? -1f : 1f;
-            float pathLength = 13000f + 2000f * plan.Scale;
+            float pathLength = PathLength(plan.Scale);
 
             for (int k = 0; k <= (int)(180f / BearingStep) * 2; k++)
             {
@@ -129,6 +129,9 @@ namespace TerraformingReloaded.Comets
             refused = string.Format(c, "There is nowhere within {0:N0} m of you that a comet this size can land {1:N0} m from every structure and player, so it was not sent.", MaxRange, safe);
             return null;
         }
+
+        /// <summary>How far back along its way in the comet first shows, for a show of this scale.</summary>
+        public static float PathLength(float scale) => 13000f + 2000f * scale;
 
         /// <summary>
         /// Where the host is looking from and toward, flat. The camera when this machine has one; on a

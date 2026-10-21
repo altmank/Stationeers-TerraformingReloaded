@@ -105,7 +105,8 @@ namespace TerraformingReloaded.Comets
         {
             try
             {
-                CometAim.Icon[] icons = CometAim.Icons();
+                CometAim.Aim[] aims = CometAim.All;
+                CometAim.Icon[] icons = CometAim.IconsOf(aims);
                 MapMotherboardPanel panel = _clickedPanel(__instance);
                 StringBuilder text = _clickedText(__instance);
                 if (icons.Length == 0 || panel == null || text == null)
@@ -113,7 +114,7 @@ namespace TerraformingReloaded.Comets
                     return;
                 }
                 text.AppendLine();
-                text.Append(Describe(icons, CometAim.All, CometEvent.Clock));
+                text.Append(Describe(icons, aims, CometEvent.Clock));
                 panel.SetInfoText(text.ToString());
             }
             catch (Exception e)
@@ -133,11 +134,11 @@ namespace TerraformingReloaded.Comets
                 string colour = icon.IsTarget ? "orange" : "#8ce6ff";
                 text.Append("<color=").Append(colour).Append('>').Append(icon.Name).Append("</color> <color=grey>[")
                     .Append(Math.Round(icon.X).ToString(c)).Append(", ").Append(Math.Round(icon.Z).ToString(c)).Append("]</color>");
-                if (!icon.IsTarget && i / 2 < aims.Length)
+                if (!icon.IsTarget && icon.Aim >= 0 && icon.Aim < aims.Length)
                 {
-                    CometAim.Aim aim = aims[i / 2];
+                    CometAim.Aim aim = aims[icon.Aim];
                     double gap = Math.Sqrt((aim.LandX - aim.TargetX) * (aim.LandX - aim.TargetX) + (aim.LandZ - aim.TargetZ) * (aim.LandZ - aim.TargetZ));
-                    text.Append(string.Format(c, ", {0:N0} m from the target", gap));
+                    text.Append(aim.Tracked ? string.Format(c, ", {0:N0} m from the target", gap) : ", no target");
                     if (!double.IsNaN(aim.NextHighestClock))
                     {
                         text.Append(string.Format(c, ", highest in {0:N0} s", Math.Max(0.0, aim.NextHighestClock - now)));
