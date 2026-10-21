@@ -89,7 +89,7 @@ namespace TerraformingReloaded.Comets
                     {
                         continue;
                     }
-                    Vector3 impact = Ground(flat, eye.y - 1.7f);
+                    Vector3 impact = CometTerrain.Ground(flat, eye.y - 1.7f, out string ground);
                     foreach (float tried in new[] { side, -side })
                     {
                         Vector3 across = Quaternion.AngleAxis(tried * SideDegrees, Vector3.up) * -direction;
@@ -120,8 +120,8 @@ namespace TerraformingReloaded.Comets
                                 ? string.Format(c, "range={0:N0} is closer than a comet this size may land to anyone, {1:N0} m, so it comes down at {2:N0} m.", asked, safe, range)
                                 : string.Format(c, "It moved out to {0:N0} m to stay {1:N0} m from every structure and player.", range, safe);
                         }
-                        site.Log = string.Format(c, "Site: looking from {0} ({1}), bearing {2:0}° (asked {3:0}°), range {4:N0} m (asked {5}), safe distance {6:N0} m, judged against {7} structures in {8} squares and {9} players, comes in from the {10}.",
-                            eye, from, bearing, plan.TurnDegrees, range, plan.Range.HasValue ? plan.Range.Value.ToString("N0", c) + " m" : "none", safe, structures, obstacles.Count - humans, humans, tried < 0f ? "left" : "right");
+                        site.Log = string.Format(c, "Site: looking from {0} ({1}), bearing {2:0}° (asked {3:0}°), range {4:N0} m (asked {5}), safe distance {6:N0} m, judged against {7} structures in {8} squares and {9} players, comes in from the {10}, impact {11}.",
+                            eye, from, bearing, plan.TurnDegrees, range, plan.Range.HasValue ? plan.Range.Value.ToString("N0", c) + " m" : "none", safe, structures, obstacles.Count - humans, humans, tried < 0f ? "left" : "right", ground);
                         return site;
                     }
                 }
@@ -162,7 +162,7 @@ namespace TerraformingReloaded.Comets
             }
             if (view == null)
             {
-                eye = Ground(Vector3.zero, 0f) + Vector3.up * 1.7f;
+                eye = CometTerrain.Ground(Vector3.zero, 0f, out _) + Vector3.up * 1.7f;
                 forward = Vector3.forward;
                 from = "the world origin";
                 return;
@@ -259,17 +259,6 @@ namespace TerraformingReloaded.Comets
                 }
             }
             return true;
-        }
-
-        /// <summary>The ground under a point, or <paramref name="fallbackY"/> where there is none to hit.</summary>
-        public static Vector3 Ground(Vector3 at, float fallbackY)
-        {
-            Vector3 above = new Vector3(at.x, fallbackY + 4000f, at.z);
-            if (Physics.Raycast(above, Vector3.down, out RaycastHit hit, 9000f, ~0, QueryTriggerInteraction.Ignore))
-            {
-                return hit.point;
-            }
-            return new Vector3(at.x, fallbackY, at.z);
         }
     }
 }

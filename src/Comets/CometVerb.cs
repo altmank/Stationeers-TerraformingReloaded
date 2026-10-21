@@ -36,7 +36,7 @@ namespace TerraformingReloaded.Comets
             {
                 return Usage + " Gases: " + gasNames() + ".";
             }
-            string broken = CometRules.Verdict;
+            string broken = CometRules.Verdict ?? CometGround.Verdict;
             if (broken != null)
             {
                 return "Comets are off: the rules they are judged by did not pass their own check (" + broken + "). Please report this with the log.";

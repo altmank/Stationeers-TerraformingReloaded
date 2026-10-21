@@ -81,6 +81,16 @@ namespace TerraformingReloaded
                 Logger.LogWarning("Multiplayer sync is off: this StationeersLaunchPad has no mod networking. Single player and hosting are unaffected; clients will not see the changed planet. " + e.Message);
             }
 
+            string comets = Comets.CometRules.Verdict ?? Comets.CometGround.Verdict;
+            if (comets == null)
+            {
+                Logger.LogInfo("Comet rules checked: the wave, the push, the sky, the ground under an impact and its drop on curved worlds.");
+            }
+            else
+            {
+                Logger.LogWarning("Comets are off: their rules did not pass their own check (" + comets + ").");
+            }
+
             try
             {
                 TerraformCommand.CurvesPath = Path.Combine(Paths.ConfigPath, "TerraformingReloaded.curves.xml");

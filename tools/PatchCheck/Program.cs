@@ -766,6 +766,24 @@ internal static class Program
             string caught = TerraformingReloaded.Comets.CometRules.Check(wrong.Rules);
             failures += Judge(caught != null, "comet rules check fails " + wrong.What + (caught != null ? ": " + caught : ""));
         }
+        string ground = TerraformingReloaded.Comets.CometGround.Check(TerraformingReloaded.Comets.CometGround.Shipped);
+        failures += Judge(ground == null, "comet ground: " + (ground ?? "the impact's height from the voxels, the world's edge outside them, and the curved ground's drop as measured on Mars"));
+        var wrongGround = new (string What, TerraformingReloaded.Comets.CometGround Ground)[]
+        {
+            ("a column read only every 8 m", new StridedGround()),
+            ("the ground at the bottom of its top voxel", new GroundOneLow()),
+            ("the lowest ground in a column rather than the highest", new LowestGround()),
+            ("a point outside the voxel world read where it is", new UnclampedGround()),
+            ("a drop that starts at the viewer", new DropFromViewer()),
+            ("a drop that grows with the distance rather than its square", new LinearDrop()),
+            ("a drop that leaves out the orbital view's lift", new DropWithoutLift()),
+            ("a drop taken from the point's place before recentring", new DropNotRecentred()),
+        };
+        foreach (var wrong in wrongGround)
+        {
+            string caught = TerraformingReloaded.Comets.CometGround.Check(wrong.Ground);
+            failures += Judge(caught != null, "comet ground check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
         string reactions = TerraformingReloaded.Comets.CometReactions.Check();
         failures += Judge(reactions == null, "comet reactions: " + (reactions ?? "steam, burning, dry ice, toxic and ionised each as strong as their share, fuel burning only with an oxidiser"));
         try
@@ -783,6 +801,69 @@ internal static class Program
             failures++;
         }
         return failures;
+    }
+
+    private sealed class StridedGround : TerraformingReloaded.Comets.CometGround
+    {
+        public override double? Surface(Func<int, double> density, int top)
+        {
+            for (int y = top; y >= 0; y -= Stride)
+            {
+                if (density(y) >= SolidDensity)
+                {
+                    return y + 1;
+                }
+            }
+            return null;
+        }
+    }
+
+    private sealed class GroundOneLow : TerraformingReloaded.Comets.CometGround
+    {
+        public override double? Surface(Func<int, double> density, int top) => base.Surface(density, top) - 1.0;
+    }
+
+    private sealed class LowestGround : TerraformingReloaded.Comets.CometGround
+    {
+        public override double? Surface(Func<int, double> density, int top)
+        {
+            for (int y = 0; y <= top; y++)
+            {
+                if (density(y) < SolidDensity)
+                {
+                    return y == 0 ? (double?)null : y;
+                }
+            }
+            return top + 1;
+        }
+    }
+
+    private sealed class UnclampedGround : TerraformingReloaded.Comets.CometGround
+    {
+        public override Column ColumnFor(double x, double z, int halfWidth) => new Column(x, z, base.ColumnFor(x, z, halfWidth).Inside);
+    }
+
+    private sealed class DropFromViewer : TerraformingReloaded.Comets.CometGround
+    {
+        public override double Drop(double metres, Curve curve) =>
+            base.Drop(metres + curve.Start, curve);
+    }
+
+    private sealed class LinearDrop : TerraformingReloaded.Comets.CometGround
+    {
+        public override double Drop(double metres, Curve curve) =>
+            Math.Max(0.0, metres - curve.Start) * curve.Amount * 0.6 - curve.Lift;
+    }
+
+    private sealed class DropWithoutLift : TerraformingReloaded.Comets.CometGround
+    {
+        public override double Drop(double metres, Curve curve) => base.Drop(metres, curve) + curve.Lift;
+    }
+
+    private sealed class DropNotRecentred : TerraformingReloaded.Comets.CometGround
+    {
+        public override double DropAt(double x, double z, double viewerX, double viewerZ, Curve curve) =>
+            Drop(Math.Sqrt((x - viewerX) * (x - viewerX) + (z - viewerZ) * (z - viewerZ)), curve);
     }
 
     private sealed class LinearWave : TerraformingReloaded.Comets.CometRules
