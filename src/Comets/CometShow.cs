@@ -387,7 +387,7 @@ namespace TerraformingReloaded.Comets
             float surgeSeconds = surge / (float)CometRules.SpeedOfSound;
             float gravity = Physics.gravity.magnitude;
             // Nothing outlives the show: a puff born at the impact is gone before its end.
-            float longest = 0.9f * (EndSeconds - ApproachSeconds);
+            float longest = (float)CometLook.LongestLife(EndSeconds - ApproachSeconds);
 
             _flashLight = NewLight("Flash", at);
             _flashLight.transform.localPosition = Vector3.up * r;
@@ -515,11 +515,11 @@ namespace TerraformingReloaded.Comets
             // billowing. Its climb and its growth follow the cloud each frame (Aftermath).
             float steam = (float)_react.Steam;
             CometLayer stem = _look.Layer(_sizes, "stem");
-            float stemLife = Mathf.Min(longest, (float)CometLook.StemSeconds);
+            float stemLife = (float)CometLook.StemLife(EndSeconds - ApproachSeconds);
             _stem = NewParticles("Stem", at, Blended(CometArt.BillowSheet), stem.Count);
             main = _stem.main;
             main.loop = true;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(0.85f * stemLife, stemLife);
+            main.startLifetime = new ParticleSystem.MinMaxCurve((float)CometLook.StemLifeFrom * stemLife, stemLife);
             main.startSize = new ParticleSystem.MinMaxCurve((float)stem.PuffMinMetres, (float)stem.PuffMaxMetres);
             main.startRotation = new ParticleSystem.MinMaxCurve(-0.25f, 0.25f);
             main.startColor = new ParticleSystem.MinMaxGradient(Shaded(_bands, 0.45f * (1f - steam), Color.Lerp(new Color(0.35f, 0.3f, 0.27f), new Color(0.92f, 0.94f, 0.96f), steam),
@@ -568,7 +568,7 @@ namespace TerraformingReloaded.Comets
             _capCloud = new GameObject("Cap cloud").transform;
             _capCloud.SetParent(_capTransform, false);
             _capCloud.localScale = Vector3.one * (float)_sizes.CapRadiusAt(0.0);
-            float capLife = Mathf.Min(longest, 80f);
+            float capLife = (float)CometLook.CapLife(EndSeconds - ApproachSeconds);
             float capFrom = Mathf.Min(2f, 0.2f * grow);
             CometLayer capTop = _look.Layer(_sizes, "cap top");
             _capTop = NewParticles("Cap top", _capCloud, Blended(CometArt.BillowSheet), capTop.Count, _capCloud);
@@ -795,7 +795,9 @@ namespace TerraformingReloaded.Comets
             var main = system.main;
             main.loop = true;
             main.scalingMode = ParticleSystemScalingMode.Hierarchy;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(0.6f * life, life);
+            main.startLifetime = new ParticleSystem.MinMaxCurve((float)CometLook.CapLifeFrom * life, life);
+            // One cycle as long as the show, so the opening burst is not fired again each time a shorter cycle loops.
+            main.duration = Mathf.Max(main.duration, EndSeconds);
             main.startSize = new ParticleSystem.MinMaxCurve((float)(layer.PuffMinMetres / radius), (float)(layer.PuffMaxMetres / radius));
             main.startSpeed = new ParticleSystem.MinMaxCurve(0.001f, 0.004f);
             main.startRotation = new ParticleSystem.MinMaxCurve(-0.25f, 0.25f);
@@ -809,7 +811,7 @@ namespace TerraformingReloaded.Comets
             shape.rotation = new Vector3(90f, 0f, 0f);
             if (burst)
             {
-                Burst(system, layer.Count / 2, from);
+                Burst(system, _look.OpeningBurst(layer.Count, CometLook.CapLifeFrom * life, life), from);
             }
             Slow(system, 1f / 30f);
             SizeOverLife(system, 0.8f, (float)layer.GrowsTo);
@@ -1336,7 +1338,6 @@ namespace TerraformingReloaded.Comets
             _ball.localPosition = Vector3.up * ballHeight;
             float rise = RiseSpeed(s);
             float fire = 1f - 0.6f * steam;
-            float smokeMore = 1f + 0.35f * _day;
 
             // The stem's puffs climb from the root to the cap over their life, growing to the
             // column's width there; the curve is set again only when that width has moved on.
@@ -1366,7 +1367,7 @@ namespace TerraformingReloaded.Comets
             _underMaterial.SetColor(_underMaterial.HasProperty("_TintColor") ? "_TintColor" : "_Color", new Color(under.r, under.g, under.b, SmokeAlpha() * cloud));
 
             emission = _stem.emission;
-            emission.rateOverTime = _stem.main.maxParticles / stemLife * (1f + 2f * Mathf.Exp(-s / 20f)) * (1f + 0.5f * steam) * smokeMore * feed;
+            emission.rateOverTime = (float)_look.FedRate(_stem.main.maxParticles, stemLife, s, feed);
             emission = _stemGlow.emission;
             emission.rateOverTime = s < 4f * fireLife ? 20f * Mathf.Exp(-s / (0.5f * fireLife)) * fire : 0f;
             float capFrom = Mathf.Min(2f, 0.2f * grow);
@@ -1374,7 +1375,7 @@ namespace TerraformingReloaded.Comets
             {
                 float capLife = cap.main.startLifetime.constantMax;
                 emission = cap.emission;
-                emission.rateOverTime = s > capFrom ? cap.main.maxParticles / (0.8f * capLife) * (1f + 2f * Mathf.Exp(-s / 40f)) * smokeMore * feed : 0f;
+                emission.rateOverTime = s > capFrom ? (float)_look.FedRate(cap.main.maxParticles, capLife, s, feed) : 0f;
             }
             emission = _capGlow.emission;
             emission.rateOverTime = s > 1.5f && s < 2.5f * fireLife ? 10f * Mathf.Exp(-(s - 1.5f) / (0.7f * fireLife)) * fire : 0f;

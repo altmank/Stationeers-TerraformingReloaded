@@ -576,6 +576,25 @@ a bigger comet is drawn with bigger puffs, not more of them. `CometArt` makes tw
   `CloudFeed`). Before, feeding tapered from 80 s before the cap's longest puff could fade and every puff faded
   over its whole life, so the cloud thinned from about 220 s and was gone before 300 s, at 86 % of its height,
   against a show meant to run to 330 s.
+- **Fed no faster than its limits hold.** A particle system at its limit emits nothing until its particles die, so a
+  layer fed faster than its limit over its longest life fills at once and is then renewed only as its first puffs
+  die. The stem was fed at its limit over its life times up to 1.3 for steam and 1.35 for daylight, and the cap's
+  rings at 1.25 times theirs and up to 1.35 for daylight, both times 3 at first, falling to 1 over the first
+  minute, so each filled in its first seconds and was renewed in generations of one age: a stem's generation of 51 to 60 s puffs climbed the column and
+  faded together, and the next was born at the root as it went. The rig at 2.5 km (run-020, 1e7 mol) showed no
+  cloud at all 104 s after the impact, with 623 puffs alive, and the cloud in the frames 30 s before and 60 s
+  after. Worked through with the stem's own limit, lives and rate (a model, not a measurement), the generation
+  born about 51 to 80 s after the impact was then high in the column, above that view, and fading, and the next
+  one just born at the root. Now each fed layer takes `CometLook.FedRate`: its limit over its longest life, times how
+  strongly it is fed, so its puffs are of every age and fill it evenly over one life. The cap's rings open with
+  `OpeningBurst`, a share of their limit of one less their shortest life over their longest (0.4), so the burst
+  and the feed together never reach the limit before the burst's first puffs die (0.22.2 opened with half), and
+  each cap ring's cycle is as long as the show, so its burst fires once rather than every 60 s. Steam and
+  daylight no longer raise the rate: at the limit they added no puffs, only the generations. The stem now takes
+  its first life to fill, so in the first minute it holds fewer puffs than before. `CometLook.Check` holds that,
+  for every size and every second of the show, the stem and both cap rings are fed with exactly what their
+  limits hold over their longest life when fed in full, never more, and that a ring's opening burst and its feed
+  stay within its limit.
 - **Not soft particles.** The puffs neither write depth nor fade against each other: the legacy particle
   shaders fade only against the ground and the buildings in the depth buffer. The seams were in the texture.
 - **The cap grows as one.** Its two rings are drawn at a radius of one in a frame the cap's radius scales each
@@ -625,11 +644,12 @@ a bigger comet is drawn with bigger puffs, not more of them. `CometArt` makes tw
   zone) full grown at t, flash peak, cloud top, cap across, dust, rocks, show s after the impact, head scale;
   the show ends s after first sight`; the show's own line adds the far clip it set.
 - `CometLook.Check` runs at load beside the yield's, chained into the same verdict, and in `tools/PatchCheck`,
-  which hands it eleven wrong looks it must catch: a flash fading over a second, a thermal pulse that holds the
+  which hands it fourteen wrong looks it must catch: a flash fading over a second, a thermal pulse that holds the
   view white, stem puffs half as wide again as the stem, a surge whose puffs may fill the screen, cap puffs
   drawn from the fireball rather than the cap, cloud puffs as opaque as 0.16's, a puff cut out as a disc, a puff
   full to its rim with nothing eaten from its edge, a puff lit from below, a puff whose frames jump where they
-  wrap, and a cloud that fades over the show's last 90 s. PatchCheck prints the layers at 1e5, 1e7 and 1e9 mol
+  wrap, a cloud that fades over the show's last 90 s, a stem and cap fed past their limits as 0.22.2 fed them,
+  a cloud fed at half of what its limits hold, and a cap opened with half its limit at once. PatchCheck prints the layers at 1e5, 1e7 and 1e9 mol
   and what it measures of the puff.
 - The puff is measured at 64 texels a frame over all sixteen frames, against these, which are the look's own
   and not measured from anything: inside a fifth of its radius at least 0.75 opaque (shipped 0.86); from 90 %

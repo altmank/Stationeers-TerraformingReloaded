@@ -143,6 +143,9 @@ namespace TerraformingReloaded.Comets
         /// <summary>Seconds a stem puff takes to climb from the ground to the cap, and lives.</summary>
         public const double StemSeconds = 60.0;
 
+        /// <summary>A stem puff lives from this share of its life (<see cref="StemLife"/>) to all of it.</summary>
+        public const double StemLifeFrom = 0.85;
+
         // ------------------------------------------------------------------ the cap
 
         /// <summary>The cap is a ring of cloud: its middle this far out, and its tube this thick, as shares of the cap's radius.</summary>
@@ -159,6 +162,36 @@ namespace TerraformingReloaded.Comets
         public const double CapTopLift = 0.1;
 
         public const double CapUnderDrop = 0.14;
+
+        /// <summary>Seconds a cap puff lives at most, and the share of that it lives at least.</summary>
+        public const double CapSeconds = 80.0;
+
+        public const double CapLifeFrom = 0.6;
+
+        // ------------------------------------------------------------------ how the cloud is fed
+
+        /// <summary>The longest any puff lives in a show this many seconds after the impact: nothing outlives the show.</summary>
+        public static double LongestLife(double showSeconds) => 0.9 * showSeconds;
+
+        public static double StemLife(double showSeconds) => Math.Min(LongestLife(showSeconds), StemSeconds);
+
+        public static double CapLife(double showSeconds) => Math.Min(LongestLife(showSeconds), CapSeconds);
+
+        /// <summary>
+        /// Puffs a second for a layer the show keeps fed (the stem, the cap's two rings), this long after the
+        /// impact and fed at <paramref name="feed"/> (<see cref="CloudFeed"/>): as many as its limit holds over its
+        /// longest life. The game stops a particle system emitting while it holds its limit and lets it emit again
+        /// only as its particles die, so a layer fed faster fills at once and is then renewed only as its first
+        /// puffs die, one generation of one age after another: the stem's puffs climb and fade together, and
+        /// between generations the column is missing from the view.
+        /// </summary>
+        public virtual double FedRate(int limit, double longestLife, double seconds, double feed) => limit / longestLife * Clamp01(feed);
+
+        /// <summary>
+        /// The puffs a fed layer opens with all at once: as many as leave room, beside its feed until the first of
+        /// them die, for it never to reach its limit.
+        /// </summary>
+        public virtual int OpeningBurst(int limit, double shortestLife, double longestLife) => (int)Math.Floor(limit * (1.0 - shortestLife / longestLife));
 
         // ------------------------------------------------------------------ the base surge
 
@@ -388,6 +421,35 @@ namespace TerraformingReloaded.Comets
                 if (look.CloudFade(show, show) > 0.0)
                 {
                     return string.Format(c, "a comet of {0:0.#E+0} mol still draws {1:0.###} of its cloud when its show ends", moles, look.CloudFade(show, show));
+                }
+
+                // ---- the cloud is fed no faster than its limits hold: a system at its limit emits nothing until its
+                // puffs die, so a layer fed faster is renewed in generations of one age that climb and fade together.
+                foreach ((string name, double longestLife, double shortestLife, bool opens) in new[]
+                {
+                    ("stem", StemLife(show), StemLifeFrom * StemLife(show), false),
+                    ("cap top", CapLife(show), CapLifeFrom * CapLife(show), true),
+                    ("cap underside", CapLife(show), CapLifeFrom * CapLife(show), true),
+                })
+                {
+                    int limit = look.Layer(sizes, name).Count;
+                    for (double s = 0.0; s <= show + 1e-9; s += 0.5)
+                    {
+                        double feed = look.CloudFeed(s, show);
+                        double held = look.FedRate(limit, longestLife, s, feed) * longestLife;
+                        if (!(held >= 0.0) || held > limit * (1.0 + 1e-9) || (feed >= 1.0 && held < 0.99 * limit))
+                        {
+                            return string.Format(c, "a comet of {0:0.#E+0} mol feeds its {1} {2:0.#} s after the impact, fed at {3:0.###}, with {4:0.#} puffs over their longest life of {5:0.#} s against its limit of {6}: it must be fed in full and never past its limit, or it is renewed in generations of one age that leave the view together",
+                                moles, name, s, feed, held, longestLife, limit);
+                        }
+                    }
+                    int burst = opens ? look.OpeningBurst(limit, shortestLife, longestLife) : 0;
+                    double first = burst + look.FedRate(limit, longestLife, 0.0, 1.0) * shortestLife;
+                    if (burst < 0 || first > limit * (1.0 + 1e-9))
+                    {
+                        return string.Format(c, "a comet of {0:0.#E+0} mol opens its {1} with {2} puffs, and with its feed holds {3:0.#} before the first of them die, against its limit of {4}",
+                            moles, name, burst, first, limit);
+                    }
                 }
 
                 // ---- the layers: each sized to the part of the cloud it draws.
