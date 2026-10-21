@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.22.3 (prototype)
+
+- **A comet's cloud no longer drops out of sight partway through its rise.** The column of smoke used
+  to be renewed in waves: its puffs all rose and faded together, and for a while nothing was left low enough to
+  see before the next wave had climbed. It is now fed evenly, so it stands as one column the whole time. In the
+  first minute the column is a little thinner than before.
+- **The comet's own lines are in `BepInEx\LogOutput.log`** with the rest of the mod's, so a log sent with a report
+  shows what a comet did. Before, they went only to the game's own log.
+
 ## 0.22.2 (prototype)
 
 - **A falling rock that lands on a structure now always damages it.** It takes the rock's whole 200, however the
