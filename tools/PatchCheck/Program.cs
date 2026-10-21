@@ -788,8 +788,9 @@ internal static class Program
             string caught = TerraformingReloaded.Comets.CometYield.Check(wrong.Yield);
             failures += Judge(caught != null, "comet yield check fails " + wrong.What + (caught != null ? ": " + caught : ""));
         }
+        Console.WriteLine("billow:  " + TerraformingReloaded.Comets.CometBillow.Measure(TerraformingReloaded.Comets.CometBillow.Shipped));
         string lookCheck = TerraformingReloaded.Comets.CometLook.Check(TerraformingReloaded.Comets.CometLook.Shipped);
-        failures += Judge(lookCheck == null, "comet look: " + (lookCheck ?? "the flash whites out the view for at most 0.3 s from anywhere, every layer of the cloud fits the part it draws and keeps its proportions at every size, and the layers fit under the particle cap"));
+        failures += Judge(lookCheck == null, "comet look: " + (lookCheck ?? "the flash whites out the view for at most 0.3 s from anywhere, every layer of the cloud fits the part it draws and keeps its proportions at every size, the layers fit under the particle cap, the cloud's puff is a soft mass lit from above whose frames run on into each other, puffs are thin enough to blend where they cross, and the cloud stands until the last 30 s of the show"));
         var wrongLooks = new (string What, TerraformingReloaded.Comets.CometLook Look)[]
         {
             ("a flash that fades over a second", new LingeringFlash()),
@@ -797,6 +798,12 @@ internal static class Program
             ("stem puffs half as wide again as the stem", new WideStemPuffs()),
             ("a surge whose puffs may fill the screen", new FullScreenSurge()),
             ("cap puffs drawn from the fireball rather than the cap", new CapFromFireball()),
+            ("cloud puffs as opaque as 0.16's", new OpaquePuffs()),
+            ("a puff cut out as a disc with a hard edge", new PuffOf(new HardPuff())),
+            ("a puff full to its rim, with nothing eaten from its edge", new PuffOf(new FullPuff())),
+            ("a puff lit from below", new PuffOf(new PuffLitFromBelow())),
+            ("a puff whose frames jump where they wrap", new PuffOf(new PuffJumpsAtWrap())),
+            ("a cloud that fades over the show's last 90 s", new EarlyClearing()),
         };
         foreach (var wrong in wrongLooks)
         {
@@ -1080,6 +1087,55 @@ internal static class Program
             }
             return layers;
         }
+    }
+
+    private sealed class OpaquePuffs : TerraformingReloaded.Comets.CometLook
+    {
+        public override double PuffAlpha => 0.95;
+    }
+
+    private sealed class EarlyClearing : TerraformingReloaded.Comets.CometLook
+    {
+        public override double CloudFade(double seconds, double showSeconds) => Math.Max(0.0, Math.Min(1.0, (showSeconds - seconds) / 90.0));
+    }
+
+    /// <summary>The shipped look drawn with a wrong puff.</summary>
+    private sealed class PuffOf : TerraformingReloaded.Comets.CometLook
+    {
+        private readonly TerraformingReloaded.Comets.CometBillow _billow;
+
+        public PuffOf(TerraformingReloaded.Comets.CometBillow billow) => _billow = billow;
+
+        public override TerraformingReloaded.Comets.CometBillow Billow => _billow;
+    }
+
+    private sealed class HardPuff : TerraformingReloaded.Comets.CometBillow
+    {
+        public override void Frame(int frame, int size, float[] alpha, float[] shade)
+        {
+            base.Frame(frame, size, alpha, shade);
+            for (int i = 0; i < size * size; i++)
+            {
+                alpha[i] = alpha[i] > 0.3f ? 1f : 0f;
+            }
+        }
+    }
+
+    private sealed class FullPuff : TerraformingReloaded.Comets.CometBillow
+    {
+        public override double Softness => 0.0;
+
+        public override double Erosion => 0.0;
+    }
+
+    private sealed class PuffLitFromBelow : TerraformingReloaded.Comets.CometBillow
+    {
+        public override double LightY => -0.92;
+    }
+
+    private sealed class PuffJumpsAtWrap : TerraformingReloaded.Comets.CometBillow
+    {
+        public override void Frame(int frame, int size, float[] alpha, float[] shade) => base.Frame(frame / 2, size, alpha, shade);
     }
 
     /// <summary>

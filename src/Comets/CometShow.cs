@@ -242,13 +242,13 @@ namespace TerraformingReloaded.Comets
             _originalDepth = _camera.depthTextureMode;
             _camera.depthTextureMode |= DepthTextureMode.Depth;
 
-            // Made now rather than when first heard or seen, so nothing hitches the frame it first plays in.
+            // Made now, the cloud's sheet on a worker thread, rather than when first heard or seen, so nothing hitches the frame it first plays in.
             _ = CometArt.Roar;
             _ = CometArt.Boom;
             _ = CometArt.Rumble;
             _ = CometArt.Thump;
             _ = CometArt.SmokeSheet;
-            _ = CometArt.BillowSheet;
+            CometArt.PrepareBillow();
             _ = CometArt.FireballSheet;
             _sound = new CometSound(gameObject, _plan.Scale);
             _drawn = new GameObject("Drawn").transform;
@@ -535,7 +535,7 @@ namespace TerraformingReloaded.Comets
             Rotate(_stem, 0.04f);
             Animate(_stem, 1f);
             Soften(_stem, r);
-            ColourOverLife(_stem, Fade(Color.white, 0.95f, 0f, 0.08f));
+            Billows(_stem, (float)CometLook.PuffFadeIn);
             ScreenShare(_stem, stem.ScreenShare);
 
             CometLayer stemGlow = _look.Layer(_sizes, "stem glow");
@@ -629,7 +629,7 @@ namespace TerraformingReloaded.Comets
             Rotate(_groundDust, 0.05f);
             Animate(_groundDust, 1f);
             Soften(_groundDust, (float)surgeLayer.PuffMaxMetres);
-            ColourOverLife(_groundDust, Fade(Color.white, 0.9f, 0f, 0.05f));
+            Billows(_groundDust, 0.05f);
             ScreenShare(_groundDust, surgeLayer.ScreenShare);
 
             // Dry ice: a dense grey-white fog rolling out along the ground.
@@ -814,7 +814,7 @@ namespace TerraformingReloaded.Comets
             SizeOverLife(system, 0.8f, (float)layer.GrowsTo);
             Rotate(system, 0.03f);
             Animate(system, 1f);
-            ColourOverLife(system, Fade(Color.white, 0.95f, 0f, 0.1f));
+            Billows(system, 0.1f);
             ScreenShare(system, layer.ScreenShare);
         }
 
@@ -990,12 +990,15 @@ namespace TerraformingReloaded.Comets
             }
         }
 
-        /// <summary>0 at night to 1 in full day: glow reads at night, smoke by day.</summary>
-        private void Daylight()
+        /// <summary>
+        /// 0 at night to 1 in full day: glow reads at night, smoke by day. <paramref name="cloud"/> is
+        /// how much of the smoke is still drawn as the show ends (<see cref="CometLook.CloudFade"/>).
+        /// </summary>
+        private void Daylight(float cloud = 1f)
         {
             _day = Mathf.Clamp01((OrbitalSimulation.WorldSunVector.y + 0.05f) / 0.3f);
             float glow = Mathf.Lerp(1f, 0.55f, _day);
-            float smoke = Mathf.Lerp(0.5f, 0.64f, _day);
+            float smoke = SmokeAlpha() * cloud;
             foreach ((Material material, Color tint, bool isGlow) in _materials)
             {
                 Color c = isGlow ? new Color(tint.r * glow, tint.g * glow, tint.b * glow, tint.a) : new Color(tint.r, tint.g, tint.b, smoke);
@@ -1250,7 +1253,10 @@ namespace TerraformingReloaded.Comets
 
         private void Aftermath(float s)
         {
-            Daylight();
+            float end = EndSeconds - ApproachSeconds;
+            float cloud = (float)_look.CloudFade(s, end);
+            float feed = (float)_look.CloudFeed(s, end);
+            Daylight(cloud);
             float glowGain = Mathf.Lerp(1f, 0.55f, _day);
             float ionised = (float)_react.Ionised;
             float burning = (float)_react.Burning;
@@ -1263,7 +1269,6 @@ namespace TerraformingReloaded.Comets
             float capRadius = (float)_sizes.CapRadiusAt(s);
             float capHeight = CapHeight(s);
             float ballHeight = BallHeight(s);
-            float end = EndSeconds - ApproachSeconds;
             float fireLife = FireLife();
             float peak = (float)_sizes.FlashPeakSeconds;
             float heat = (float)_look.BallHeat(_sizes, s);
@@ -1333,8 +1338,8 @@ namespace TerraformingReloaded.Comets
             _skyGlow.Show(_impact + Vector3.up * top * 0.5f, 2.2f * Mathf.Max(top, capRadius), _gasColour, 0.3f * Mathf.Exp(-s / Mathf.Max(20f, 2f * grow)) * Mathf.Clamp01(s / 0.5f) * skyFade * glowGain, 1f);
 
             // The cloud: the cap and the fireball in it climbing, the column below climbing up to it,
-            // each element sized to the cloud as it is now. Emission stops early enough for the
-            // longest-lived puff to fade before the show ends.
+            // each element sized to the cloud as it is now. The cloud is fed until shortly before the
+            // show ends and fades as a whole over its last seconds (CometLook.CloudFade).
             _capTransform.localPosition = Vector3.up * capHeight;
             _capCloud.localScale = Vector3.one * capRadius;
             _ball.localPosition = Vector3.up * ballHeight;
@@ -1367,10 +1372,10 @@ namespace TerraformingReloaded.Comets
             // The cap's underside, lit warm by the fireball below while it glows, then in shadow.
             float warmth = Mathf.Pow(heat, 0.7f) * glowGain;
             Color under = Color.Lerp(new Color(0.42f, 0.42f, 0.44f), new Color(0.95f, 0.6f, 0.38f), warmth);
-            _underMaterial.SetColor(_underMaterial.HasProperty("_TintColor") ? "_TintColor" : "_Color", new Color(under.r, under.g, under.b, Mathf.Lerp(0.5f, 0.64f, _day)));
+            _underMaterial.SetColor(_underMaterial.HasProperty("_TintColor") ? "_TintColor" : "_Color", new Color(under.r, under.g, under.b, SmokeAlpha() * cloud));
 
             emission = _stem.emission;
-            emission.rateOverTime = _stem.main.maxParticles / stemLife * (1f + 2f * Mathf.Exp(-s / 20f)) * (1f + 0.5f * steam) * smokeMore * Mathf.Clamp01((end - stemLife - s) / 30f);
+            emission.rateOverTime = _stem.main.maxParticles / stemLife * (1f + 2f * Mathf.Exp(-s / 20f)) * (1f + 0.5f * steam) * smokeMore * feed;
             emission = _stemGlow.emission;
             emission.rateOverTime = s < 4f * fireLife ? 20f * Mathf.Exp(-s / (0.5f * fireLife)) * fire : 0f;
             float capFrom = Mathf.Min(2f, 0.2f * grow);
@@ -1378,7 +1383,7 @@ namespace TerraformingReloaded.Comets
             {
                 float capLife = cap.main.startLifetime.constantMax;
                 emission = cap.emission;
-                emission.rateOverTime = s > capFrom ? cap.main.maxParticles / (0.8f * capLife) * (1f + 2f * Mathf.Exp(-s / 40f)) * smokeMore * Mathf.Clamp01((end - capLife - s) / 30f) : 0f;
+                emission.rateOverTime = s > capFrom ? cap.main.maxParticles / (0.8f * capLife) * (1f + 2f * Mathf.Exp(-s / 40f)) * smokeMore * feed : 0f;
             }
             emission = _capGlow.emission;
             emission.rateOverTime = s > 1.5f && s < 2.5f * fireLife ? 10f * Mathf.Exp(-(s - 1.5f) / (0.7f * fireLife)) * fire : 0f;
@@ -1710,6 +1715,23 @@ namespace TerraformingReloaded.Comets
             var size = system.sizeOverLifetime;
             size.enabled = true;
             size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, to));
+        }
+
+        /// <summary>The smoke materials' tint alpha by night and day: the shader doubles it.</summary>
+        private float SmokeAlpha() => (float)CometLook.SmokeTint * Mathf.Lerp(1f, (float)CometLook.DaySmoke, _day);
+
+        /// <summary>
+        /// A cloud layer's puffs over their life: in over <paramref name="fadeIn"/> of it, held at the
+        /// look's puff opacity, out to nothing from <see cref="CometLook.PuffFadeFrom"/>; and half of
+        /// them mirrored left to right, so neighbours differ while the light stays on top.
+        /// </summary>
+        private void Billows(ParticleSystem system, float fadeIn)
+        {
+            float alpha = (float)_look.PuffAlpha;
+            ColourOverLife(system, Keys(
+                new[] { (Color.white, 0f), (Color.white, 1f) },
+                new[] { (0f, 0f), (alpha, fadeIn), (alpha, (float)CometLook.PuffFadeFrom), (0f, 1f) }));
+            system.GetComponent<ParticleSystemRenderer>().flip = new Vector3(0.5f, 0f, 0f);
         }
 
         private static void ColourOverLife(ParticleSystem system, Gradient gradient)
