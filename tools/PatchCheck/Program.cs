@@ -743,7 +743,8 @@ internal static class Program
 
     /// <summary>
     /// A comet's rules (docs/COMET.md sections 2, 3, 5 and 8) by their own check, then wrong rules the
-    /// check must catch, and its reactions by worked cases.
+    /// check must catch; its reactions by worked cases; and the darker sky's two postfixes bound to
+    /// their targets, which need Unity to compile.
     /// </summary>
     private static int CheckComets()
     {
@@ -767,6 +768,20 @@ internal static class Program
         }
         string reactions = TerraformingReloaded.Comets.CometReactions.Check();
         failures += Judge(reactions == null, "comet reactions: " + (reactions ?? "steam, burning, dry ice, toxic and ionised each as strong as their share, fuel burning only with an oxidiser"));
+        try
+        {
+            TerraformingReloaded.Patching.CometSky.Apply(new HarmonyLib.Harmony("patchcheck.cometsky"));
+            Console.WriteLine("applied: comet sky");
+        }
+        catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+        {
+            Console.WriteLine("bound:   comet sky (both targets found, every value it scales is there; compiling it needs Unity)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  comet sky: " + e.Message);
+            failures++;
+        }
         return failures;
     }
 

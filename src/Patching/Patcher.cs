@@ -397,6 +397,11 @@ namespace TerraformingReloaded.Patching
                 harmony.Patch(update, transpiler: Body(typeof(Gate), nameof(Gate.SkyTranspiler)));
             });
 
+            // The darker sky after a comet. Its own postfixes, not part of the dynamic sky above, so it
+            // works whether or not the sky follows the air; refused unless the two methods that rebuild
+            // the sky and the sun every frame, and every value they scale, are still there.
+            Extra(report, "comet sky", () => CometSky.Apply(harmony));
+
             return report;
         }
 

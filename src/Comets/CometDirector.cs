@@ -125,6 +125,7 @@ namespace TerraformingReloaded.Comets
             };
             CometNet.Broadcast(off);
             _instance?.EndShow();
+            CometSky.Dim = 0f;
             return true;
         }
 
@@ -174,7 +175,8 @@ namespace TerraformingReloaded.Comets
             {
                 Debug.LogError("[TR comet] director: " + e);
                 Current = null;
-                    EndShow();
+                CometSky.Dim = 0f;
+                EndShow();
             }
         }
 
@@ -191,7 +193,8 @@ namespace TerraformingReloaded.Comets
             {
                 // A save in the middle of an event drops it: nothing of it survives leaving the world.
                 Current = null;
-                    EndShow();
+                CometSky.Dim = 0f;
+                EndShow();
                 return;
             }
             double now = CometEvent.Clock;
@@ -221,6 +224,8 @@ namespace TerraformingReloaded.Comets
             {
                 Current = current = null;
             }
+            CometSky.Dim = current == null ? 0f
+                : (float)CometRules.Shipped.SkyDim(current.Plan.Scale, now - current.ImpactClock);
         }
     }
 }
