@@ -4,52 +4,72 @@ using System.Globalization;
 using System.Text;
 using Assets.Scripts;
 using Assets.Scripts.Atmospherics;
+using Assets.Scripts.Inventory;
+using Assets.Scripts.Networking;
+using Assets.Scripts.Objects.Entities;
 using TerraformingReloaded.Patching;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.UI;
 
 namespace TerraformingReloaded.Comets
 {
     /// <summary>
-    /// One comet, from first sight to the dust settling, and the gas it brings arriving at the
-    /// moment it lands. Everything is built in code when it starts and destroyed when it ends.
+    /// One comet event played on this machine, from first sight to the dust settling, against the
+    /// clock every machine shares (docs/COMET.md). Every machine plays the same event from the same
+    /// numbers: what it looks and sounds like, and the push on its own player. Only the host puts the
+    /// gas in, breaks structures and damages suits. A dedicated server plays the timeline without
+    /// drawing or sounding anything.
     ///
-    /// The sequence, with t in seconds from the command:
-    ///   0 to 16    a glowing head and tail high in the sky, slow at first, then falling faster and
+    /// The sequence, with t in seconds from first sight:
+    ///   0 to 15    a glowing head and tail high in the sky, slow at first, then falling faster and
     ///              faster, heating from blue-white to orange, shedding sparks and smoke, its light
-    ///              sweeping the ground, a roar and a shake building under it.
-    ///   16         impact, silent: a flash that whites out the view, a fireball, a shock front,
-    ///              debris thrown into the sky on trails, a column rising into a mushroom cap in the
-    ///              colours of what the comet was made of, a glow on the horizon. The gas goes in.
-    ///   16 + d/340 the sound arrives, as far behind the light as the impact is away: the boom, a
-    ///              hard shake, a gust of dust past the player.
-    ///   after      burning debris falling out of the sky, the cloud spreading and fading, a long
-    ///              rumble. Gone at about two minutes.
-    /// Local only: the host sees it, joining players do not.
+    ///              sweeping the ground, the air rush and a roar building under it, the sonic boom as
+    ///              it comes through the sky.
+    ///   15         impact, silent: a flash, a fireball, a shock front, debris thrown into the sky, a
+    ///              column rising into a cap in the colours of what the comet was made of, and a layer
+    ///              for each reaction its material makes. The gas goes in.
+    ///   15 + d/340 the sound and the wave reach a point d metres away: the thump through the ground,
+    ///              the boom, a gust, glass breaking at the structures it reaches, a push on a player
+    ///              outdoors.
+    ///   after      debris bursting in the sky, the cloud spreading and fading, a long rumble, a
+    ///              storm passing. Gone at about two minutes; the darker sky lasts five.
+    /// A player who joins in the middle picks it up at the time it has reached and skips what has
+    /// already happened.
     /// </summary>
     internal sealed class CometShow : MonoBehaviour
     {
         public static CometShow Running { get; private set; }
 
-        private const float ApproachSeconds = 16f;
-        private const float SpeedOfSound = 340f;
-        private const float EndSeconds = 115f;
+        private const float ApproachSeconds = (float)CometEvent.ApproachSeconds;
+        private const float EndSeconds = (float)CometEvent.EndSeconds;
 
+        /// <summary>No more particles than this across the whole show, whatever its size and reactions.</summary>
+        private const int MaxParticles = 6000;
+
+        private CometEvent _event;
         private CometPlan _plan;
+        private CometRules _rules;
+        private CometReactions.Reactions _react;
+        private bool _render;
+        private bool _host;
         private Camera _camera;
         private float _originalFar;
+        private DepthTextureMode _originalDepth;
         private float _t;
+        private float _joinedAt;
         private bool _impacted;
-        private bool _boomed;
-        private bool _rumbled;
+        private bool _late;
         private bool _roared;
-        private float _boomAt;
+        private bool _entered;
         private float _flashView;
+        private System.Random _random;
+        private CometSound _sound;
+        private float _day;
 
         private Vector3 _start;
         private Vector3 _impact;
-        private Vector3 _toImpact;
-        private float _distance;
+        private Vector3 _travel;
         private float _scale;
         private float _radius;
         private float _plumeHeight;
@@ -73,7 +93,9 @@ namespace TerraformingReloaded.Comets
         private Glow _shock;
         private Glow _skyGlow;
         private Glow _groundRing;
+        private Glow _steamDome;
         private ParticleSystem _fireball;
+        private ParticleSystem _secondFireball;
         private ParticleSystem _ejecta;
         private ParticleSystem _stem;
         private ParticleSystem _stemGlow;
@@ -81,29 +103,43 @@ namespace TerraformingReloaded.Comets
         private ParticleSystem _capGlow;
         private ParticleSystem _groundDust;
         private ParticleSystem _debrisRain;
+        private ParticleSystem _fog;
+        private ParticleSystem _haze;
+        private ParticleSystem _shimmer;
         private Transform _capTransform;
         private Image _flash;
-        private AudioSource _audio;
 
         private readonly List<Glow> _glows = new List<Glow>();
+        private readonly List<ParticleSystem> _systems = new List<ParticleSystem>();
+        private readonly List<(Material Material, Color Tint, bool Glow)> _materials = new List<(Material, Color, bool)>();
+        private readonly List<Cue> _cues = new List<Cue>();
+        private int _nextCue;
 
-        /// <summary>Starts a comet toward the player's view. Null on success, or why it could not.</summary>
-        public static string Launch(CometPlan plan)
+        private readonly FrameTimes _approachFrames = new FrameTimes();
+        private readonly FrameTimes _impactFrames = new FrameTimes();
+        private readonly FrameTimes _afterFrames = new FrameTimes();
+
+        /// <summary>Something that happens a set time after the impact.</summary>
+        private readonly struct Cue
         {
-            if (Running != null)
+            public readonly float At;
+            public readonly Action Act;
+
+            public Cue(float at, Action act)
             {
-                return "A comet is already on its way. Wait for it to land, or: terraform comet stop";
+                At = at;
+                Act = act;
             }
-            Camera camera = CameraController.CurrentCamera ? CameraController.CurrentCamera : Camera.main;
-            if (camera == null)
-            {
-                return "There is no camera to watch it from, so there is nothing to show.";
-            }
+        }
+
+        /// <summary>Starts this machine's show of an event, at the time it has reached.</summary>
+        public static CometShow Play(CometEvent comet)
+        {
             GameObject root = new GameObject("TR Comet");
             CometShow show = root.AddComponent<CometShow>();
             try
             {
-                show.Build(plan, camera);
+                show.Build(comet);
             }
             catch
             {
@@ -111,101 +147,90 @@ namespace TerraformingReloaded.Comets
                 throw;
             }
             Running = show;
-            return null;
+            return show;
         }
 
-        public static bool Stop()
+        private void Build(CometEvent comet)
         {
-            if (Running == null)
-            {
-                return false;
-            }
-            Destroy(Running.gameObject);
-            Running = null;
-            return true;
-        }
-
-        /// <summary>Where it will land and how far away, for the command's reply.</summary>
-        public string Describe()
-        {
-            return string.Format(CultureInfo.InvariantCulture, "{0:N0} m away, {1:0}° to the {2} of where you are looking, in {3:0} s",
-                _distance, Math.Abs(_plan.TurnDegrees), _plan.TurnDegrees < 0 ? "left" : "right", ApproachSeconds);
-        }
-
-        private void Build(CometPlan plan, Camera camera)
-        {
-            _plan = plan;
-            _camera = camera;
-            _scale = plan.Scale;
+            _event = comet;
+            _plan = comet.Plan;
+            _rules = CometRules.Shipped;
+            _react = comet.Reactions;
+            _host = !NetworkManager.IsClient;
+            _random = new System.Random(comet.Seed);
+            _scale = _plan.Scale;
             _radius = 120f * _scale;
             _plumeHeight = 1100f * _scale;
-            _gasColour = CometPalette.Blend(plan.Types, plan.Shares);
-            _bands = CometPalette.Bands(plan.Types, plan.Shares);
+            _gasColour = CometPalette.Blend(_plan.Types, _plan.Shares);
+            _bands = CometPalette.Bands(_plan.Types, _plan.Shares);
+            _impact = comet.Impact;
+            _start = comet.Start;
+            _travel = comet.Travel;
+            _t = (float)(CometEvent.Clock - comet.StartClock);
+            _joinedAt = _t;
 
-            Vector3 eye = camera.transform.position;
-            Vector3 forward = Vector3.ProjectOnPlane(camera.transform.forward, Vector3.up);
-            if (forward.sqrMagnitude < 1e-4f)
+            _camera = CameraController.CurrentCamera ? CameraController.CurrentCamera : Camera.main;
+            _render = _camera != null && SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null;
+            if (!_render)
             {
-                forward = Vector3.ProjectOnPlane(camera.transform.up, Vector3.up);
+                Debug.Log(string.Format(CultureInfo.InvariantCulture, "[TR comet] event {0}: nothing to draw on this machine; the timeline runs without a show", comet.Sequence));
+                return;
             }
-            forward = Quaternion.AngleAxis(plan.TurnDegrees, Vector3.up) * forward.normalized;
-            _distance = plan.Range ?? (1500f + 900f * _scale);
-            _impact = Ground(eye + forward * _distance, eye.y - 1.7f);
-            _toImpact = forward;
 
-            // In from beyond the impact and off to one side, so it crosses the view on its way down
-            // instead of coming straight at the player and foreshortening to a dot.
-            float side = UnityEngine.Random.value < 0.5f ? -1f : 1f;
-            Vector3 across = Quaternion.AngleAxis(side * 40f, Vector3.up) * -forward;
-            Vector3 travel = (across * Mathf.Cos(24f * Mathf.Deg2Rad) - Vector3.up * Mathf.Sin(24f * Mathf.Deg2Rad)).normalized;
-            float pathLength = 13000f + 2000f * _scale;
-            _start = _impact - travel * pathLength;
+            try
+            {
+                BuildView();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("[TR comet] the show could not be drawn here; the impact still happens. " + e);
+                StopDrawing();
+            }
+        }
 
-            _originalFar = camera.farClipPlane;
-            camera.farClipPlane = Mathf.Max(_originalFar, Vector3.Distance(eye, _start) * 1.3f, _distance * 4f);
+        private void BuildView()
+        {
+            CometEvent comet = _event;
+            Vector3 eye = _camera.transform.position;
+            _originalFar = _camera.farClipPlane;
+            _camera.farClipPlane = Mathf.Max(_originalFar, Vector3.Distance(eye, _start) * 1.3f, Vector3.Distance(eye, _impact) * 4f);
+            _originalDepth = _camera.depthTextureMode;
+            _camera.depthTextureMode |= DepthTextureMode.Depth;
 
-            // Made now rather than when first heard, so the boom does not hitch the frame it plays in.
+            // Made now rather than when first heard or seen, so nothing hitches the frame it first plays in.
             _ = CometArt.Roar;
             _ = CometArt.Boom;
             _ = CometArt.Rumble;
-            BuildHead(travel);
-            _audio = gameObject.AddComponent<AudioSource>();
-            _audio.spatialBlend = 0f;
-            _audio.playOnAwake = false;
-            _audio.volume = 1f;
-            Debug.Log(string.Format(CultureInfo.InvariantCulture,
-                "[TR comet] launched: {0:N0} mol, scale {1:0.00}, impact {2} at {3:N0} m, start {4}, far clip {5:N0} -> {6:N0}, shaders {7}",
-                plan.Moles, _scale, _impact, _distance, _start, _originalFar, camera.farClipPlane, CometArt.ShaderReport));
-        }
-
-        private static Vector3 Ground(Vector3 at, float fallbackY)
-        {
-            Vector3 above = new Vector3(at.x, fallbackY + 4000f, at.z);
-            if (Physics.Raycast(above, Vector3.down, out RaycastHit hit, 9000f, ~0, QueryTriggerInteraction.Ignore))
+            _ = CometArt.Thump;
+            _ = CometArt.SmokeSheet;
+            _sound = new CometSound(gameObject, _scale);
+            if (_t < ApproachSeconds)
             {
-                return hit.point;
+                BuildHead();
             }
-            return new Vector3(at.x, fallbackY, at.z);
+            Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                "[TR comet] show of event {0}: {1:N0} mol, scale {2:0.00}, impact {3} at {4:N0} m, start {5}, joined at t={6:0.0} s, far clip {7:N0} -> {8:N0}, shaders {9}, sound {10}",
+                comet.Sequence, _plan.Moles, _scale, _impact, Vector3.Distance(eye, _impact), _start, _joinedAt, _originalFar, _camera.farClipPlane, CometArt.ShaderReport, _sound.Report));
         }
 
         // ---------------------------------------------------------------- the head
 
-        private void BuildHead(Vector3 travel)
+        private void BuildHead()
         {
             _head = new GameObject("Head").transform;
             _head.SetParent(transform, false);
             _head.position = _start;
-            _head.rotation = Quaternion.LookRotation(travel);
+            _head.rotation = Quaternion.LookRotation(_travel);
 
-            _coma = NewGlow("Coma", CometArt.Glow, additive: true);
-            _core = NewGlow("Core", CometArt.Glow, additive: true);
+            _coma = NewGlow("Coma", CometArt.Glow, additive: true, CometArt.OuterQueue);
+            _core = NewGlow("Core", CometArt.Glow, additive: true, CometArt.OuterQueue);
 
             _headLight = NewLight("Head light", _head);
             _headLight.color = new Color(0.8f, 0.9f, 1f);
 
             // The tail: shed backwards along the path, so it streams behind the head even while the
             // head is still slow and far away.
-            _tail = NewParticles("Tail", _head, CometArt.Additive(CometArt.Glow, new Color(0.5f, 0.5f, 0.5f, 0.5f)), 600);
+            _tail = NewParticles("Tail", _head, Additive(CometArt.Glow, CometArt.OuterQueue), 500);
             var main = _tail.main;
             main.loop = true;
             main.startLifetime = new ParticleSystem.MinMaxCurve(2.5f, 4f);
@@ -215,7 +240,7 @@ namespace TerraformingReloaded.Comets
             var velocity = _tail.velocityOverLifetime;
             velocity.enabled = true;
             velocity.space = ParticleSystemSimulationSpace.World;
-            Vector3 back = -travel * 260f;
+            Vector3 back = -_travel * 260f;
             velocity.x = new ParticleSystem.MinMaxCurve(back.x);
             velocity.y = new ParticleSystem.MinMaxCurve(back.y + 15f);
             velocity.z = new ParticleSystem.MinMaxCurve(back.z);
@@ -230,7 +255,7 @@ namespace TerraformingReloaded.Comets
             _tail.Play();
 
             // Sparks: pieces breaking off as it heats.
-            _sparks = NewParticles("Sparks", _head, CometArt.Additive(CometArt.Glow, new Color(1f, 1f, 1f, 0.5f)), 800);
+            _sparks = NewParticles("Sparks", _head, Additive(CometArt.Glow, CometArt.OuterQueue), 600);
             main = _sparks.main;
             main.loop = true;
             main.startLifetime = new ParticleSystem.MinMaxCurve(0.8f, 2.2f);
@@ -247,36 +272,39 @@ namespace TerraformingReloaded.Comets
             emission.rateOverTime = 0f;
             _sparks.Play();
 
-            // The smoke it leaves in the sky, which hangs there long after it lands.
-            _contrail = NewParticles("Contrail", _head, CometArt.Blended(CometArt.Smoke, new Color(0.5f, 0.5f, 0.5f, 0.5f)), 900);
+            // The smoke it leaves in the sky, which hangs there long after it lands. Opaque enough to
+            // read against a bright sky.
+            _contrail = NewParticles("Contrail", _head, Blended(CometArt.SmokeSheet), 700);
             main = _contrail.main;
             main.loop = true;
             main.startLifetime = new ParticleSystem.MinMaxCurve(35f, 55f);
             main.startSpeed = new ParticleSystem.MinMaxCurve(0f, 8f);
             main.startSize = new ParticleSystem.MinMaxCurve(60f * _scale, 110f * _scale);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.42f, 0.38f, 0.36f, 0.75f), Color.Lerp(new Color(0.45f, 0.42f, 0.4f), _gasColour, 0.25f) * new Color(1f, 1f, 1f, 0.6f));
+            main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.42f, 0.38f, 0.36f, 0.85f), Color.Lerp(new Color(0.45f, 0.42f, 0.4f), _gasColour, 0.25f) * new Color(1f, 1f, 1f, 0.7f));
             shape = _contrail.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.Sphere;
             shape.radius = 25f * _scale;
             SizeOverLife(_contrail, 1f, 4.5f);
             ColourOverLife(_contrail, Fade(Color.white, 1f, 0f, 0.15f));
+            Animate(_contrail, 1f);
             emission = _contrail.emission;
             emission.rateOverTime = 0f;
             _contrail.Play();
 
             _hotTrail = _head.gameObject.AddComponent<TrailRenderer>();
-            _hotTrail.sharedMaterial = CometArt.Additive(CometArt.Streak, new Color(1f, 1f, 1f, 0.5f));
+            _hotTrail.sharedMaterial = Additive(CometArt.Streak, CometArt.OuterQueue);
             _hotTrail.time = 2.5f;
             _hotTrail.minVertexDistance = 20f;
             _hotTrail.widthMultiplier = 90f * _scale;
             _hotTrail.widthCurve = AnimationCurve.EaseInOut(0f, 1f, 1f, 0.15f);
             _hotTrail.alignment = LineAlignment.View;
-            _hotTrail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            _hotTrail.shadowCastingMode = ShadowCastingMode.Off;
             _hotTrail.receiveShadows = false;
             _hotTrail.colorGradient = TrailGradient(new Color(0.8f, 0.9f, 1f));
             _hotTrail.emitting = true;
+            Budget();
         }
 
         private Gradient TrailGradient(Color hot)
@@ -299,19 +327,23 @@ namespace TerraformingReloaded.Comets
             _flashLight = NewLight("Flash", at);
             _flashLight.transform.position = _impact + Vector3.up * _radius;
 
-            _flashCore = NewGlow("Flash core", CometArt.Glow, additive: true);
-            _fireGlow = NewGlow("Fire glow", CometArt.Glow, additive: true);
-            _shock = NewGlow("Shock front", CometArt.Ring, additive: true);
-            _skyGlow = NewGlow("Sky glow", CometArt.Glow, additive: true);
-            _groundRing = NewGlow("Ground ring", CometArt.Ring, additive: false);
+            _flashCore = NewGlow("Flash core", CometArt.Glow, additive: true, CometArt.OuterQueue);
+            _fireGlow = NewGlow("Fire glow", CometArt.Glow, additive: true, CometArt.InnerQueue);
+            _shock = NewGlow("Shock front", CometArt.Ring, additive: true, CometArt.OuterQueue);
+            _skyGlow = NewGlow("Sky glow", CometArt.Glow, additive: true, CometArt.InnerQueue);
+            _groundRing = NewGlow("Ground ring", CometArt.Ring, additive: false, CometArt.SmokeQueue);
             _groundRing.Flat = true;
+            _steamDome = NewGlow("Condensation dome", CometArt.Glow, additive: false, CometArt.OuterQueue);
 
             Color hotWhite = new Color(1f, 0.97f, 0.9f);
             Color orange = new Color(1f, 0.55f, 0.18f);
             Color ember = new Color(0.55f, 0.12f, 0.05f);
+            float fire = 1f - 0.6f * (float)_react.Steam;
+            bool burst = !_late;
 
-            // Fireball: a burst of hot gas rolling outward and cooling through the comet's colours.
-            _fireball = NewParticles("Fireball", at, CometArt.Additive(CometArt.Smoke, new Color(1f, 1f, 1f, 0.5f)), 200);
+            // Fireball: a burst of hot gas rolling outward and cooling through the comet's colours,
+            // inside the smoke, so the smoke covers it rather than it being pasted over the smoke.
+            _fireball = NewParticles("Fireball", at, Additive(CometArt.SmokeSheet, CometArt.InnerQueue), 160);
             var main = _fireball.main;
             main.startLifetime = new ParticleSystem.MinMaxCurve(3f, 6f);
             main.startSpeed = new ParticleSystem.MinMaxCurve(_radius * 0.5f, _radius * 1.6f);
@@ -323,16 +355,49 @@ namespace TerraformingReloaded.Comets
             shape.shapeType = ParticleSystemShapeType.Hemisphere;
             shape.rotation = new Vector3(-90f, 0f, 0f);
             shape.radius = _radius * 0.3f;
-            Burst(_fireball, 110);
+            if (burst)
+            {
+                Burst(_fireball, Mathf.RoundToInt(110 * fire), 0f);
+            }
             Drag(_fireball, 0.06f);
             SizeOverLife(_fireball, 0.7f, 2.0f);
             Rotate(_fireball, 0.4f);
+            Animate(_fireball, 1f);
             ColourOverLife(_fireball, Keys(
                 new[] { (hotWhite, 0f), (new Color(1f, 0.85f, 0.4f), 0.12f), (orange, 0.3f), (_gasColour, 0.55f), (ember, 1f) },
                 new[] { (1f, 0f), (0.9f, 0.4f), (0f, 1f) }));
 
+            // Burning: a second, larger fireball a second or two after the first, rolling orange-red.
+            if (_react.Burning > 0.02)
+            {
+                float burn = (float)_react.Burning;
+                _secondFireball = NewParticles("Second fireball", at, Additive(CometArt.SmokeSheet, CometArt.InnerQueue), 180);
+                main = _secondFireball.main;
+                main.startLifetime = new ParticleSystem.MinMaxCurve(5f, 9f);
+                main.startSpeed = new ParticleSystem.MinMaxCurve(_radius * 0.8f, _radius * 2.2f);
+                main.startSize = new ParticleSystem.MinMaxCurve(_radius * 1.2f, _radius * 2.4f);
+                main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+                main.startColor = Color.white;
+                shape = _secondFireball.shape;
+                shape.enabled = true;
+                shape.shapeType = ParticleSystemShapeType.Hemisphere;
+                shape.rotation = new Vector3(-90f, 0f, 0f);
+                shape.radius = _radius * 0.5f;
+                if (burst)
+                {
+                    Burst(_secondFireball, Mathf.RoundToInt(40 + 120 * burn), 1.4f);
+                }
+                Drag(_secondFireball, 0.05f);
+                SizeOverLife(_secondFireball, 0.6f, 2.4f);
+                Rotate(_secondFireball, 0.3f);
+                Animate(_secondFireball, 1f);
+                ColourOverLife(_secondFireball, Keys(
+                    new[] { (new Color(1f, 0.9f, 0.6f), 0f), (new Color(1f, 0.5f, 0.15f), 0.2f), (new Color(0.95f, 0.25f, 0.08f), 0.55f), (ember, 1f) },
+                    new[] { (0.95f, 0f), (0.85f, 0.5f), (0f, 1f) }));
+            }
+
             // Ejecta: rock and ice thrown high, glowing, on trails, falling back down.
-            _ejecta = NewParticles("Ejecta", at, CometArt.Additive(CometArt.Glow, new Color(1f, 1f, 1f, 0.5f)), 260);
+            _ejecta = NewParticles("Ejecta", at, Additive(CometArt.Glow, CometArt.OuterQueue), 220);
             float rise = 4.5f;
             float height = _plumeHeight * 0.7f;
             float g = 2f * height / (rise * rise);
@@ -348,34 +413,40 @@ namespace TerraformingReloaded.Comets
             shape.angle = 42f;
             shape.radius = _radius * 0.3f;
             shape.rotation = new Vector3(-90f, 0f, 0f);
-            Burst(_ejecta, 140);
+            if (burst)
+            {
+                Burst(_ejecta, 140, 0f);
+            }
             ColourOverLife(_ejecta, Keys(
                 new[] { (Color.white, 0f), (orange, 0.35f), (_gasColour, 0.7f), (ember, 1f) },
                 new[] { (1f, 0f), (1f, 0.75f), (0f, 1f) }));
             Trails(_ejecta, 0.35f, _radius * 0.12f);
             Collide(_ejecta);
 
-            // The column: dark smoke and dust climbing, lit from inside by the fire at its root.
-            _stem = NewParticles("Stem", at, CometArt.Blended(CometArt.Smoke, new Color(0.5f, 0.5f, 0.5f, 0.5f)), 900);
+            // The column: smoke and dust climbing, lit from inside by the fire at its root. Steam turns
+            // it white and billowing.
+            float steam = (float)_react.Steam;
+            _stem = NewParticles("Stem", at, Blended(CometArt.SmokeSheet), 800);
             main = _stem.main;
             main.loop = true;
             main.startLifetime = new ParticleSystem.MinMaxCurve(11f, 17f);
             main.startSpeed = new ParticleSystem.MinMaxCurve(_plumeHeight / 9f, _plumeHeight / 6f);
-            main.startSize = new ParticleSystem.MinMaxCurve(_radius * 0.6f, _radius * 1.0f);
+            main.startSize = new ParticleSystem.MinMaxCurve(_radius * 0.6f, _radius * (1.0f + 0.3f * steam));
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.startColor = new ParticleSystem.MinMaxGradient(Darken(_bands, 0.45f, new Color(0.35f, 0.3f, 0.27f), 0.6f)) { mode = ParticleSystemGradientMode.RandomColor };
+            main.startColor = new ParticleSystem.MinMaxGradient(Darken(_bands, 0.45f * (1f - steam), Color.Lerp(new Color(0.35f, 0.3f, 0.27f), new Color(0.92f, 0.94f, 0.96f), steam), 0.75f)) { mode = ParticleSystemGradientMode.RandomColor };
             shape = _stem.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.Cone;
-            shape.angle = 7f;
+            shape.angle = 7f + 5f * steam;
             shape.radius = _radius * 0.35f;
             shape.rotation = new Vector3(-90f, 0f, 0f);
             Drag(_stem, 0.025f);
-            SizeOverLife(_stem, 0.6f, 2.2f);
+            SizeOverLife(_stem, 0.6f, 2.2f + 0.8f * steam);
             Rotate(_stem, 0.15f);
-            ColourOverLife(_stem, Fade(Color.white, 0.92f, 0f, 0.12f));
+            Animate(_stem, 1f);
+            ColourOverLife(_stem, Fade(Color.white, 0.95f, 0f, 0.12f));
 
-            _stemGlow = NewParticles("Stem glow", at, CometArt.Additive(CometArt.Smoke, new Color(1f, 1f, 1f, 0.5f)), 400);
+            _stemGlow = NewParticles("Stem glow", at, Additive(CometArt.SmokeSheet, CometArt.InnerQueue), 300);
             main = _stemGlow.main;
             main.loop = true;
             main.startLifetime = new ParticleSystem.MinMaxCurve(2.5f, 4.5f);
@@ -390,6 +461,7 @@ namespace TerraformingReloaded.Comets
             shape.radius = _radius * 0.25f;
             shape.rotation = new Vector3(-90f, 0f, 0f);
             SizeOverLife(_stemGlow, 0.7f, 1.6f);
+            Animate(_stemGlow, 1f);
             ColourOverLife(_stemGlow, Keys(
                 new[] { (new Color(1f, 0.9f, 0.6f), 0f), (Color.white, 0.4f), (new Color(0.6f, 0.3f, 0.2f), 1f) },
                 new[] { (1f, 0f), (0.6f, 0.5f), (0f, 1f) }));
@@ -398,14 +470,14 @@ namespace TerraformingReloaded.Comets
             _capTransform = new GameObject("Cap").transform;
             _capTransform.SetParent(at, false);
             _capTransform.position = _impact + Vector3.up * _radius;
-            _cap = NewParticles("Cap smoke", _capTransform, CometArt.Blended(CometArt.Smoke, new Color(0.5f, 0.5f, 0.5f, 0.5f)), 900);
+            _cap = NewParticles("Cap smoke", _capTransform, Blended(CometArt.SmokeSheet), 800);
             main = _cap.main;
             main.loop = true;
             main.startLifetime = new ParticleSystem.MinMaxCurve(16f, 28f);
             main.startSpeed = new ParticleSystem.MinMaxCurve(_radius * 0.4f, _radius * 1.1f);
             main.startSize = new ParticleSystem.MinMaxCurve(_radius * 1.1f, _radius * 2.2f);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.startColor = new ParticleSystem.MinMaxGradient(Darken(_bands, 0.85f, new Color(0.55f, 0.5f, 0.47f), 0.25f)) { mode = ParticleSystemGradientMode.RandomColor };
+            main.startColor = new ParticleSystem.MinMaxGradient(Darken(_bands, 0.85f * (1f - 0.5f * steam), Color.Lerp(new Color(0.55f, 0.5f, 0.47f), new Color(0.95f, 0.96f, 0.98f), steam), 0.4f)) { mode = ParticleSystemGradientMode.RandomColor };
             shape = _cap.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.Circle;
@@ -414,9 +486,10 @@ namespace TerraformingReloaded.Comets
             Drag(_cap, 0.02f);
             SizeOverLife(_cap, 0.6f, 2.4f);
             Rotate(_cap, 0.1f);
-            ColourOverLife(_cap, Fade(Color.white, 0.88f, 0f, 0.1f));
+            Animate(_cap, 1f);
+            ColourOverLife(_cap, Fade(Color.white, 0.9f, 0f, 0.1f));
 
-            _capGlow = NewParticles("Cap glow", _capTransform, CometArt.Additive(CometArt.Smoke, new Color(1f, 1f, 1f, 0.5f)), 300);
+            _capGlow = NewParticles("Cap glow", _capTransform, Additive(CometArt.SmokeSheet, CometArt.InnerQueue), 240);
             main = _capGlow.main;
             main.loop = true;
             main.startLifetime = new ParticleSystem.MinMaxCurve(4f, 7f);
@@ -430,30 +503,103 @@ namespace TerraformingReloaded.Comets
             shape.radius = _radius * 0.5f;
             shape.rotation = new Vector3(90f, 0f, 0f);
             SizeOverLife(_capGlow, 0.7f, 1.8f);
+            Animate(_capGlow, 1f);
             ColourOverLife(_capGlow, Fade(Color.white, 0.8f, 0f, 0.2f));
 
             // The base surge: dust thrown out along the ground in a ring.
-            _groundDust = NewParticles("Base surge", at, CometArt.Blended(CometArt.Smoke, new Color(0.5f, 0.5f, 0.5f, 0.5f)), 300);
+            _groundDust = NewParticles("Base surge", at, Blended(CometArt.SmokeSheet), 260);
             main = _groundDust.main;
             main.startLifetime = new ParticleSystem.MinMaxCurve(8f, 14f);
             main.startSpeed = new ParticleSystem.MinMaxCurve(_radius * 2.5f, _radius * 4.5f);
             main.startSize = new ParticleSystem.MinMaxCurve(_radius * 0.7f, _radius * 1.4f);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.55f, 0.45f, 0.36f, 0.85f), Color.Lerp(new Color(0.5f, 0.42f, 0.35f), _gasColour, 0.3f) * new Color(1f, 1f, 1f, 0.75f));
+            main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.55f, 0.45f, 0.36f, 0.9f), Color.Lerp(new Color(0.5f, 0.42f, 0.35f), _gasColour, 0.3f) * new Color(1f, 1f, 1f, 0.8f));
             shape = _groundDust.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.Circle;
             shape.radius = _radius * 0.6f;
             shape.radiusThickness = 0f;
             shape.rotation = new Vector3(90f, 0f, 0f);
-            Burst(_groundDust, 180);
+            if (burst)
+            {
+                Burst(_groundDust, 180, 0f);
+            }
             Drag(_groundDust, 0.05f);
             SizeOverLife(_groundDust, 0.6f, 2.8f);
             Rotate(_groundDust, 0.2f);
-            ColourOverLife(_groundDust, Fade(Color.white, 0.85f, 0f, 0.05f));
+            Animate(_groundDust, 1f);
+            ColourOverLife(_groundDust, Fade(Color.white, 0.88f, 0f, 0.05f));
+
+            // Dry ice: a dense grey-white fog rolling out along the ground.
+            if (_react.DryIce > 0.02)
+            {
+                _fog = NewParticles("Dry ice fog", at, Blended(CometArt.SmokeSheet), 360);
+                main = _fog.main;
+                main.loop = true;
+                main.startLifetime = new ParticleSystem.MinMaxCurve(22f, 38f);
+                main.startSpeed = new ParticleSystem.MinMaxCurve(_radius * 0.6f, _radius * 1.5f);
+                main.startSize = new ParticleSystem.MinMaxCurve(_radius * 0.8f, _radius * 1.6f);
+                main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+                main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.86f, 0.88f, 0.9f, 0.85f), new Color(0.7f, 0.72f, 0.75f, 0.7f));
+                main.gravityModifier = 0.02f;
+                shape = _fog.shape;
+                shape.enabled = true;
+                shape.shapeType = ParticleSystemShapeType.Circle;
+                shape.radius = _radius * 0.8f;
+                shape.radiusThickness = 0.3f;
+                shape.rotation = new Vector3(90f, 0f, 0f);
+                Drag(_fog, 0.03f);
+                SizeOverLife(_fog, 0.7f, 3.2f);
+                Rotate(_fog, 0.08f);
+                Animate(_fog, 0.6f);
+                ColourOverLife(_fog, Fade(Color.white, 0.9f, 0f, 0.15f));
+            }
+
+            // Toxic: a sickly yellow-green haze that settles low and lingers.
+            if (_react.Toxic > 0.02)
+            {
+                _haze = NewParticles("Toxic haze", at, Blended(CometArt.SmokeSheet), 300);
+                main = _haze.main;
+                main.loop = true;
+                main.startLifetime = new ParticleSystem.MinMaxCurve(40f, 70f);
+                main.startSpeed = new ParticleSystem.MinMaxCurve(_radius * 0.2f, _radius * 0.7f);
+                main.startSize = new ParticleSystem.MinMaxCurve(_radius * 1.2f, _radius * 2.4f);
+                main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+                main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.72f, 0.8f, 0.22f, 0.6f), new Color(0.55f, 0.66f, 0.18f, 0.45f));
+                main.gravityModifier = 0.01f;
+                shape = _haze.shape;
+                shape.enabled = true;
+                shape.shapeType = ParticleSystemShapeType.Hemisphere;
+                shape.radius = _radius * 1.8f;
+                shape.rotation = new Vector3(-90f, 0f, 0f);
+                Drag(_haze, 0.04f);
+                SizeOverLife(_haze, 0.8f, 2.6f);
+                Rotate(_haze, 0.05f);
+                Animate(_haze, 0.5f);
+                ColourOverLife(_haze, Fade(Color.white, 0.85f, 0f, 0.25f));
+            }
+
+            // Ionised: an electric blue-violet shimmer flickering through the cloud.
+            if (_react.Ionised > 0.02)
+            {
+                _shimmer = NewParticles("Shimmer", _capTransform, Additive(CometArt.Glow, CometArt.InnerQueue), 300);
+                main = _shimmer.main;
+                main.loop = true;
+                main.startLifetime = new ParticleSystem.MinMaxCurve(0.15f, 0.5f);
+                main.startSpeed = 0f;
+                main.startSize = new ParticleSystem.MinMaxCurve(_radius * 0.3f, _radius * 0.9f);
+                main.startColor = new ParticleSystem.MinMaxGradient(new Color(0.55f, 0.6f, 1f), new Color(0.75f, 0.45f, 1f));
+                shape = _shimmer.shape;
+                shape.enabled = true;
+                shape.shapeType = ParticleSystemShapeType.Sphere;
+                shape.radius = _radius * 1.4f;
+                ColourOverLife(_shimmer, Keys(
+                    new[] { (Color.white, 0f), (new Color(0.6f, 0.6f, 1f), 0.3f), (new Color(0.5f, 0.3f, 1f), 1f) },
+                    new[] { (0f, 0f), (1f, 0.1f), (0f, 1f) }));
+            }
 
             // Burning pieces coming back down out of the sky, around the player too.
-            _debrisRain = NewParticles("Debris rain", transform, CometArt.Additive(CometArt.Glow, new Color(1f, 1f, 1f, 0.5f)), 200);
+            _debrisRain = NewParticles("Debris rain", transform, Additive(CometArt.Glow, CometArt.OuterQueue), 180);
             Vector3 middle = Vector3.Lerp(_camera.transform.position, _impact, 0.55f);
             _debrisRain.transform.position = new Vector3(middle.x, _impact.y + _plumeHeight * 1.1f, middle.z);
             _debrisRain.transform.rotation = Quaternion.identity;
@@ -467,7 +613,8 @@ namespace TerraformingReloaded.Comets
             shape = _debrisRain.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.Box;
-            shape.scale = new Vector3(_distance * 1.6f, 10f, _distance * 1.6f);
+            float spread = Vector3.Distance(_camera.transform.position, _impact) * 1.6f;
+            shape.scale = new Vector3(spread, 10f, spread);
             var velocity = _debrisRain.velocityOverLifetime;
             velocity.enabled = true;
             velocity.space = ParticleSystemSimulationSpace.World;
@@ -498,16 +645,16 @@ namespace TerraformingReloaded.Comets
             _flash.color = new Color(1f, 1f, 1f, 0f);
             Vector3 look = _camera.transform.forward;
             Vector3 toImpact = (_impact - _camera.transform.position).normalized;
-            _flashView = 0.35f + 0.65f * Mathf.Clamp01(Vector3.Dot(look, toImpact));
+            _flashView = _late ? 0f : 0.35f + 0.65f * Mathf.Clamp01(Vector3.Dot(look, toImpact));
 
-            _fireball.Play();
-            _ejecta.Play();
-            _stem.Play();
-            _stemGlow.Play();
-            _cap.Play();
-            _capGlow.Play();
-            _groundDust.Play();
-            _debrisRain.Play();
+            Budget();
+            foreach (ParticleSystem system in new[] { _fireball, _secondFireball, _ejecta, _stem, _stemGlow, _cap, _capGlow, _groundDust, _fog, _haze, _shimmer, _debrisRain })
+            {
+                if (system != null)
+                {
+                    system.Play();
+                }
+            }
         }
 
         // ---------------------------------------------------------------- the clock
@@ -516,7 +663,7 @@ namespace TerraformingReloaded.Comets
         {
             try
             {
-                Step(Time.deltaTime);
+                Step();
             }
             catch (Exception e)
             {
@@ -525,51 +672,138 @@ namespace TerraformingReloaded.Comets
             }
         }
 
-        private void Step(float dt)
+        /// <summary>
+        /// Drops everything drawn and heard, keeping the timeline: the host's gas, breaks and suit
+        /// damage happen whether or not this machine can show them.
+        /// </summary>
+        private void StopDrawing()
         {
-            if (_camera == null)
+            _render = false;
+            _sound?.Stop();
+            foreach (Transform child in transform)
             {
-                Destroy(gameObject);
+                Destroy(child.gameObject);
+            }
+        }
+
+        private void Drawn(Action draw)
+        {
+            if (!_render)
+            {
                 return;
             }
+            try
+            {
+                draw();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("[TR comet] drawing stopped; the impact still happens. " + e);
+                StopDrawing();
+            }
+        }
+
+        private void Step()
+        {
+            if (_render && _camera == null)
+            {
+                StopDrawing();
+            }
+            // The clock every machine shares, followed smoothly: a client's copy is corrected by every
+            // state update from the host, and a jump in it would jerk the comet across the sky.
+            float dt = Time.deltaTime;
+            float target = (float)(CometEvent.Clock - _event.StartClock);
             _t += dt;
+            float behind = target - _t;
+            _t = Mathf.Abs(behind) > 1f ? target : _t + behind * Mathf.Clamp01(dt * 2f);
+            if (_t < 0f)
+            {
+                return;
+            }
+            float frame = Time.unscaledDeltaTime;
             if (!_impacted)
             {
-                Approach();
-                if (_t >= ApproachSeconds)
+                if (_t < ApproachSeconds)
+                {
+                    if (_head != null)
+                    {
+                        Drawn(Approach);
+                    }
+                    _approachFrames.Add(frame);
+                }
+                else
                 {
                     Impact();
                 }
             }
             else
             {
-                Aftermath(_t - ApproachSeconds);
+                float s = _t - ApproachSeconds;
+                Drawn(() => Aftermath(s));
+                (s < 10f ? _impactFrames : _afterFrames).Add(frame);
+                while (_nextCue < _cues.Count && _cues[_nextCue].At <= s)
+                {
+                    Cue cue = _cues[_nextCue++];
+                    try
+                    {
+                        cue.Act();
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogWarning("[TR comet] a moment of the impact failed and was skipped: " + e.Message);
+                    }
+                }
             }
-            Vector3 eye = _camera.transform.position;
-            Quaternion facing = _camera.transform.rotation;
-            foreach (Glow glow in _glows)
+            Drawn(() =>
             {
-                glow.Face(eye, facing);
-            }
+                Vector3 eye = _camera.transform.position;
+                Quaternion facing = _camera.transform.rotation;
+                foreach (Glow glow in _glows)
+                {
+                    glow.Face(eye, facing);
+                }
+            });
             if (_t >= EndSeconds)
             {
                 Destroy(gameObject);
             }
         }
 
+        /// <summary>0 at night to 1 in full day: glow reads at night, smoke by day.</summary>
+        private void Daylight()
+        {
+            _day = Mathf.Clamp01((OrbitalSimulation.WorldSunVector.y + 0.05f) / 0.3f);
+            float glow = Mathf.Lerp(1f, 0.55f, _day);
+            float smoke = Mathf.Lerp(0.5f, 0.64f, _day);
+            foreach ((Material material, Color tint, bool isGlow) in _materials)
+            {
+                Color c = isGlow ? new Color(tint.r * glow, tint.g * glow, tint.b * glow, tint.a) : new Color(tint.r, tint.g, tint.b, smoke);
+                if (material.HasProperty("_TintColor"))
+                {
+                    material.SetColor("_TintColor", c);
+                }
+                else
+                {
+                    material.color = c;
+                }
+            }
+        }
+
         private void Approach()
         {
+            Daylight();
             float x = Mathf.Clamp01(_t / ApproachSeconds);
             const float k = 4.6f;
             float u = (Mathf.Exp(k * x) - 1f) / (Mathf.Exp(k) - 1f);
             _head.position = Vector3.LerpUnclamped(_start, _impact, u);
             float heat = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, 1f, x));
+            float glowGain = Mathf.Lerp(1f, 0.7f, _day);
 
             Color cool = Color.Lerp(new Color(0.75f, 0.88f, 1f), _gasColour, 0.45f);
             Color hot = new Color(1f, 0.72f, 0.38f);
             Color now = Color.Lerp(cool, hot, heat);
             float flicker = 1f + 0.08f * Mathf.Sin(_t * 31f) * heat;
-            _coma.Show(_head.position, 420f * _scale * (1f + 0.7f * heat), now, (1.1f + 1.4f * heat) * flicker, 1f);
+            _coma.Show(_head.position, 420f * _scale * (1f + 0.7f * heat), now, (1.1f + 1.4f * heat) * flicker * glowGain, 1f);
             _core.Show(_head.position, 110f * _scale * (1f + 0.8f * heat), Color.white, 2f, 1f);
 
             _headLight.transform.position = _head.position;
@@ -587,10 +821,26 @@ namespace TerraformingReloaded.Comets
             _hotTrail.widthMultiplier = 90f * _scale * (0.5f + 1.6f * heat);
             _hotTrail.colorGradient = TrailGradient(now);
 
+            Vector3 listener = _camera.transform.position;
+            if (_t > ApproachSeconds * 0.35f)
+            {
+                _sound.Rush(listener, _head.position, heat);
+            }
             if (!_roared && _t >= ApproachSeconds - CometArt.Roar.length)
             {
                 _roared = true;
-                _audio.PlayOneShot(CometArt.Roar, 0.9f);
+                if (_joinedAt < ApproachSeconds - CometArt.Roar.length + 1f)
+                {
+                    _sound.Roar();
+                }
+            }
+            if (!_entered && _t >= ApproachSeconds * 0.6f)
+            {
+                _entered = true;
+                if (_joinedAt < ApproachSeconds * 0.6f + 1f)
+                {
+                    _sound.Entry(listener, _head.position);
+                }
             }
             if (heat > 0f)
             {
@@ -601,35 +851,204 @@ namespace TerraformingReloaded.Comets
         private void Impact()
         {
             _impacted = true;
-            _head.position = _impact;
-            foreach (ParticleSystem system in new[] { _tail, _sparks, _contrail })
+            _late = _joinedAt > ApproachSeconds + 0.5f;
+            // The gas first: nothing drawn or heard may stand between the comet and the planet.
+            if (_host && !_late)
             {
-                var emission = system.emission;
-                emission.rateOverTime = 0f;
+                try
+                {
+                    Deliver();
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError("[TR comet] the comet's gas could not be added: " + e);
+                }
             }
-            _hotTrail.emitting = false;
-            _coma.Hide();
-            _core.Hide();
-            _headLight.enabled = false;
-            BuildImpact();
-            _boomAt = Mathf.Min(14f, Vector3.Distance(_camera.transform.position, _impact) / SpeedOfSound);
-            Debug.Log("[TR comet] impact at " + _impact + ", sound in " + _boomAt.ToString("0.0", CultureInfo.InvariantCulture) + " s");
-            Deliver();
+            Drawn(() =>
+            {
+                if (_head != null)
+                {
+                    foreach (ParticleSystem system in new[] { _tail, _sparks, _contrail })
+                    {
+                        var emission = system.emission;
+                        emission.rateOverTime = 0f;
+                    }
+                    _hotTrail.emitting = false;
+                    _coma.Hide();
+                    _core.Hide();
+                    _headLight.enabled = false;
+                }
+                _sound.EndRush();
+                BuildImpact();
+            });
+            Schedule();
+        }
+
+        /// <summary>
+        /// Everything that happens as the sound and the wave spread out, each at its own time after
+        /// the impact. A player who joined after a moment has passed skips it.
+        /// </summary>
+        private void Schedule()
+        {
+            CultureInfo c = CultureInfo.InvariantCulture;
+            float joined = _joinedAt - ApproachSeconds;
+            double moles = _plan.Moles;
+            StringBuilder log = new StringBuilder();
+            log.Append(string.Format(c, "[TR comet] event {0} impact at {1}", _event.Sequence, _impact));
+
+            // Structures: every machine works out the same list for the sound; the host breaks them.
+            if (!_plan.Preview)
+            {
+                List<CometWave.Hit> hits = CometWave.Structures(_impact, moles, _rules);
+                int breaks = 0;
+                foreach (CometWave.Hit hit in hits)
+                {
+                    CometWave.Hit h = hit;
+                    if (h.Breaks)
+                    {
+                        breaks++;
+                    }
+                    When((float)_rules.ArrivalSeconds(h.Distance), () =>
+                    {
+                        if (h.Breaks && _host)
+                        {
+                            CometWave.Break(h.Structure);
+                        }
+                        if (_render && h.Sound != 0)
+                        {
+                            _sound.Structure(h.Sound, h.At);
+                        }
+                    });
+                }
+                log.Append(string.Format(c, "; structures: {0} break, {1} creak", breaks, hits.Count - breaks));
+                if (hits.Count > 0)
+                {
+                    log.Append(string.Format(c, ", nearest {0} at {1:N0} m ({2:0.#} kPa against {3:0} kPa)",
+                        hits[0].Structure != null ? hits[0].Structure.PrefabName : "?", hits[0].Distance, hits[0].PeakKPa, hits[0].LimitKPa));
+                }
+
+                // Players outdoors: the host damages suits through the game's collision hit.
+                if (_host)
+                {
+                    foreach (Human human in Human.AllHumans)
+                    {
+                        if (human == null || human.OrganBrain == null || !human.OrganBrain.IsOnline || human.IsDead)
+                        {
+                            continue;
+                        }
+                        float distance = Vector3.Distance(human.transform.position, _impact);
+                        double peak = _rules.PeakKPa(moles, distance);
+                        CometRules.Push push = _rules.PushFor(peak);
+                        log.Append(string.Format(c, "; player {0} at {1:N0} m, {2:0.#} kPa, band {3}{4}", human.DisplayName, distance, peak, push.Band,
+                            CometWave.Outdoors(human) ? " outdoors" : " indoors"));
+                        if (push.SuitImpulse > 0.0)
+                        {
+                            Human who = human;
+                            When((float)_rules.ArrivalSeconds(distance), () =>
+                            {
+                                if (CometWave.Hurt(who, _impact, _rules.PushFor(_rules.PeakKPa(moles, Vector3.Distance(who.transform.position, _impact)))))
+                                {
+                                    Debug.Log("[TR comet] the wave damaged the suit of " + who.DisplayName);
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+
+            // This machine's listener: its own player, or the camera where there is no player.
+            Human local = InventoryManager.ParentHuman;
+            Vector3? ear = local != null ? local.transform.position : _render ? _camera.transform.position : (Vector3?)null;
+            if (ear.HasValue)
+            {
+                float distance = Vector3.Distance(ear.Value, _impact);
+                double peak = _rules.PeakKPa(moles, distance);
+                float arrives = (float)_rules.ArrivalSeconds(distance);
+                log.Append(string.Format(c, "; here {0:N0} m away, {1:0.#} kPa, the sound in {2:0.0} s", distance, peak, arrives));
+                When(arrives, () =>
+                {
+                    Vector3 here = Listener();
+                    double felt = _rules.PeakKPa(moles, Vector3.Distance(here, _impact));
+                    if (!_plan.Preview && CometWave.Shove(_impact, _rules.PushFor(felt)))
+                    {
+                        Debug.Log(string.Format(CultureInfo.InvariantCulture, "[TR comet] the wave threw this player at {0:0.#} kPa", felt));
+                    }
+                    CameraController.SetCameraShake((float)_rules.Shake(felt));
+                    _shakeFrom = _t;
+                    _shakeLevel = (float)_rules.Shake(felt);
+                    if (_render)
+                    {
+                        Human player = InventoryManager.ParentHuman;
+                        bool outdoors = player == null || CometWave.Outdoors(player);
+                        _sound.Thump();
+                        _sound.Gust(here, outdoors, Mathf.Clamp01(0.4f + (float)felt / 100f));
+                        if (outdoors)
+                        {
+                            Gust(here);
+                        }
+                    }
+                });
+                if (_render)
+                {
+                    When(arrives + 0.05f, () => _sound.Boom());
+                    When(arrives + 0.2f, () => _sound.Explosions(Listener(), _impact));
+                    When(arrives + 2.5f, () => _sound.Tail());
+                    _stormFrom = arrives + 3f;
+                    // Debris bursting high in the sky, at random points the seed decides.
+                    int pops = 8 + (int)(4f * _scale);
+                    for (int i = 0; i < pops; i++)
+                    {
+                        float at = arrives + 4f + (float)_random.NextDouble() * 36f;
+                        Vector3 offset = Quaternion.AngleAxis((float)_random.NextDouble() * 360f, Vector3.up) * Vector3.forward * (150f + (float)_random.NextDouble() * 500f)
+                            + Vector3.up * (150f + (float)_random.NextDouble() * 300f);
+                        When(at, () => _sound.Pop(Listener() + offset));
+                    }
+                }
+            }
+            _cues.Sort((a, b) => a.At.CompareTo(b.At));
+            while (_nextCue < _cues.Count && _cues[_nextCue].At < joined)
+            {
+                _nextCue++;
+            }
+            Debug.Log(log.ToString());
+        }
+
+        private float _shakeFrom = -1f;
+        private float _shakeLevel;
+        private float _stormFrom = float.MaxValue;
+
+        private void When(float at, Action act) => _cues.Add(new Cue(at, act));
+
+        private Vector3 Listener()
+        {
+            Human local = InventoryManager.ParentHuman;
+            return local != null ? local.transform.position : _camera != null ? _camera.transform.position : _impact;
         }
 
         private void Aftermath(float s)
         {
-            // Flash: up in a frame or two, gone in about a second, warm as it goes.
-            float flash = s < 0.05f ? s / 0.05f : Mathf.Exp(-(s - 0.05f) / 0.45f);
-            _flash.color = Color.Lerp(new Color(1f, 0.85f, 0.65f), Color.white, flash) * new Color(1f, 1f, 1f, 0.97f * _flashView * flash);
+            Daylight();
+            float glowGain = Mathf.Lerp(1f, 0.55f, _day);
+            float ionised = (float)_react.Ionised;
+            float burning = (float)_react.Burning;
+            float steam = (float)_react.Steam;
 
-            _flashLight.intensity = 45f * Mathf.Exp(-s / 0.6f) + 5f * Mathf.Exp(-s / 8f);
+            // Flash: up in a frame or two, gone in about a second, warm as it goes; sharper and bluer
+            // when the cloud is ionised.
+            float decay = 0.45f * (1f - 0.5f * ionised);
+            float flash = s < 0.05f ? s / 0.05f : Mathf.Exp(-(s - 0.05f) / decay);
+            Color flashColour = Color.Lerp(Color.Lerp(new Color(1f, 0.85f, 0.65f), new Color(0.75f, 0.8f, 1f), ionised), Color.white, flash);
+            _flash.color = flashColour * new Color(1f, 1f, 1f, Mathf.Min(1f, 0.97f * (1f + 0.15f * ionised)) * _flashView * flash);
+
+            _flashLight.intensity = (45f * Mathf.Exp(-s / 0.6f) + 5f * Mathf.Exp(-s / (8f * (1f + burning)))) * (1f + burning);
             _flashLight.range = 20000f;
             _flashLight.color = Color.Lerp(Color.Lerp(new Color(1f, 0.6f, 0.25f), _gasColour, 0.35f), Color.white, Mathf.Exp(-s / 0.8f));
 
-            _flashCore.Show(_impact + Vector3.up * _radius * 0.5f, 7f * _radius * (1f - Mathf.Exp(-s / 0.2f)), Color.Lerp(new Color(1f, 0.8f, 0.5f), Color.white, Mathf.Exp(-s / 0.7f)), 2f * Mathf.Exp(-s / 1.4f), 1f);
-            _fireGlow.Show(_impact + Vector3.up * _radius * (0.8f + 0.4f * Mathf.Min(s, 6f)), 4.5f * _radius * (0.6f + 0.4f * Mathf.Sqrt(Mathf.Min(s, 30f))),
-                Color.Lerp(new Color(1f, 0.55f, 0.2f), _gasColour, Mathf.Clamp01(s / 8f)), 1.5f * Mathf.Exp(-s / 6f), 1f);
+            _flashCore.Show(_impact + Vector3.up * _radius * 0.5f, 7f * _radius * (1f - Mathf.Exp(-s / 0.2f)), Color.Lerp(new Color(1f, 0.8f, 0.5f), Color.white, Mathf.Exp(-s / 0.7f)),
+                2f * Mathf.Exp(-s / 1.4f) * (_late ? 0f : 1f), 1f);
+            float fireLife = 6f * (1f + 1.5f * burning) * (1f - 0.5f * steam);
+            _fireGlow.Show(_impact + Vector3.up * _radius * (0.8f + 0.4f * Mathf.Min(s, 6f)), 4.5f * _radius * (0.6f + 0.4f * Mathf.Sqrt(Mathf.Min(s, 30f))) * (1f + 0.4f * burning),
+                Color.Lerp(Color.Lerp(new Color(1f, 0.55f, 0.2f), new Color(1f, 0.35f, 0.1f), burning), _gasColour, Mathf.Clamp01(s / 8f)), 1.5f * Mathf.Exp(-s / fireLife) * glowGain, 1f);
             if (s < 5f)
             {
                 _shock.Show(_impact + Vector3.up * _radius * 0.3f, _radius * 2f + 1400f * _scale * s, new Color(1f, 0.95f, 0.85f), 1.6f, Mathf.Exp(-s / 0.9f));
@@ -638,51 +1057,69 @@ namespace TerraformingReloaded.Comets
             {
                 _shock.Hide();
             }
+            // Steam: a white condensation dome flashing out with the shock.
+            if (steam > 0.02f && s < 4f)
+            {
+                _steamDome.Show(_impact + Vector3.up * _radius * 0.2f, _radius * 3f + 900f * _scale * Mathf.Sqrt(s), new Color(0.95f, 0.97f, 1f), 1f, 0.8f * steam * Mathf.Exp(-s / 0.8f) * Mathf.Clamp01(s / 0.08f));
+            }
+            else
+            {
+                _steamDome.Hide();
+            }
             _groundRing.Show(_impact + Vector3.up * 3f, 2f * 16f * _radius * (1f - Mathf.Exp(-s / 2.5f)), new Color(0.62f, 0.52f, 0.42f), 1f, 0.8f * Mathf.Exp(-s / 6f));
-            _skyGlow.Show(_impact + Vector3.up * _plumeHeight * 0.5f, 28f * _radius, _gasColour, 0.55f * Mathf.Exp(-s / 30f) * Mathf.Clamp01(s / 0.5f), 1f);
+            float skyFade = Mathf.Clamp01((EndSeconds - ApproachSeconds - s) / 12f);
+            _skyGlow.Show(_impact + Vector3.up * _plumeHeight * 0.5f, 28f * _radius, _gasColour, 0.55f * Mathf.Exp(-s / 30f) * Mathf.Clamp01(s / 0.5f) * skyFade * glowGain, 1f);
 
             float capRise = 1f - Mathf.Exp(-s / 7f);
             _capTransform.position = _impact + Vector3.up * (_radius + _plumeHeight * capRise);
+            float fire = 1f - 0.6f * steam;
+            float smokeMore = 1f + 0.35f * _day;
             var emission = _stem.emission;
-            emission.rateOverTime = s < 45f ? 55f * Mathf.Exp(-s / 12f) : 0f;
+            emission.rateOverTime = s < 45f ? 55f * Mathf.Exp(-s / 12f) * (1f + 0.5f * steam) * smokeMore : 0f;
             emission = _stemGlow.emission;
-            emission.rateOverTime = s < 12f ? 60f * Mathf.Exp(-s / 3f) : 0f;
+            emission.rateOverTime = s < 12f ? 60f * Mathf.Exp(-s / (3f * (1f + burning))) * fire : 0f;
             emission = _cap.emission;
-            emission.rateOverTime = s > 2f && s < 50f ? 30f * Mathf.Exp(-(s - 2f) / 14f) : 0f;
+            emission.rateOverTime = s > 2f && s < 50f ? 30f * Mathf.Exp(-(s - 2f) / 14f) * smokeMore : 0f;
             emission = _capGlow.emission;
-            emission.rateOverTime = s > 1.5f && s < 14f ? 30f * Mathf.Exp(-(s - 1.5f) / 4f) : 0f;
+            emission.rateOverTime = s > 1.5f && s < 14f ? 30f * Mathf.Exp(-(s - 1.5f) / (4f * (1f + burning))) * fire : 0f;
             emission = _debrisRain.emission;
             emission.rateOverTime = s > 4f && s < 35f ? 7f * Mathf.Exp(-(s - 4f) / 12f) : 0f;
+            if (_fog != null)
+            {
+                emission = _fog.emission;
+                emission.rateOverTime = s > 0.5f && s < 30f ? 22f * (float)_react.DryIce * Mathf.Exp(-(s - 0.5f) / 12f) : 0f;
+            }
+            if (_haze != null)
+            {
+                emission = _haze.emission;
+                emission.rateOverTime = s > 3f && s < 60f ? 8f * (float)_react.Toxic * Mathf.Exp(-(s - 3f) / 25f) : 0f;
+            }
+            if (_shimmer != null)
+            {
+                emission = _shimmer.emission;
+                float flicker = 0.5f + 0.5f * Mathf.Sin(s * 23f) * Mathf.Sin(s * 7.3f + 1f);
+                emission.rateOverTime = s > 0.8f && s < 25f ? 90f * ionised * flicker * Mathf.Exp(-(s - 0.8f) / 8f) : 0f;
+            }
 
-            if (!_boomed && s >= _boomAt)
+            if (_shakeFrom >= 0f)
             {
-                _boomed = true;
-                _audio.PlayOneShot(CometArt.Boom, 1f);
-                Gust();
+                CameraController.SetCameraShake(_shakeLevel * Mathf.Exp(-(_t - _shakeFrom) / 1.6f));
             }
-            if (_boomed)
+            // The storm loop fading in and out after the sound has passed, muffled indoors.
+            if (s >= _stormFrom)
             {
-                float since = s - _boomAt;
-                CameraController.SetCameraShake(Mathf.Min(2.5f, 2.4f * _scale / 1.5f) * Mathf.Exp(-since / 1.6f));
-            }
-            if (!_rumbled && s >= _boomAt + 2f)
-            {
-                _rumbled = true;
-                _audio.PlayOneShot(CometArt.Rumble, 0.8f);
-            }
-            if (s > EndSeconds - ApproachSeconds - 12f)
-            {
-                float fade = Mathf.Clamp01((EndSeconds - ApproachSeconds - s) / 12f);
-                _skyGlow.Show(_impact + Vector3.up * _plumeHeight * 0.5f, 28f * _radius, _gasColour, 0.55f * Mathf.Exp(-s / 30f) * fade, 1f);
+                float since = s - _stormFrom;
+                float level = Mathf.Clamp01(since / 8f) * Mathf.Clamp01((70f - since) / 25f) * Mathf.Clamp01(0.5f + 0.2f * _scale);
+                Human local = InventoryManager.ParentHuman;
+                _sound.Storming(Listener(), level, local != null && !CometWave.Outdoors(local));
             }
         }
 
-        /// <summary>The shock wave reaching the player: dust blown past, away from the impact.</summary>
-        private void Gust()
+        /// <summary>The wave reaching the player: dust blown past, away from the impact.</summary>
+        private void Gust(Vector3 eye)
         {
-            Vector3 eye = _camera.transform.position;
             Vector3 away = Vector3.ProjectOnPlane(eye - _impact, Vector3.up).normalized;
-            ParticleSystem gust = NewParticles("Gust", transform, CometArt.Blended(CometArt.Smoke, new Color(0.5f, 0.5f, 0.5f, 0.5f)), 120);
+            ParticleSystem gust = NewParticles("Gust", transform, Blended(CometArt.SmokeSheet), 120);
             gust.transform.position = eye - away * 45f;
             var main = gust.main;
             main.startLifetime = new ParticleSystem.MinMaxCurve(1.8f, 3.5f);
@@ -702,12 +1139,13 @@ namespace TerraformingReloaded.Comets
             velocity.y = new ParticleSystem.MinMaxCurve(-2f, 6f);
             velocity.z = new ParticleSystem.MinMaxCurve(v.z - 8f, v.z + 8f);
             SizeOverLife(gust, 0.7f, 2.2f);
+            Animate(gust, 1f);
             ColourOverLife(gust, Fade(Color.white, 1f, 0f, 0.1f));
-            Burst(gust, 70);
+            Burst(gust, 70, 0f);
             gust.Play();
         }
 
-        /// <summary>The gas reaching the planet, the moment the comet lands.</summary>
+        /// <summary>The gas reaching the planet, the moment the comet lands. Host only.</summary>
         private void Deliver()
         {
             if (_plan.Preview)
@@ -766,27 +1204,50 @@ namespace TerraformingReloaded.Comets
 
         private void OnDestroy()
         {
+            _sound?.Stop();
             if (_camera != null && _originalFar > 0f)
             {
                 _camera.farClipPlane = _originalFar;
+                _camera.depthTextureMode = _originalDepth;
             }
             if (Running == this)
             {
                 Running = null;
             }
+            if (_render)
+            {
+                Debug.Log(string.Format(CultureInfo.InvariantCulture, "[TR comet] frame time, ms mean / worst: approach {0}, first 10 s after impact {1}, after {2}; particle cap {3}",
+                    _approachFrames, _impactFrames, _afterFrames, MaxParticles));
+            }
         }
 
         // ---------------------------------------------------------------- building blocks
 
-        private Glow NewGlow(string name, Texture texture, bool additive)
+        private Material Additive(Texture texture, int queue)
+        {
+            Color tint = new Color(0.5f, 0.5f, 0.5f, 0.5f);
+            Material material = CometArt.Additive(texture, tint, queue);
+            _materials.Add((material, tint, true));
+            return material;
+        }
+
+        private Material Blended(Texture texture)
+        {
+            Color tint = new Color(0.5f, 0.5f, 0.5f, 0.5f);
+            Material material = CometArt.Blended(texture, tint);
+            _materials.Add((material, tint, false));
+            return material;
+        }
+
+        private Glow NewGlow(string name, Texture texture, bool additive, int queue)
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(transform, false);
             go.AddComponent<MeshFilter>().sharedMesh = CometArt.Quad;
             MeshRenderer renderer = go.AddComponent<MeshRenderer>();
-            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
-            Material material = additive ? CometArt.Additive(texture, Color.clear) : CometArt.Blended(texture, Color.clear);
+            Material material = additive ? CometArt.Additive(texture, Color.clear, queue) : CometArt.Blended(texture, Color.clear, queue);
             renderer.sharedMaterial = material;
             Glow glow = new Glow(go.transform, material, renderer);
             glow.Hide();
@@ -807,12 +1268,15 @@ namespace TerraformingReloaded.Comets
             return light;
         }
 
-        private static ParticleSystem NewParticles(string name, Transform parent, Material material, int max)
+        private ParticleSystem NewParticles(string name, Transform parent, Material material, int max)
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(parent, false);
             ParticleSystem system = go.AddComponent<ParticleSystem>();
             system.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            // The same seed on every machine, so a show looks the same wherever it is watched from.
+            system.useAutoRandomSeed = false;
+            system.randomSeed = (uint)(_event.Seed + 7919 * (_systems.Count + 1));
             var main = system.main;
             main.playOnAwake = false;
             main.loop = false;
@@ -832,15 +1296,36 @@ namespace TerraformingReloaded.Comets
             renderer.maxParticleSize = 4f;
             renderer.minParticleSize = 0f;
             renderer.sortMode = ParticleSystemSortMode.Distance;
-            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
+            _systems.Add(system);
             return system;
         }
 
-        private static void Burst(ParticleSystem system, int count)
+        /// <summary>Holds the whole show under <see cref="MaxParticles"/>, shrinking every system alike.</summary>
+        private void Budget()
+        {
+            int total = 0;
+            foreach (ParticleSystem system in _systems)
+            {
+                total += system.main.maxParticles;
+            }
+            if (total <= MaxParticles)
+            {
+                return;
+            }
+            float share = MaxParticles / (float)total;
+            foreach (ParticleSystem system in _systems)
+            {
+                var main = system.main;
+                main.maxParticles = Mathf.Max(8, Mathf.FloorToInt(main.maxParticles * share));
+            }
+        }
+
+        private static void Burst(ParticleSystem system, int count, float at)
         {
             var emission = system.emission;
-            emission.SetBursts(new[] { new ParticleSystem.Burst(0f, (short)count) });
+            emission.SetBursts(new[] { new ParticleSystem.Burst(at, (short)Mathf.Max(1, count)) });
         }
 
         private static void Drag(ParticleSystem system, float dampen)
@@ -858,6 +1343,20 @@ namespace TerraformingReloaded.Comets
             rotation.z = new ParticleSystem.MinMaxCurve(-radiansPerSecond, radiansPerSecond);
         }
 
+        /// <summary>Steps each puff through <see cref="CometArt.SmokeSheet"/> over its life, <paramref name="cycles"/> times, from a random frame.</summary>
+        private static void Animate(ParticleSystem system, float cycles)
+        {
+            var sheet = system.textureSheetAnimation;
+            sheet.enabled = true;
+            sheet.mode = ParticleSystemAnimationMode.Grid;
+            sheet.numTilesX = CometArt.SheetTiles;
+            sheet.numTilesY = CometArt.SheetTiles;
+            sheet.animation = ParticleSystemAnimationType.WholeSheet;
+            sheet.frameOverTime = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 0f, 1f, 1f));
+            sheet.startFrame = new ParticleSystem.MinMaxCurve(0f, CometArt.SheetTiles * CometArt.SheetTiles - 1f);
+            sheet.cycleCount = Mathf.Max(1, Mathf.RoundToInt(cycles));
+        }
+
         private static void SizeOverLife(ParticleSystem system, float from, float to)
         {
             var size = system.sizeOverLifetime;
@@ -872,7 +1371,7 @@ namespace TerraformingReloaded.Comets
             colour.color = new ParticleSystem.MinMaxGradient(gradient);
         }
 
-        private static void Trails(ParticleSystem system, float lifetime, float minVertexDistance)
+        private void Trails(ParticleSystem system, float lifetime, float minVertexDistance)
         {
             var trails = system.trails;
             trails.enabled = true;
@@ -887,7 +1386,7 @@ namespace TerraformingReloaded.Comets
             trails.widthOverTrail = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 0.8f, 1f, 0f));
             trails.colorOverTrail = new ParticleSystem.MinMaxGradient(Fade(Color.white, 1f, 0f));
             ParticleSystemRenderer renderer = system.GetComponent<ParticleSystemRenderer>();
-            renderer.trailMaterial = CometArt.Additive(CometArt.Streak, new Color(1f, 1f, 1f, 0.5f));
+            renderer.trailMaterial = Additive(CometArt.Streak, CometArt.OuterQueue);
         }
 
         private static void Collide(ParticleSystem system)
@@ -932,6 +1431,26 @@ namespace TerraformingReloaded.Comets
             Gradient gradient = new Gradient { mode = GradientMode.Fixed };
             gradient.SetKeys(keys, new[] { new GradientAlphaKey(alpha, 0f), new GradientAlphaKey(alpha, 1f) });
             return gradient;
+        }
+
+        /// <summary>Frame times over one part of the show, for the log.</summary>
+        private sealed class FrameTimes
+        {
+            private int _count;
+            private double _sum;
+            private float _worst;
+
+            public void Add(float seconds)
+            {
+                _count++;
+                _sum += seconds;
+                _worst = Mathf.Max(_worst, seconds);
+            }
+
+            public override string ToString()
+            {
+                return _count == 0 ? "-" : string.Format(CultureInfo.InvariantCulture, "{0:0.0} / {1:0.0} over {2} frames", _sum / _count * 1000.0, _worst * 1000f, _count);
+            }
         }
 
         /// <summary>A textured square facing the camera (or lying flat), sized in metres.</summary>

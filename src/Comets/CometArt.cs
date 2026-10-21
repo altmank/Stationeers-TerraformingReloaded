@@ -12,12 +12,14 @@ namespace TerraformingReloaded.Comets
     {
         private static Texture2D _glow;
         private static Texture2D _smoke;
+        private static Texture2D _smokeSheet;
         private static Texture2D _ring;
         private static Texture2D _streak;
         private static Mesh _quad;
         private static AudioClip _roar;
         private static AudioClip _boom;
         private static AudioClip _rumble;
+        private static AudioClip _thump;
 
         public static string ShaderReport { get; private set; } = "";
 
@@ -26,6 +28,16 @@ namespace TerraformingReloaded.Comets
 
         /// <summary>A lumpy puff of smoke: a round falloff broken up by noise.</summary>
         public static Texture2D Smoke => _smoke ? _smoke : (_smoke = MakeSmoke(128));
+
+        /// <summary>Frames across and down in <see cref="SmokeSheet"/>.</summary>
+        public const int SheetTiles = 4;
+
+        /// <summary>
+        /// The same kind of puff, sixteen frames of it rolling over and spreading, four by four in one
+        /// texture, for a particle system to step through over each puff's life, so smoke billows
+        /// instead of sliding.
+        /// </summary>
+        public static Texture2D SmokeSheet => _smokeSheet ? _smokeSheet : (_smokeSheet = MakeSmokeSheet(128));
 
         /// <summary>A thin bright ring with a soft inside, for a shock front.</summary>
         public static Texture2D Ring => _ring ? _ring : (_ring = Radial(256, r =>
@@ -36,19 +48,34 @@ namespace TerraformingReloaded.Comets
 
         public static Mesh Quad => _quad ? _quad : (_quad = MakeQuad());
 
+        /// <summary>Glow drawn before the smoke, so the smoke around it covers it from every side: fire inside a cloud.</summary>
+        public const int InnerQueue = 3050;
+
+        /// <summary>Smoke and dust.</summary>
+        public const int SmokeQueue = 3100;
+
+        /// <summary>Glow drawn over everything else: the comet, the flash, sparks and debris out in the open.</summary>
+        public const int OuterQueue = 3150;
+
+        /// <summary>
+        /// How far, in metres, a particle fades out where it meets the ground or a wall, rather than
+        /// cutting a hard line into it. The shaders take its inverse.
+        /// </summary>
+        private const float SoftMetres = 30f;
+
         /// <summary>Additive: light added to what is behind it. Fire, plasma, flashes.</summary>
-        public static Material Additive(Texture texture, Color tint)
+        public static Material Additive(Texture texture, Color tint, int queue = OuterQueue)
         {
-            return Make(texture, tint, "Legacy Shaders/Particles/Additive", "Mobile/Particles/Additive", "Particles/Standard Unlit", "Sprites/Default");
+            return Make(texture, tint, queue, "Legacy Shaders/Particles/Additive", "Mobile/Particles/Additive", "Particles/Standard Unlit", "Sprites/Default");
         }
 
         /// <summary>Alpha blended: covers what is behind it. Smoke, dust.</summary>
-        public static Material Blended(Texture texture, Color tint)
+        public static Material Blended(Texture texture, Color tint, int queue = SmokeQueue)
         {
-            return Make(texture, tint, "Legacy Shaders/Particles/Alpha Blended", "Mobile/Particles/Alpha Blended", "Particles/Standard Unlit", "Sprites/Default");
+            return Make(texture, tint, queue, "Legacy Shaders/Particles/Alpha Blended", "Mobile/Particles/Alpha Blended", "Particles/Standard Unlit", "Sprites/Default");
         }
 
-        private static Material Make(Texture texture, Color tint, params string[] shaders)
+        private static Material Make(Texture texture, Color tint, int queue, params string[] shaders)
         {
             foreach (string name in shaders)
             {
@@ -57,11 +84,7 @@ namespace TerraformingReloaded.Comets
                 {
                     continue;
                 }
-                if (!ShaderReport.Contains(name))
-                {
-                    ShaderReport += (ShaderReport.Length > 0 ? ", " : "") + name;
-                }
-                Material material = new Material(shader) { mainTexture = texture };
+                Material material = new Material(shader) { mainTexture = texture, renderQueue = queue };
                 if (material.HasProperty("_TintColor"))
                 {
                     material.SetColor("_TintColor", tint);
@@ -69,6 +92,18 @@ namespace TerraformingReloaded.Comets
                 else
                 {
                     material.color = tint;
+                }
+                // The legacy particle shaders fade against the depth buffer when this keyword is on.
+                bool soft = material.HasProperty("_InvFade");
+                if (soft)
+                {
+                    material.SetFloat("_InvFade", 1f / SoftMetres);
+                    material.EnableKeyword("SOFTPARTICLES_ON");
+                }
+                string entry = name + (soft ? " (soft)" : "");
+                if (!ShaderReport.Contains(entry))
+                {
+                    ShaderReport += (ShaderReport.Length > 0 ? ", " : "") + entry;
                 }
                 return material;
             }
@@ -121,6 +156,53 @@ namespace TerraformingReloaded.Comets
                     float a = Mathf.Clamp01(Mathf.Pow(falloff, 1.3f) * (0.35f + 1.1f * noise) * 1.3f);
                     byte shade = (byte)(200 + 55 * Mathf.Clamp01(noise));
                     pixels[y * size + x] = new Color32(shade, shade, shade, (byte)(a * 255f));
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply(false, true);
+            return texture;
+        }
+
+        private static Texture2D MakeSmokeSheet(int frame)
+        {
+            int size = frame * SheetTiles;
+            Texture2D texture = NewTexture(size);
+            Color32[] pixels = new Color32[size * size];
+            int frames = SheetTiles * SheetTiles;
+            for (int f = 0; f < frames; f++)
+            {
+                // Top-left first, the order a particle system steps through a sheet.
+                int column = f % SheetTiles;
+                int row = SheetTiles - 1 - f / SheetTiles;
+                float age = f / (float)(frames - 1);
+                // Two layers of noise drift past each other, so the puff turns over, and it swells a little.
+                float roll = age * 1.6f;
+                float swell = 0.86f + 0.14f * age;
+                for (int y = 0; y < frame; y++)
+                {
+                    for (int x = 0; x < frame; x++)
+                    {
+                        float u = (x + 0.5f) / frame;
+                        float v = (y + 0.5f) / frame;
+                        float dx = (u * 2f - 1f) / swell;
+                        float dy = (v * 2f - 1f) / swell;
+                        float r = Mathf.Sqrt(dx * dx + dy * dy);
+                        float noise = 0f;
+                        float amplitude = 0.5f;
+                        float frequency = 3f;
+                        for (int octave = 0; octave < 4; octave++)
+                        {
+                            float a = Mathf.PerlinNoise(u * frequency + 17.3f + roll, v * frequency + 4.1f - roll * 0.6f);
+                            float b = Mathf.PerlinNoise(u * frequency + 41.7f - roll * 0.8f, v * frequency + 23.9f + roll);
+                            noise += amplitude * Mathf.Lerp(a, b, 0.5f + 0.5f * Mathf.Sin(age * Mathf.PI + octave));
+                            amplitude *= 0.5f;
+                            frequency *= 2.1f;
+                        }
+                        float falloff = Mathf.Clamp01(1f - r);
+                        float alpha = Mathf.Clamp01(Mathf.Pow(falloff, 1.3f) * (0.35f + 1.1f * noise) * 1.3f);
+                        byte shade = (byte)(190 + 65 * Mathf.Clamp01(noise));
+                        pixels[(row * frame + y) * size + column * frame + x] = new Color32(shade, shade, shade, (byte)(alpha * 255f));
+                    }
                 }
             }
             texture.SetPixels32(pixels);
@@ -193,6 +275,18 @@ namespace TerraformingReloaded.Comets
             float tail = n.Low * (1f - Mathf.Exp(-t / 0.08f)) * Mathf.Exp(-t / 3.8f) * 1.15f;
             float aftershock = n.Low * 0.45f * Mathf.Exp(-Mathf.Pow((t - 3.2f) / 0.9f, 2f));
             return crack + thump * 0.95f + tail + aftershock;
+        }));
+
+        /// <summary>
+        /// The impact through the ground: a deep thud felt through the feet, with no crack in it. It
+        /// arrives in a vacuum too, so an airless world gets this and no boom.
+        /// </summary>
+        public static AudioClip Thump => _thump ? _thump : (_thump = Synth("CometThump", 3.5f, 71, (t, n) =>
+        {
+            float pitch = Mathf.Lerp(42f, 22f, Mathf.Clamp01(t / 1.2f));
+            float body = Mathf.Sin(2f * Mathf.PI * pitch * t) * Mathf.Exp(-t / 0.7f) * (1f - Mathf.Exp(-t / 0.012f));
+            float shudder = n.Low * Mathf.Exp(-t / 1.4f) * (1f - Mathf.Exp(-t / 0.05f));
+            return body * 1.1f + shudder * 0.8f;
         }));
 
         /// <summary>A low ground rumble for the aftermath.</summary>

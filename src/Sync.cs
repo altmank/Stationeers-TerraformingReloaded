@@ -32,8 +32,13 @@ namespace TerraformingReloaded
     /// deleted, for the joining player's readout. Nothing on their game acts on them: the deleting
     /// happens where the mixing runs, which is the host.
     ///
-    /// Last come the host's storm floor and ceiling, which the temperature formula applies, so a
+    /// Then come the host's storm floor and ceiling, which the temperature formula applies, so a
     /// client evaluating it during a storm reads what the host reads.
+    ///
+    /// Last comes the comet event in force on the host, if any (docs/COMET.md section 1). The host
+    /// also sends it the moment it is called, as its own message; this copy is for a player who
+    /// joins in the middle of it or whose message was lost, and who picks the show up at the time it
+    /// has reached.
     ///
     /// The leading byte says what follows. LaunchPadBooster refuses a join between different
     /// versions of the mod, so both ends normally write and read the same layout; the byte still lets
@@ -48,6 +53,7 @@ namespace TerraformingReloaded
         private const byte PlanetAndSettings = 2;
         private const byte PlanetSettingsAndSpace = 3;
         private const byte PlanetSettingsSpaceAndStormBounds = 4;
+        private const byte PlanetSettingsSpaceStormBoundsAndComet = 5;
 
         private static readonly FieldInfo[] MixFields = typeof(GlobalGasMixSaveData)
             .GetFields(BindingFlags.Public | BindingFlags.Instance)
@@ -68,6 +74,17 @@ namespace TerraformingReloaded
             mod.Networking.Required = false;
             mod.Networking.JoinSuffixSerializer = sync;
             mod.Networking.UpdateSuffixSerializer = sync;
+            Comets.CometDirector.Install();
+            // On its own: a LaunchPadBooster without mod messages costs the instant comet delivery,
+            // not the planet sync, which carries the comet too.
+            try
+            {
+                Comets.CometNet.Register(mod);
+            }
+            catch (Exception e)
+            {
+                Log.Warn("Comets reach joined players with the planet sync only, up to its interval late: this StationeersLaunchPad has no mod messages. " + e.Message);
+            }
         }
 
         public void SerializeJoinSuffix(RocketBinaryWriter writer) => Write(writer, true);
@@ -106,7 +123,7 @@ namespace TerraformingReloaded
                 writer.WriteByte(Nothing);
                 return;
             }
-            writer.WriteByte(PlanetSettingsSpaceAndStormBounds);
+            writer.WriteByte(PlanetSettingsSpaceStormBoundsAndComet);
             writer.WriteInt32(MixFields.Length);
             WriteMix(writer, data.GlobalGasMix);
             WriteMix(writer, data.LiquidClouds);
@@ -124,6 +141,9 @@ namespace TerraformingReloaded
             StormBounds bounds = Effective.StormBounds;
             WriteBound(writer, bounds.FloorKelvin);
             WriteBound(writer, bounds.CeilingKelvin);
+            Comets.CometEvent comet = Comets.CometDirector.ForSync();
+            writer.WriteBoolean(comet != null);
+            comet?.Write(writer);
         }
 
         private static void WriteBound(RocketBinaryWriter writer, double? kelvin)
@@ -179,7 +199,7 @@ namespace TerraformingReloaded
             try
             {
                 byte kind = reader.ReadByte();
-                if (kind != PlanetOnly && kind != PlanetAndSettings && kind != PlanetSettingsAndSpace && kind != PlanetSettingsSpaceAndStormBounds)
+                if (kind < PlanetOnly || kind > PlanetSettingsSpaceStormBoundsAndComet)
                 {
                     return;
                 }
@@ -201,12 +221,19 @@ namespace TerraformingReloaded
                 };
                 HostSettings? settings = kind >= PlanetAndSettings ? new HostSettings(reader) : (HostSettings?)null;
                 HostSpace? space = kind >= PlanetSettingsAndSpace ? new HostSpace(reader) : (HostSpace?)null;
-                StormBounds bounds = kind == PlanetSettingsSpaceAndStormBounds
+                StormBounds bounds = kind >= PlanetSettingsSpaceAndStormBounds
                     ? new StormBounds(ReadBound(reader), ReadBound(reader))
+                    : null;
+                Comets.CometEvent comet = kind >= PlanetSettingsSpaceStormBoundsAndComet && reader.ReadBoolean()
+                    ? Comets.CometEvent.Read(reader)
                     : null;
                 if (!NetworkManager.IsClient || PlanetaryAtmosphereSimulation.GetGlobalGasMix() == null)
                 {
                     return;
+                }
+                if (comet != null)
+                {
+                    Comets.CometDirector.FromHost(comet);
                 }
                 // Every take and clone divides by the tank volume.
                 if (data.GlobalGasMix.Volume.Value <= 0.0 || data.LiquidClouds.Volume.Value <= 0.0

@@ -16,7 +16,7 @@ namespace TerraformingReloaded.Comets
     {
         public const string Usage = "terraform comet <mol> <gas>[:<share>] [<gas>[:<share>] ...] [turn=<deg>] [range=<m>] [K=<kelvin>] [preview] | terraform comet stop. "
             + "<mol> is everything the comet brings, for the whole planet; each gas takes its share of it (equal shares if none are given). "
-            + "It comes down where you are looking, turn=<deg> to the right of it (negative for left), range=<m> away (sized from the comet if left out). "
+            + "It comes down where you are looking, turn=<deg> to the right of it (negative for left), range=<m> away; never nearer to any structure or player than is safe for its size, which is also where it lands if range is left out. "
             + "K=<kelvin> is the temperature its gas arrives at; left out, the planet's own. preview shows it and changes nothing. Host only. "
             + "Example: terraform comet 1e6 CarbonDioxide:60 Water:25 NitrousOxide:15";
 
@@ -30,11 +30,16 @@ namespace TerraformingReloaded.Comets
             }
             if (args.Length > 1 && args[1].ToLowerInvariant() == "stop")
             {
-                return CometShow.Stop() ? "Comet called off." : "No comet is on its way.";
+                return CometDirector.CallOff() ? "Comet called off." : "No comet is on its way.";
             }
             if (args.Length < 3)
             {
                 return Usage + " Gases: " + gasNames() + ".";
+            }
+            string broken = CometRules.Verdict;
+            if (broken != null)
+            {
+                return "Comets are off: the rules they are judged by did not pass their own check (" + broken + "). Please report this with the log.";
             }
             CultureInfo c = CultureInfo.InvariantCulture;
             if (!double.TryParse(args[1], NumberStyles.Float, c, out double moles) || double.IsNaN(moles) || !(moles > 0.0) || moles > MaxMoles)
@@ -135,13 +140,18 @@ namespace TerraformingReloaded.Comets
             plan.Types = types.ToArray();
             plan.Shares = shares.ConvertAll(s => s / total).ToArray();
 
-            string refused = CometShow.Launch(plan);
+            string refused = CometDirector.Launch(plan, out CometSite site);
             if (refused != null)
             {
                 return refused;
             }
             StringBuilder text = new StringBuilder();
-            text.Append(string.Format(c, "Comet inbound, {0}. ", CometShow.Running.Describe()));
+            text.Append(string.Format(c, "Comet inbound, {0:N0} m away, {1:0}\u00b0 to the {2} of where you are looking, in {3:0} s. ",
+                site.Range, Math.Abs(site.Bearing), site.Bearing < 0f ? "left" : "right", CometEvent.LeadSeconds + CometEvent.ApproachSeconds));
+            if (site.Moved != null)
+            {
+                text.Append(site.Moved).Append(' ');
+            }
             text.Append(string.Format(c, "It brings {0:N0} mol: ", moles));
             for (int i = 0; i < plan.Types.Length; i++)
             {
