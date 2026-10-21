@@ -351,6 +351,12 @@ workshop import and every cloud sync for free. Rejected: it writes an `xsi:type`
 throws on, so removing the mod makes the save unloadable. That breaks the documented exit route of
 `terraform reset confirm`, save, then disable.
 
+The comets on the space map (0.18.0) are not settings and are kept apart from this file: they go into
+each `.save` as an entry of their own, `tr-comets.xml`, beside `world.xml` (COMET-ROCKETS.md, stage 3). A
+comet belongs to the save it was in, so loading an older autosave must bring back that save's comets; one
+file per world would pair them with the wrong save. The game unpacks every entry of a `.save` and reads
+only its own, so the unmodded game loads such a save and ignores the entry.
+
 ## Everything is best effort
 
 The mod currently writes one file, into BepInEx's own config directory. This is the first time it

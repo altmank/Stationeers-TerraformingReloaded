@@ -76,13 +76,21 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
   range keeps the player's own for that bound.
 - **The comet in force.** Then a flag and, when set, the comet event the host is playing
   (`docs/COMET.md` section 1), for a player who joins during one or missed its own message.
-- **The Celestial terraforming settings.** Last come all of the host's Celestial terraforming settings,
+- **The Celestial terraforming settings.** Then come all of the host's Celestial terraforming settings,
   a count and then each value, 4 + 8 bytes a setting (108 bytes for the thirteen). The joining player's
   game works out a comet's orbit, the sky rule's disc and whatever else it shows of a comet from them.
   Each is checked against its range, declared once beside its key (`Comets.CelestialSettings`); one
   outside it keeps the player's own for that setting, and a count that is not this build's is not read.
+- **The comets on the space map.** Last comes every comet on the map, each as the state it is in or set
+  off with: its gas, mass, engines and fuel, its route as node ids and each hop's delta-v, and its start on
+  the shared clock (`OrbitalSimulation.System.TotalRealTimeSeconds`, which the game sends in every state
+  update). A joining player's game places each flight by the same rule the host does, so nothing is sent
+  while one flies. The host also sends the whole list the moment it changes (made, sent, arrived, out of
+  fuel, back on the clock after a load) as a mod message of its own. A joining player's game replaces its
+  list with the host's whenever one arrives; its own copy only draws the map icons and answers
+  `terraform comet list`. About 140 bytes a comet of one gas on a three-hop route.
 - **The section's first byte says what follows.** 0 nothing, 1 the planet alone (0.10.0 and earlier),
-  2 the planet and the settings (0.10.1 to 0.11.3), 3 the planet, the settings and space (0.11.4 to 0.13.2), 4 those and the storm bounds (0.14.0 to 0.15.0), 5 those and the comet (0.16.0 and 0.16.1), 6 those and the Celestial terraforming settings (0.17.0 on). A reader takes the planet from 1 to 6 and skips any other
+  2 the planet and the settings (0.10.1 to 0.11.3), 3 the planet, the settings and space (0.11.4 to 0.13.2), 4 those and the storm bounds (0.14.0 to 0.15.0), 5 those and the comet (0.16.0 and 0.16.1), 6 those and the Celestial terraforming settings (0.17.0), 7 those and the comets on the space map (0.18.0 on). A reader takes the planet from 1 to 7 and skips any other
   value; a layout, once shipped, keeps its byte and a new one takes the next. Mixed versions never
   meet in practice, because the exact version match above refuses the join, so this guards a
   hand-built or mis-versioned peer, not a supported mix: a 0.10.0 game reading a 2 would skip the

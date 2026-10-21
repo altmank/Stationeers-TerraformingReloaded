@@ -2,7 +2,9 @@
 
 Design for how a player makes a comet and brings it down, on branch `comet-impact`. The impact itself (the
 show, the pressure wave, structures, players, sound, sky) is `COMET.md`. Built so far: the settings and
-the pure rules (stage 2 of *Proof as it is built*, 0.17.0); nothing uses them in play yet.
+the pure rules (stage 2 of *Proof as it is built*, 0.17.0), and the comet as an object on the space map that
+flies to Entry by the rocket rule, saved with the world and sent to every player, made and sent for now with
+debug console verbs (stage 3, 0.18.0).
 
 Game facts below are from the decompile; file and line references are kept out of this public repo.
 
@@ -82,6 +84,41 @@ The comet obeys the game's rocket travel rule and nothing else:
   point between nodes, so the comet is lost.
 
 Its icon moves on the map as a rocket's does.
+
+### As built (stage 3, 0.18.0)
+
+- **The comet is the mod's own map object.** It waits at its site; sent, it takes the route the game's
+  pathfinder gives from the site to Entry (`SpaceMapPathFinder.GetPath`, whose list comes back with the first
+  hop last), each hop's delta-v as the game works it out (`NodeTransit.GetDistance`, the difficulty's
+  multiplier included). The route's node ids and the hops are kept with the comet when it sets off.
+- **Where it is, at any moment, is a pure function of the time it has flown** (`CelestialRules.PositionAt`):
+  the delta-v the engines have given by then by the rocket equation (`CelestialRules.DeltaVAfter`), counted
+  through the hops in order. Once the route is flown it parks at Entry with the fuel it did not burn; once the
+  fuel is gone short of Entry it stands where that left it, for good. Entry is always found by its role,
+  `SpaceMap.Current.EntryNode`, never by id.
+- **The clock is the game's own** (`OrbitalSimulation.System.TotalRealTimeSeconds`): the one the sky runs on,
+  saved with the world and sent to every player in every state update.
+- **Saved inside the .save**, as an entry of its own, `tr-comets.xml`, written after the terrain
+  (`SaveHelper.AddZipFile`) from what was gathered on the main thread with the rest of the save
+  (`XmlSaveLoad.GetWorldData`), and read back once the map and its sites are rebuilt with their saved ids
+  (`SpaceMap.LoadGameSave`). A flight is saved as the seconds it had flown; it goes back on the clock when the
+  game restores its own (`OrbitalSimulation.DeserializeSave`) and flies on from those seconds, so it carries
+  on from exactly the place it was saved at. A comet whose site or route is no longer on the map is dropped at the load,
+  by name in the log.
+- **Every player** gets the whole list, each comet as the state it is in or set off with, the moment it
+  changes (a mod message) and with the planet sync (layout 7, `MULTIPLAYER.md`). Each machine places each
+  flight by the same rule on the shared clock.
+- **The map icon** is the game's rocket icon, tinted icy blue, with an asteroid picture from the game's own
+  map icons and a tooltip that names the comet, placed by the same plain interpolation the game places a
+  rocket's with, a little below any rocket at the same node.
+- **A site a comet holds stays on the map**: the one it waits at, and every node on its route until it
+  arrives. The host's two ways of removing a site skip a held one, and the map's remove button is greyed out
+  over it.
+- **Debug verbs, until Cut, Rig and Fuel** (stage 4): `terraform comet make <site> <mol> <gas>[:<share>] ...
+  engines=<n> fuel=<mol>` puts a comet at a discovered site (`terraform comet make` alone lists them by number
+  and name); `terraform comet send <id>` sends it; `terraform comet list` shows each comet, where it is, its
+  fuel, and when it reaches Entry or runs dry by the rule. `make` and `send` are host only and refuse unless
+  the save part is installed. Fuel is moles of the 2:1 premix.
 
 Worked example: an 18 t comet with 2 engines going from Mars Orbit to the Frozen Vapors node (383 Δv) burns
 for 223.5 s and uses 16,092 mol of fuel. That is the exact integral: the mass falls as the fuel burns, at the
@@ -252,7 +289,7 @@ stop growing at 1e9 mol where the wave stops (`CelestialRules.GroundZeroMetres`,
 | 1e8 mol | 863 m | 1.9 km | 6.1 km |
 
 A rocket comet is capped at its site's contents times K. The biggest ice site on any shipped map holds 3.05M
-mol (Europa's; 2.79M on Mars's and the Moon's), so with K = 5 the largest rocket comet is 15.2M mol, ground zero
+mol (Europa's; 2.79M on Mars's and the Moon's), so at Standard size, K = 5, the largest rocket comet is 15.2M mol, ground zero
 461 m. The 1e8 row and above happen only through the console command.
 
 ## Ore comets: what they leave
@@ -304,10 +341,9 @@ about 15 % lower. Comets needed to bring Mars to about 50 kPa:
 
 Calculated from the game's site rules and the losses above, not measured. Planet size and K trade against
 each other, but the wave follows each comet's absolute moles, so on a bigger planet every comet hits harder.
-K = 5 is now the default, derived from LU's third-of-a-planet rule at Standard size (the config table below),
-which makes a median comet about 2.3M mol. **Open:** the rule holds at Standard and Long; on Short (1/100) a
-K = 5 comet from the biggest site brings 9.7M mol against the 6.1M the whole Moon needs there, and the rule
-would hold only at K = 1 (Decisions, below).
+K = 5 at Standard size is the default, derived from LU's third-of-a-planet rule (the config table below),
+which makes a median comet about 2.3M mol there. K follows the planet's size (stage 3 decisions, below): 1 on
+Short, 25 on Long, so the rule holds on every size.
 
 ## What building it needs that the game does not do
 
@@ -342,7 +378,7 @@ section, `Celestial terraforming`.
 | Setting | What it sets | Default | Derived from |
 |---|---|---|---|
 | CutSharePerCycle | share of K times the site's gas added to the comet per Cut cycle | 0.001 | A drill head holds 100 and loses 1 with a chance of 0.1 / Health each cycle, so a Basic head (Health 1) lasts 1,000 cycles on average and an Ice head (Health 2) 2,000. 1 / 1,000 makes a whole comet one Basic head's life and half an Ice head's: with the head made for ice, no trip home for a new head on average. It is also the 1,000 cycles that mining out a middling Frozen Vapors site takes (Density 3, Richness 2, Size 2.5, by the game's depletion rule), so a comet costs the drilling of a typical site: 1,000 x (10 - 0.4 x 3) s = 2.4 h with one head of speed 1 |
-| CometSizeMultiplier | K: a comet's gas, once the whole site is cut, as a multiple of the site's | 5 | LU's rule that one site never delivers a third of a planet, read as a third of the air the planet needs before you can breathe outside without a suit. At Standard size (250,000 outdoor cells) that need is 125 mol per cell on Mars and 121 on the Moon (`BALANCE.md`), so a third is 10.08M mol for the Moon. The biggest ice site on Mars's or the Moon's map holds 2,785,190 mol (Density 8, Richness 3, Size 7: 116,050 units of 24 mol by the game's own sum, which it shows rounded to 100,000). At 70 % arriving, K x 0.7 x 2.785M under 10.08M gives K under 5.17: the largest whole K is 5 |
+| CometSizeMultiplier | K on a Standard-size planet: a comet's gas, once the whole site is cut, as a multiple of the site's. The K in force follows the planet's size (`CelestialRules.SizeMultiplier`) | 5 | LU's rule that one site never delivers a third of a planet, read as a third of the air the planet needs before you can breathe outside without a suit. At Standard size (250,000 outdoor cells) that need is 125 mol per cell on Mars and 121 on the Moon (`BALANCE.md`), so a third is 10.08M mol for the Moon. The biggest ice site on Mars's or the Moon's map holds 2,785,190 mol (Density 8, Richness 3, Size 7: 116,050 units of 24 mol by the game's own sum, which it shows rounded to 100,000). At 70 % arriving, K x 0.7 x 2.785M under 10.08M gives K under 5.17: the largest whole K is 5. What a planet needs grows with its size and a site does not, so the K in force is this times the planet's size over 1/20, never under 1: Short (1/100) 1, Long (1/4) 25. The third then holds on every shipped size: Short 1.95M mol against 2.02M, Long 48.7M against 50.4M; `CelestialRules.Check` holds it at all three |
 | OrbitSeconds | real seconds for one orbit of a comet waiting at Entry, on every world; one pass per orbit | 372 | Phobos, the fastest body in Mars's sky, goes round it in 360 x 0.3189 / (687 x 4.494e-4) = 371.9 real seconds (its period, Mars's year, and Mars's sky clock `OrbitalSimulation.TimeScale`), and the Ground Telescope tracks it. A comet no faster across the sky stays trackable. Half the orbit, 186 s, is above the horizon (the game puts the observer at the planet's centre): long enough to read a telescope and burn. 3.2 passes in a 20 minute day. Each world's `Orbit.Period` is 372 x its own period x its TimeScale / 360 (`CelestialRules.OrbitPeriodDays`) |
 | OrbitInclinationDegrees | the orbit's tilt to the planet's equator; with the orbit time it sets how far the line moves between passes (the design's `LineShiftPerOrbit`, which is not a number of its own) | 60 | Between passes the ground turns 360 x 372 / 1,200 = 112 degrees (`CelestialRules.TurnPerOrbitDegrees`). A pad's zenith sits 90 - latitude from the planet's axis and the orbit's pole i from it, so over a day the angle between them sweeps from their difference to their sum, and passes go straight overhead when that sweep crosses 90 degrees, which is when i is at least the latitude (`CelestialRules.ClosestPass`). The shipped world farthest from its equator is Mimas, at -58.4; the next whole ten above it is 60, so every shipped world gets passes straight overhead. On Mars (13.5) a day's passes then come within 0 to 73.5 degrees of overhead at their highest, so the line's nearest point sweeps from the pad out to 0.41 R, 2.1 km |
 | DiscRadiusMetres | R in the sky rule, on a world drawn with curvature 0.3 (Mars, Venus); others take R x 0.3 / curvature | 5100 | **Far enough:** a landing aimed while the comet is in sight (above the horizon, so within R / 2 by the sky rule, where a telescope can follow it) must reach the safe distance of the biggest rocket comet, K x 3,048,381 mol (Europa's map's biggest site) = 15.2M mol, scale 2.09, safe distance 2,546 m (`COMET.md`). R / 2 at least 2,546 m, rounded up to the next 100 m, gives 5,100. **Near enough to be seen:** the terrain shader draws ground lower by 0.001 x ((d - 144) x 0.3)^2, so over unbroken ground a column H high at d is seen by a standing player (eye 1.8 m) while d is at most 144 + sqrt(1.8 / k) + sqrt(H / k), k = 9e-5. The show's column and cap reach 1,220 m per unit of scale (`CometShow`: plume 1,100 x scale, cap at plume plus radius 120 x scale). The smallest show (scale 0.4, 488 m) is seen out to 2,614 m, past R / 2 = 2,550 m, so every landing made with the comet in sight is seen; at the edge, 5,100 m, the column clears the drawn horizon from 2.6M mol up. The game's far clip does not bind: the show raises it to four times the impact's distance. **Past the voxel world's edge:** Mars2's terrain is 4,096 m across, so for a pad near its middle the disc beyond about 2 km is mostly past the edge, where nothing is built or stands and the impact takes the nearest edge's height (0.16.1); the half a tracked landing reaches lies mostly over the terrain. **More curved worlds:** the sight distance goes as one over the curvature, so R x 0.3 / curvature: 3,400 m on Vulcan (0.45), 3,060 m on the Moon and Mimas (0.5), 6,120 m on Europa (0.25) |
@@ -401,6 +437,29 @@ in *What it is judged against*.
 | The size multiplier K follows the planet size: 5 at Standard (1/20), times the world's size over 1/20, never under 1 (Short 1, Long 25) | LU's rule that one site never delivers a third of a planet, on every size: what a planet needs scales with its size, so K must too | One K for every size: on Short a K = 5 comet brings more than the whole planet needs |
 | Fuel per trip is judged in stage 4, when a rocket's real fuel capacity is measured. A 248 t water comet needs about 323,000 mol from Frozen Vapors with two engines; if that is more trips than the work of Cut, the comet's mass gets a configurable scale with a derived default, as the game already leaves mined cargo weightless | 4 and the player's experience: the Fuel stage must be work, not a wall | Deciding a scale now: there is no measured fuel capacity yet to derive it from |
 
+### Stage 3, as built (0.18.0)
+
+| Decision | Goal served | Alternative, and why it lost |
+|---|---|---|
+| A flight is kept as the state it set off with (gas, mass, engines, fuel, route, hops) and its start on the clock; where it is is the rule's at the time flown, worked out wherever it is needed | 5, and saves and players agree: a save, a load and every client compute the same place from the same numbers | Stepping its progress every frame and keeping that: a value to send every frame, and machines that drift apart |
+| The clock is `OrbitalSimulation.System.TotalRealTimeSeconds` | 5: the game saves it and sends it to every player in every state update, and the impact show already runs on it | `NetworkTime.time`: not saved, so a flight could not carry on after a load |
+| The mass falls continuously as the fuel burns, not at each 0.5 s draw | 5: one formula of the time flown | The game's 0.5 s draws: a flight would depend on where in the draw cycle it was sent; the continuous rule is within 0.2 % of the game's ticks, checked against them |
+| Delta-v gained past a node carries into the next hop | 5: a pure function of time | The game zeroes Progress at a node, losing at most one 0.02 s fixed step of delta-v, under 0.01 % of a hop; copying that makes the place depend on frame timing |
+| Each hop's delta-v is the game's `NodeTransit.GetDistance` when it set off, kept with the comet | 4: the game's own figure, difficulty included; a flight already under way is not changed by anything later | Working the hops out again at a load: a later change of difficulty would move a comet mid-flight |
+| A save keeps the seconds a flight had flown, and the flight goes back on the clock when the game restores its own clock (`OrbitalSimulation.DeserializeSave`), flying on from those seconds: the moment it went back on the clock and the seconds flown then are kept apart, not folded into a start time | saves stay exact: the place after the load is the place at the save, to the last bit (`CometMap.CheckSave` in `tools/PatchCheck`) | Keeping its start on the clock: the map is rebuilt before the clock comes back, a save from before the game kept its clock restarts it, and a start worked back from a large clock moves the place by a rounding error |
+| The save writes every fraction as text of 17 significant digits | the same | The serializer's own double format: whether it reads back to the last bit depends on the runtime |
+| Entry is found by its role wherever it is needed; the route keeps its id only as a record | the low-orbit hub's id changes at every load, and nothing about a comet should rest on an id the game does not keep | Entry by id: stable today, but the only node the comet's arrival rests on |
+| A comet that runs dry stays where it is for good, and one that arrives stays parked at Entry; nothing in stage 3 removes a comet | LU's "no rescue if it runs dry"; Entry is where stage 6 brings it down from | A way to clear comets: nothing needs one until Cut and Rig make them in play |
+| Every player gets the whole list after any change, and with the planet sync; a joining player's game replaces its list with the host's each time, settles a flight at the same clock but logs nothing | 5: a few hundred bytes now and then, one rule | Messages per kind of change: more code for a list that is small |
+| A comet holds its site while it waits and every node of its route until it arrives; the host's two ways of removing a site skip a held one, and the remove button is greyed out | the comet keeps a place on the map to stand at or fly between | Guarding `SpaceMapNode.DeRegister` itself: it also runs on players' games when the host removes a node, and in the game's clean-up after a load |
+| No comet is made unless its save is installed | saves stay consistent: a comet that could not be saved would vanish at the next load | Making it anyway with a warning |
+| The size multiplier is K on a Standard planet, and the K in force is that times the planet's size over 1/20, never under 1, worked out from the planet as it is now, so it follows `terraform size` too | LU's third-of-a-planet rule on every size | A K fixed when the world is made: a rescale would leave it wrong. 0 meaning "follow the size": two meanings in one number |
+| `terraform comet make`, `send` and `list` are debug verbs; a site is named by its number in the verb's own list, its name or its template id, and only discovered sites count | testing stage 3 live before Cut, Rig and Fuel exist | Making comets at any node: comets come from sites |
+| The map icon is the game's rocket icon tinted icy blue, with an asteroid picture from the game's own map icons, placed a little below any rocket at the same node | told apart from rockets at a glance | Art of its own: none in the repo yet |
+
+The map icon is drawn by every machine from its own copy of the comets, as rockets' are; it is the one part of
+stage 3 a headless run cannot show.
+
 ## Proof as it is built
 
 LU, 2026-10-21: prove each mechanic works as it is built, and that it still works once joined to the rest.
@@ -429,6 +488,15 @@ Build order, each stage proven before the next starts:
 | 7 | the impact zones | structures at measured distances end as the table says |
 | 8 | multiplayer | a dedicated server and a rendered client on bt see the same comet, icon and impact |
 
+Stage 3 is in 0.18.0, proof (1) and (2) written, (2) not yet run: `CelestialRules.PositionAt`,
+`DeltaVAfter` and `SizeMultiplier` are checked at load and by `tools/PatchCheck`, which also hands the check
+six more wrong rules it must catch (a flight whose mass does not fall, one that gains speed once its fuel is
+gone, progress counted over the whole route rather than the hop, a comet that runs dry and is still put at
+the end, a size multiplier that ignores the planet's size, and one that falls under 1); PatchCheck binds the
+save, the icon and the guard to their targets. `tools/LiveCheck/run.ps1 -CometFlight` is the in-game proof
+(`VERIFICATION.md`), for bt. The map icon cannot be checked headless, where the map is never drawn; it needs
+a rendered run.
+
 Stage 2 is in 0.17.0: `src/Comets/CelestialTuning.cs` (the settings) and `src/Comets/CelestialRules.cs` (the
 rules), checked at load (the log says so) and by `tools/PatchCheck`, which also hands the check nineteen wrong
 rules it must catch and reads the game's own molar masses and burn ratio under the worked examples.
@@ -442,5 +510,9 @@ rules it must catch and reads the game's own molar masses and burn ratio under t
   hydrazine site's ice burns alone in the game, but the rule here burns only methane with oxygen.
 - The mass per unit Cut moves into a mineral comet.
 - The Rig payload item.
-- K on Short, and the default planet size.
+- The default planet size. K follows it now, so it no longer decides whether the third-of-a-planet rule holds.
+- On Long, K = 25 makes the biggest rocket comet about 76M mol, whose safe distance (2,720 m by `COMET.md`'s
+  rule, calculated) lies a little past the half of the disc a telescope can track (2,550 m). The disc was
+  derived at Standard size; whether it should follow the planet's size too is LU's call.
+- A map icon of its own for a comet: it borrows an asteroid picture from the game's map icons.
 - Whether a landing past Mars's 4 km of terrain looks right on the far curved ground.
