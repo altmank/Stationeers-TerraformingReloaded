@@ -102,7 +102,7 @@ namespace TerraformingReloaded.CometShot
         {
             try
             {
-                if (WorldManager.IsGamePaused && _stage > 0)
+                if (WorldManager.IsGamePaused && (_stage > 0 || WorldSetting.Current != null))
                 {
                     WorldManager.SetGamePause(pauseGame: false);
                 }
