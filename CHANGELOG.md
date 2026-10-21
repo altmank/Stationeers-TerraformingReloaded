@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.20.0 (prototype)
+
+- **A comet in orbit is in the sky.** Once a comet reaches the planet's orbit it circles the planet as a moon
+  does, once every `OrbitSeconds` (372 s, as Phobos goes round Mars), rising, crossing the sky and setting, a
+  little further round each time as the planet turns under it. Every player sees it in the same place. It
+  shows as a small glow with a tail turned away from the sun, and the Celestial Scanner marks and names it.
+- **The Ground Telescope can track it.** It locks onto the comet as onto any moon and reads its orbit. Built
+  facing north, the telescope's Horizontal is the comet's compass bearing and its Vertical the comet's angle
+  down from straight up. During a storm the orbit readings go blank while the lock stays.
+- **Aiming a comet.** A rocket at the planet's orbit aims a comet waiting there with its payload bay's
+  PositionX and PositionZ, the same target a payload drop uses. The bay then reads out where the comet would
+  come down if it were brought down now (TargetX, TargetZ), how far that is from the nearest structure
+  (DistanceKm), the seconds until the comet is next at its highest in the sky (TimeToDestination), and how far
+  its spare fuel can move the landing, in metres (Maximum). The landing area is centred on the launch pad
+  nearest the target. This version has no burn: a comet in orbit stays there.
+- **The Map motherboard** shows two icons for an aimed comet, with its trackables switch on: the target in
+  orange, and where it lands now in icy blue, which slides across the map as the comet passes overhead.
+  Clicking the map names them.
+
+Nothing in an existing config or save needs changing. A payload bay's target is not kept by the game when a
+world is loaded, so a chip that aims a comet should set it again after a load.
+
 ## 0.19.0 (prototype)
 
 - **Comets are made and sent by rocket.** Four new actions on the rocket map screen, at a site a rocket stands

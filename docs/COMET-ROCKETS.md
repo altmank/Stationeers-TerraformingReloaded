@@ -3,8 +3,10 @@
 Design for how a player makes a comet and brings it down, on branch `comet-impact`. The impact itself (the
 show, the pressure wave, structures, players, sound, sky) is `COMET.md`. Built so far: the settings and
 the pure rules (stage 2 of *Proof as it is built*, 0.17.0), the comet as an object on the space map that
-flies to Entry by the rocket rule, saved with the world and sent to every player (stage 3, 0.18.0), and the
-rocket actions that make it and send it: Cut, Rig, Fuel, Burn and Launch (stage 4, 0.19.0).
+flies to Entry by the rocket rule, saved with the world and sent to every player (stage 3, 0.18.0), the
+rocket actions that make it and send it: Cut, Rig, Fuel, Burn and Launch (stage 4, 0.19.0), and the parked
+comet in the game's own sky, aimed by a rocket at Entry, seen by the Ground Telescope and shown on the Map
+motherboard (stage 5, 0.20.0).
 
 Game facts below are from the decompile; file and line references are kept out of this public repo.
 
@@ -263,9 +265,66 @@ Calculated, not measured.
 - **Map motherboard.** The two icons above.
 - **Celestial Scanner.** Shows a dot, the name and the distance for every sky body, through terrain. No orbit
   lines.
-- **Ground Telescope.** Locks onto the comet within 5° and reads it within 2°. Its aim angles are the comet's
-  direction and height, so they give the point directly. During any storm the orbit readings go blank, which a
-  chip that burns on its own has to allow for.
+- **Ground Telescope.** Locks onto the comet within 5° and reads it within 2°. Built facing north, its
+  Horizontal is the comet's compass bearing and its Vertical the comet's angle down from straight up (90 less
+  its height), so they give the point directly. During any storm the orbit readings go blank, which a chip
+  that burns on its own has to allow for.
+
+### As built (stage 5, 0.20.0)
+
+- **The comet is a body in the game's own sky while it is parked at Entry** (`CometSkyBodies`): a
+  `CelestialBody` made from a template of its own (id `TRComet` and the comet's id, so its CelestialHash is the
+  game's hash of that; named "Comet" and its id), circling the planet being played, in the planet's own list
+  of the bodies that circle it and in the sky's two lists of every body, after the world's own bodies, in
+  comet id order. The game has no way to add a body once a world is loaded; this uses its public pieces (a
+  template, the body, the planet's list) and its two private lists of every body, by reflection. Every
+  machine, a dedicated server too, makes the body from its own copy of the comets, makes it again after every
+  world load (which empties those lists), and takes it out when the comet is no longer parked.
+- **Its orbit** (`CometSkyRules.OrbitFor`): once round in `OrbitSeconds` real seconds (Orbit.Period 0.3190 d
+  on Mars, by `CelestialRules.OrbitPeriodDays`), round, at Phobos's radius of 9,376 km, its pole
+  `OrbitInclinationDegrees` from the planet's axis. The game takes every orbit's tilt and node from its sky's
+  own frame, whose y is the pole of the planet's orbit, with the node in radians, so the pole is turned into
+  those: the telescope's Inclination reads the tilt from that frame (34.15° on Mars, whose axis leans 25.8°
+  from it), as it does for the game's own moons. Each parked comet starts the golden angle, 137.5°, further
+  round its orbit than the last by id, so two never share a place in the sky.
+- **The frame**, from the game's code, and checked against the Sun in the game (`-CometSky`). A body's
+  direction is the scene rotation of the planet's position less the body's: a quarter turn back about x, then
+  the latitude about x, then the day's angle plus the longitude about the planet's axis
+  (`OrbitalSimulation.GetSceneRotation`); the observer is at the planet's centre. The direction is in world
+  space: y is up (the sun's light is placed along it, the temperature takes the sun's angle from it, and day
+  is the sun above y = 0), z is north and x east (the grid's own North and East faces, `Grid3.Face`), and the
+  game's own readout of the sun takes its horizontal angle as atan2(x, z). So the comet's bearing is
+  atan2(x, z) clockwise from north and its height asin(y) (`CometSkyRules.BearingOf`), the same on every
+  machine. One thing the stage 2 derivation of the tilt took as the latitude is a little less in the game: the
+  pole the sky turns about stands asin(a_y sin latitude) high, a_y the planet's axis along the frame's y, so
+  12.1° on Mars at latitude 13.5°. Every pole stands no higher than the latitude, so 60° still brings passes
+  straight overhead on every shipped world; on Mars the farthest of a day's passes then comes within 72.1° of
+  overhead rather than 73.5°.
+- **The aim.** Every payload bay on a rocket standing at Entry aims the first comet parked there, by id, at
+  its PositionX and PositionZ, the payload drop's own target. Its disc is centred on the ground launch pad
+  nearest that target (the target itself on a map with none); where the comet would come down if it were
+  brought down now is the sky rule's point from the direction the game's sky shows it in, moved toward the
+  target by the reach of the fuel it parked with (`CometAim`). The game neither saves nor sends a bay's target,
+  so the host reads every one each frame and sends them with the comets (`MULTIPLAYER.md`); a chip sets it
+  again after a load, as it would for a payload drop.
+- **The bay's readouts**, on the host where logic runs, through values no rocket device uses: TargetX and
+  TargetZ, where it lands if brought down now; DistanceKm, from there to the nearest structure on the ground
+  (rockets in space aside); TimeToDestination, the seconds until the comet is next at its highest
+  (`CometSkyRules.NextHighestSeconds`), the moment in a pass its point comes nearest the pad; Maximum, the
+  metres its spare fuel can move the landing. Each is NaN on a bay that is not at Entry, or with no comet
+  parked. PositionX and PositionZ stay the game's own.
+- **The Map motherboard** shows two icons for each aiming bay, with the map's trackables switch on, as it shows
+  beacons: the target in orange, and where it lands now in the comet's icy blue, which slides along the line as
+  the comet passes. A click on the map names them in the map's own text, with where each stands, how far the
+  landing is from the target and the seconds to the comet's next highest. Each machine draws them from its own
+  comets and targets; nothing is saved.
+- **The comet in the sky, to the eye**: a small glow with a tail turned away from the sun, drawn by the mod
+  180 m out along the body's direction, inside the game's sun and star spheres, and hidden below the horizon.
+  The Celestial Scanner marks and names it as it does every body, from the same body.
+- **The Rocket Celestial Tracker** reaches only the first twelve bodies of the sky's list; the comet comes
+  after the world's own, so on Mars (twelve bodies) it cannot track it, and on a world with fewer it can. When
+  the list changes anywhere but at its end, every tracker pointing at or past the change goes back to the first
+  body, so none points past the end of a shorter list.
 
 ### Warning and gas
 
@@ -348,6 +407,12 @@ Logic readouts for the comet: fuel and Δv left, Δv still needed for the route,
 can give. The Ground Telescope reads the rest. The game defines `TargetX`, `TargetZ` and `DistanceKm` but no
 rocket device uses them, so they are free for this.
 
+Built in stage 5, on the payload bay of a rocket at Entry, the device that aims the comet: TargetX and TargetZ
+(where it lands if brought down now), DistanceKm (from there to the nearest structure), TimeToDestination
+(seconds to the comet's next highest) and Maximum (the reach of its spare fuel, metres); see *As built (stage
+5)* above. Fuel and Δv left, and Δv still needed, are not read out yet: the location panel's comet line shows
+them, and a comet in flight has no device of its own to carry them.
+
 ## Balance
 
 A comet is K x its site's gas. The table was worked at 60 % arriving; at the 70 % above, every count is
@@ -369,7 +434,8 @@ Short, 25 on Long, so the rule holds on every size.
 - **The sky body.** The game has no way to add one after load, but its public code is enough. The mod must
   save it, send it to every player and re-add it after every load, on the host, each client and a dedicated
   server (telescope logic runs there). It must be added so the telescope's background thread cannot see the
-  list change under it.
+  list change under it. Built in stage 5: nothing of the body itself is saved or sent, because the comet list
+  already is and the body follows from it; the lists are replaced whole, never changed in place.
 - **The rocket's celestial tracker** only handles the first 12 sky bodies. On Mars the comet would be the 13th,
   so that tracker cannot aim at it. The Ground Telescope has no such limit.
 - **New rocket actions** mean patching the rocket's action lookup, its progress bars and the actions panel,
@@ -529,6 +595,31 @@ Fuel, Burn) sends the list to every player at most every 2 s.
 | While an action changes a comet every tick the host sends the whole list at most every 2 s, and at once for anything else | 5, a few hundred bytes now and then | Every change at once: Fuel changes the comet twice a second |
 | The rocket in `-CometActions` is spawned from the game's prefabs and joined with the calls the game's load makes (`RocketData`, `AdoptFromLoad`, `RefreshRocket`), stood at sites with `SetCurrentNode`, its parts' power held on by the driver | the proof calls the actions' own code paths in a real rocket | Building it into the hull's cells: a headless run has no player to place parts, and the cells' exact geometry is prefab data |
 
+### Stage 5, as built (0.20.0)
+
+| Decision | Goal served | Alternative, and why it lost |
+|---|---|---|
+| The parked comet is the game's own `CelestialBody`, made from a template of its own and joined to the planet's list of the bodies circling it and to the sky's two private lists of every body | 4, the game's own sky: the telescope, the Celestial Scanner and the sky's own placing all work on it unchanged | A body of the mod's own drawn on the sky: no telescope could see it |
+| Every list is replaced whole and published by one reference write, never changed in place. The Ground Telescope looks through the list of every body from the occlusion thread (`GroundTelescope.OnThreadUpdate`, `OrbitalSimulation.RaycastSky`), which the game runs beside the main thread with no lock, and the Rocket Celestial Tracker counts and indexes it from the logic tick on the game tick's thread; both read the list's field afresh each time, so either holds the old list or the new, and neither is touched again. The game writes the lists only while a world loads | the telescope's thread never sees the list change under it (the research's "collection modified" risk) | The game's own `Celestial.Add`, which appends in place: an append while the occlusion thread is going through the list throws there, in the thread that runs every structure. Waiting for a moment the thread does not run: there is none, it loops on its own |
+| A body's direction is set before it is published | a telescope never sees it with no direction | Leaving it to the next frame's placing: Unity takes the angle to a zero vector as 0, so for that frame every telescope would lock onto it whatever its aim |
+| Nothing of the body is saved or sent. Every machine makes it from the comet list it already has: the orbit from the comet's id, the world and the host's settings, its place from the sky's clock, which the game sends | 5, multiplayer: the same place on every machine with nothing more on the wire | Sending the body or its elements: everything they are made of is already sent |
+| The orbit's pole is `OrbitInclinationDegrees` from the planet's axis, tilted toward the side away from the sky frame's own pole, and turned into the frame's inclination and node (in radians, as the game uses them), which is what the telescope reads | the approved design, an orbit tilted to the planet's equator, and stage 2's derivation of the 60° | The tilt as the frame's own inclination: the tilt to the equator would then depend on how far each world's axis leans (25.8° on Mars), and the derivation that brings passes overhead everywhere would not hold |
+| The orbit's radius is Phobos's 9,376 km on every world | 5: the game has no radius or mass for the planet a low orbit could be worked out from, and the radius changes only the telescope's distance readings | Kepler's law from the period: the sky's clock gives a 372 s orbit a period of 23.8 days on Venus, so a radius of 166,000 km |
+| Comets parked together start the golden angle (137.5°) apart round their orbit, by id | two never stand in the same place in the sky, which the telescope could not tell apart | All at the same start: they would orbit as one |
+| The comet bodies come after every body of the world, in comet id order | the sky's list is the same on every machine, so a tracker's index (saved and sent) means the same body | The order comets arrived in: a player who joins later would have them in another order |
+| When the list changes anywhere but at its end, every Rocket Celestial Tracker pointing at or past the change is set back to the first body | a tracker never asks for an index past the end of a shorter list, which throws each logic tick | Leaving the index: the game's own setter guards only a new index, not a list that shrinks under an old one |
+| No game prefab: a glow and a tail drawn by the mod 180 m out along the body's direction, hidden below the horizon | 3, the comet is seen; 5, cheap | A rocky body prefab: placed at the true scaled distance, 0.6 m from the camera at Phobos's radius, and sized to a nucleus a few kilometres across, under a pixel. A star sprite: from a pool of twenty shared with the world's own, a point with no tail, and rebound to its body by id when first shown |
+| Every payload bay on a rocket at Entry aims, each with its own target; they aim the first comet parked there, by id | 6, each player's rocket aims for itself; 5, one rule | One aiming rocket per comet: the game has no rule to pick one |
+| The disc is centred on the ground launch pad nearest the bay's target, or on the target where the map has no pad | 6, a player aiming near their own base gets their own pad; nothing to keep | The pad the rocket launched from: the game keeps no such pad for a rocket in space |
+| The bay's readouts are TargetX and TargetZ (the landing now), DistanceKm (to the nearest structure), TimeToDestination (to the next highest) and Maximum (the reach, metres), NaN where nothing is aimed | the design's free values, on the device that aims | The avionics: it reads out the rocket, not the drop; a device of the mod's own: nothing in the game to build it from |
+| The time to the next pass is to the comet's next highest point in the sky | the moment in a pass when its point comes nearest the pad, which is what a burn is timed by | The time until it rises: says nothing about where it would land |
+| The structures on the ground are gathered once a second and the nearest worked out every frame | 5, the cost rule; the reading follows a landing that slides tens of metres a second | A scan of every structure every frame: grows with the base |
+| The bays' targets go with the comet list (layout 3), sent when one changes, at most every 2 s | the icons stand in the same place on every machine | Not sending them: a joining player's game has no target, since the game neither saves nor sends a bay's |
+| The Map motherboard's icons are drawn into the panel's own trackable icons in a postfix, not added to the game's list of trackables, and named in the map's own text when it is clicked | 4, the panel's own icon; nothing saved | An entry in the game's list of trackables: the panel draws only beacons from it, and the handheld Tracker steps through it as world things, so it would be a blank stop there. A beacon spawned in the world: a world thing, saved |
+| The icons show only with the map's trackables switch on | as the panel's beacons | Always: a switch the player set would not hide them |
+| The Ground Telescope's Vertical is the angle down from straight up, not the height | the game's dish: Vertical 0 points up and 90 along the horizon (`LargeRotatable.SetDishRotation`) | The design's "height": a chip set by it would point at the wrong part of the sky |
+| `-CometSky` aims the telescope every frame by its own Horizontal and Vertical at the rule's bearing of the body's direction | the proof judges the telescope's own lock and readings, and that the bearing is what the dish takes | Aiming once at a predicted direction: the dish takes its direction a step late (`LargeRotatable`), so a single long slew ends off by that step |
+
 ## Proof as it is built
 
 LU, 2026-10-21: prove each mechanic works as it is built, and that it still works once joined to the rest.
@@ -556,6 +647,18 @@ Build order, each stage proven before the next starts:
 | 6 | the deorbit and the landing | landings land where the rule says, with and without reserve, and an untracked burn lands in the disc |
 | 7 | the impact zones | structures at measured distances end as the table says |
 | 8 | multiplayer | a dedicated server and a rendered client on bt see the same comet, icon and impact |
+
+Stage 5 is in 0.20.0, proof (1) and (2) written, (2) not yet run: `CometSkyRules` (Unity's rotations worked
+in doubles, the day's angle, the scene rotation, a body seen from the planet, a round orbit's place, the
+orbit's pole from the planet's axis, bearings, the telescope's angles and the time to the comet's next
+highest) is checked at load, where the sky body is refused without it, and by `tools/PatchCheck`, which hands
+the check thirteen wrong rules it must catch (the scene rotation in the wrong order, the latitude flipped, the
+longitude left out, a body seen from itself, a day of one degree of orbit, a backward turn counted forward,
+the node in degrees, the tilt from the frame instead of the equator, a bearing from east, a height along north,
+the telescope tipped up by the height, the next pass as the comet rising, and the anomaly's ratio upside down)
+and binds the three parts to their targets. `tools/LiveCheck/run.ps1 -CometSky` is the in-game proof
+(`VERIFICATION.md`), for bt; it holds the game's own Sun to the rule's frame. The glow and the Map
+motherboard's drawing need a rendered run.
 
 Stage 4 is in 0.19.0, proof (1) and (2) written, (2) not yet run: `CelestialRules.CutAdds`, `FlightKg`,
 `PremixTransfer`, `BurnWanted`, `AfterBurn`, `FuelNeeded` and `DiscRadiusAt`, and the defaults of
@@ -589,4 +692,8 @@ rules it must catch and reads the game's own molar masses and burn ratio under t
   LU's to revisit.
 - What a mineral comet's impact leaves (a mound of ore) is still to come; its removal of air is stage 6's.
 - A map icon of its own for a comet: it borrows an asteroid picture from the game's map icons.
+- That a Ground Telescope built facing north looks north at Horizontal 0 and straight up at Vertical 0 is read
+  from the code; how the dish sits in its model is prefab data. `-CometSky` aims one by the rule and must lock.
+- The glow's size and brightness, and how it looks by day, are untuned: a rendered run on bt shoots it.
+- Fuel and Δv left, and Δv still needed, are not read out on any device yet (*Readouts*).
 - Whether a landing past Mars's 4 km of terrain looks right on the far curved ground.
