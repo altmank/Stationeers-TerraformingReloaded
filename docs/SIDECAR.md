@@ -64,6 +64,9 @@ per-world value comes back for free. Nothing else has a carrier like that.
     <Setting Key="MaxDamagingRocks" Value="40" />
     <Setting Key="GasArrivingShare" Value="0.7" />
     <Setting Key="MineralRemovalPerKg" Value="0.7" />
+    <Setting Key="CometMassScale" Value="0.39" />
+    <Setting Key="MineralKgPerUnit" Value="2.592" />
+    <Setting Key="FuelLitresPerSecond" Value="200" />
   </Celestial>
 </TerraformingReloaded>
 ```
@@ -333,7 +336,7 @@ what a missing or unreadable file falls back to.
 | `PlanetAirBurns` | reversible | Whether the planet's own air burns when it holds a fuel beside an oxidiser and would catch fire. What a fire burns is gone, as any fire's is, but the switch deletes nothing by itself and turning it off stops the next tick's burn. Not recorded takes the config's, which is off, so a world saved before 0.13.0 does not burn unless the config says otherwise. Turning it on asks first when the planet already holds a mix, because the outdoor air beside a base can flash once |
 | `PlanetHoldsBackWhileIgnitable` | reversible | Whether the planet's fire holds back the side it would use up whenever its air would light itself, or only while it burns. Holding back moves nothing: the held gas stays in the planet. Not recorded takes the config's, which is off |
 | `PlanetKeepsTraceGas` | reversible | Whether the planet keeps a gas too thin for an outdoor cell to keep, or hands it out for the game to delete. On deletes nothing; off is the game's own deletion, a gas at a time, and turning it back on keeps what is left. Not recorded takes the config's, which is off |
-| The thirteen `Celestial terraforming` settings | reversible | Decide comets made and brought down by rocket: how big Cut makes one, its orbit, where it can land, its impact zones and what it loses. They change what the next comet does and nothing already in the world. Each is one `Setting` entry under `Celestial`, keyed as in the config; an entry's value is text, parsed on the way in, so one that is not a number is refused like one out of range. Every range is declared once, beside the key (`Comets.CelestialSettings`). Not recorded takes the config's |
+| The sixteen `Celestial terraforming` settings | reversible | Decide comets made and brought down by rocket: how big Cut makes one, what it weighs, how fast Fuel fills it, its orbit, where it can land, its impact zones and what it loses. They change what the next comet does and nothing already in the world. Each is one `Setting` entry under `Celestial`, keyed as in the config; an entry's value is text, parsed on the way in, so one that is not a number is refused like one out of range. Every range is declared once, beside the key (`Comets.CelestialSettings`). Not recorded takes the config's |
 
 Not world-scoped:
 
@@ -355,7 +358,9 @@ The comets on the space map (0.18.0) are not settings and are kept apart from th
 each `.save` as an entry of their own, `tr-comets.xml`, beside `world.xml` (COMET-ROCKETS.md, stage 3). A
 comet belongs to the save it was in, so loading an older autosave must bring back that save's comets; one
 file per world would pair them with the wrong save. The game unpacks every entry of a `.save` and reads
-only its own, so the unmodded game loads such a save and ignores the entry.
+only its own, so the unmodded game loads such a save and ignores the entry. A rocket running a comet action (0.19.0) is saved by
+the game as idle, and the action it was running is kept in the same entry, so the save is one the unmodded game
+can read and the mod puts the rocket back to work after the load.
 
 ## Everything is best effort
 

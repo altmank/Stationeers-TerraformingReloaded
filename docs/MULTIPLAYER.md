@@ -77,7 +77,7 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
 - **The comet in force.** Then a flag and, when set, the comet event the host is playing
   (`docs/COMET.md` section 1), for a player who joins during one or missed its own message.
 - **The Celestial terraforming settings.** Then come all of the host's Celestial terraforming settings,
-  a count and then each value, 4 + 8 bytes a setting (108 bytes for the thirteen). The joining player's
+  a count and then each value, 4 + 8 bytes a setting (132 bytes for the sixteen). The joining player's
   game works out a comet's orbit, the sky rule's disc and whatever else it shows of a comet from them.
   Each is checked against its range, declared once beside its key (`Comets.CelestialSettings`); one
   outside it keeps the player's own for that setting, and a count that is not this build's is not read.
@@ -88,7 +88,14 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
   while one flies. The host also sends the whole list the moment it changes (made, sent, arrived, out of
   fuel, back on the clock after a load) as a mod message of its own. A joining player's game replaces its
   list with the host's whenever one arrives; its own copy only draws the map icons and answers
-  `terraform comet list`. About 140 bytes a comet of one gas on a three-hop route.
+  `terraform comet list`. About 150 bytes a comet of one gas on a three-hop route. The list carries its own
+  layout byte: 1 for 0.18.0, 2 from 0.19.0, which adds each comet's kind, ore and Cut cycles; a reader that
+  does not know the byte ignores the list. While a rocket action changes a comet every tick (Cut, Fuel, Burn),
+  the host sends the list at most every 2 s.
+- **The comet actions run on the host.** A rocket's mode reaches every player as the game sends any mode, a
+  raw byte the game does not check, so a joining player's panel and buttons show Cut, Fuel, Burn and Launch
+  from it, and the comet's line from that player's own copy of the comets. The miner's cycles, the deploy, the
+  fuel moving and the launch happen only where the game's simulation runs.
 - **The section's first byte says what follows.** 0 nothing, 1 the planet alone (0.10.0 and earlier),
   2 the planet and the settings (0.10.1 to 0.11.3), 3 the planet, the settings and space (0.11.4 to 0.13.2), 4 those and the storm bounds (0.14.0 to 0.15.0), 5 those and the comet (0.16.0 and 0.16.1), 6 those and the Celestial terraforming settings (0.17.0), 7 those and the comets on the space map (0.18.0 on). A reader takes the planet from 1 to 7 and skips any other
   value; a layout, once shipped, keeps its byte and a new one takes the next. Mixed versions never

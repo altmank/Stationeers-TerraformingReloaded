@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.19.0 (prototype)
+
+- **Comets are made and sent by rocket.** Four new actions on the rocket map screen, at a site a rocket stands
+  at, beside the game's own:
+  - **Cut**, with a Rocket Miner and its drill heads at an ice or mineral site: every drill cycle grows the
+    site's comet by a share of the site instead of making ice or ore, at the miner's own pace and with its own
+    head wear, and the site is mined out as it would be by mining. An ice site makes an ice comet, which adds
+    gas to the planet; a mineral site makes a mineral comet, which takes air away. Use the head made for the
+    site: one that mines nothing there cuts nothing. The location panel shows how much of what the site can
+    give the comet holds.
+  - **Rig** is the game's own Deploy, offered at a site where a comet waits: put Pumped Gas engine kits in a
+    Payload Delivery Container in the rocket's payload bay, and when the deploy finishes every kit becomes an
+    engine on the comet. The container stays in the bay for the next load.
+  - **Fuel** moves the methane and oxygen in the rocket's tanks and pipes into the comet, two of methane to one
+    of oxygen, as fast as a Turbo Volume Pump would. Anything else in the tanks stays. It runs until you stop
+    it, so keep back what the rocket needs to fly home and land.
+  - **Burn** turns an ice comet's own methane and oxygen into its fuel, a drill cycle at a time. It saves
+    trips, but every mole burnt is a mole the planet never gets.
+  - **Launch** sends a comet that has engines and fuel to the planet's orbit. The panel shows how much fuel
+    its route takes; a comet sent with less runs dry on the way and is lost.
+- **A comet weighs less than its gas.** It weighs what was cut from its site, times the new
+  `CometMassScale` setting (0.39); the extra gas the comet size setting gives weighs nothing, so a comet cut the
+  same way weighs the same on every planet size. At 0.39 even the heaviest comet a Mars map can make needs no
+  more time spent flying its fuel up to it than cutting it took.
+- **Two more new settings:** `MineralKgPerUnit` (2.592 kg, what a unit of ore in a mineral comet weighs, the
+  same as a unit of water ice) and `FuelLitresPerSecond` (200, how fast Fuel fills a comet).
+- **On a planet larger than Standard, the landing area grows** with the biggest comet that planet allows, so a
+  comet you can track can still be brought down far enough away from your base. Standard and Short planets
+  are unchanged.
+- **Saves stay loadable without the mod.** A rocket running a comet action is saved as idle in the game's own
+  data and put back to work by the mod after the load.
+- `terraform comet make` comets now weigh by the same rule, and `terraform comet list` shows a comet's ore and
+  its Cut cycles.
+
+Nothing in an existing config or save needs changing. The three new settings take their defaults; a world's
+settings file gains them the next time it is written. A save from 0.18.0 loads its comets as ice comets, each
+keeping the weight it was made with.
+
 ## 0.18.0 (prototype)
 
 - **Comets on the space map.** A comet is now an object on the rocket map screen, with an icon of its own: an

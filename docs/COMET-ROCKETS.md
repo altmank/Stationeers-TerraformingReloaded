@@ -2,9 +2,9 @@
 
 Design for how a player makes a comet and brings it down, on branch `comet-impact`. The impact itself (the
 show, the pressure wave, structures, players, sound, sky) is `COMET.md`. Built so far: the settings and
-the pure rules (stage 2 of *Proof as it is built*, 0.17.0), and the comet as an object on the space map that
-flies to Entry by the rocket rule, saved with the world and sent to every player, made and sent for now with
-debug console verbs (stage 3, 0.18.0).
+the pure rules (stage 2 of *Proof as it is built*, 0.17.0), the comet as an object on the space map that
+flies to Entry by the rocket rule, saved with the world and sent to every player (stage 3, 0.18.0), and the
+rocket actions that make it and send it: Cut, Rig, Fuel, Burn and Launch (stage 4, 0.19.0).
 
 Game facts below are from the decompile; file and line references are kept out of this public repo.
 
@@ -38,15 +38,22 @@ Game facts below are from the decompile; file and line references are kept out o
 
 - A rocket with a miner and drill heads sits at an ice or mineral site and runs Cut.
 - Each cycle adds 0.1 % of K times the site's gas to the comet (`CutSharePerCycle`, below), so a whole comet is
-  1,000 cycles.
+  1,000 cycles, times the drill head's yield for the site's kind as the game's mining uses it (an Ice head's 1.2
+  makes a whole comet in 834 cycles; a head that mines nothing of that kind cuts nothing).
 - Cycle time and head wear follow the game's mining: `(10 - 0.4 x Density) / head speed` seconds, and heads
   wear as they do mining.
 - The site panel shows the comet's moles and how much of the site it holds.
 - The deposit is the limit. A Mars ice site holds 6,000 to 100,000 units of ice at 24 mol each, so 0.14M to
   2.4M mol (calculated from the game's site rules, not measured).
-- The comet's mass is its moles times each gas's molar mass as the game defines it (`Mole.MolarMass`), which
-  is not the physical one: water 108 g/mol, oxygen and methane 16, nitrogen 64, carbon dioxide 44. Water at
-  2.3M mol is 248 t.
+- The site's gas is what the game counts it to hold: `TotalOreAtLocation` (the figure the game shows, one
+  significant figure) times the moles in a unit of the ice its miners cut there.
+- The comet's weight in flight is what was cut from its site, by the game's molar masses (`Mole.MolarMass`,
+  not the physical ones: water 108 g/mol, oxygen and methane 16, nitrogen 64, carbon dioxide 44), times
+  `CometMassScale` (0.39); the extra gas K gives weighs nothing (stage 4 decisions, below). A median Mars comet,
+  2.3M mol of water at Standard size, is cut from 460,000 mol of the site and weighs 18.4 t in flight; at the
+  game's molar masses all of it would be 248 t.
+- A mineral site makes a mineral comet: units of ore, `CutSharePerCycle` of K times the site's units a cycle,
+  each weighing `MineralKgPerUnit` (2.592 kg) before the scale.
 
 ## Rig
 
@@ -56,16 +63,25 @@ Game facts below are from the decompile; file and line references are kept out o
 - Engines buy time, not range: every engine burns fuel at the same rate per unit of thrust, so fuel per unit
   of speed gained does not change with engine count. More engines make the trip shorter, add mass, and give
   more correction at the end (below).
-- **Open:** which item is the payload (the engine kit itself, or a new kit).
+- **The payload is the game's own Pumped Gas engine kit** (`ItemKitGovernedGasRocketEngine`), carried inside a
+  Payload Delivery Container in the rocket's payload bay. Rig is the game's Deploy action, offered at a site
+  where a comet waits: when the bay's deploy finishes, every kit in the container becomes an engine on the
+  comet, as many as the kits would build, and the kits are used up. The container stays in the bay.
 
 ## Fuel
 
 Two ways, and the choice matters:
 
-- **Haul it.** The rocket transfers fuel from its own tanks into the comet. Each trip has to keep enough
-  fuel to fly home. **Open:** how much fuel one rocket can carry; that sets how many trips a Fuel stage takes.
+- **Haul it (Fuel).** While the rocket runs Fuel at the comet's site, the 2:1 methane and oxygen in its tanks
+  and pipe networks (never an engine's chamber) move into the comet as a Turbo Volume Pump would move them:
+  each second, what pairs two to one in `FuelLitresPerSecond` (200) litres of the rocket's stores. What is not
+  premix (a methane excess, nitrogen, anything else) stays. It runs until the player stops it, so each trip has
+  to keep back what it needs to fly home: the action does not guess that for the player. A big fuel rocket
+  hands over about 100,000 mol a trip on Mars (stage 4 decisions, below).
 - **Burn the comet.** An ice comet holding methane and oxygen can feed its own engines: the drill heads turn
-  its ice into propellant. It saves trips, and every mole burned is a mole the planet never gets.
+  its ice into propellant, a drill cycle at a time, with the game's timing and head wear, each cycle asking a
+  Cut cycle's share of the comet as it stands. It saves trips, and every mole burned is a mole the planet never
+  gets. The site itself is not mined.
 
 Mineral comets, and ice that cannot burn (pure carbon dioxide), have to be hauled for.
 
@@ -304,9 +320,11 @@ small.
 
 Same loop. At impact a mineral comet blasts the planet's own air away, in proportion to its mass: 0.7 kg of air
 per kg of comet by default (`MineralRemovalPerKg`), taken from each gas in its share of the air
-(`CelestialRules.MineralRemovedMoles`). It is the tool for thinning a thick world such as Venus. **Open:** the
-mass of a mineral comet. The game gives an ore unit no mass that counts (a rocket's cargo weighs 1 kg per filled
-slot, not by what it holds), so the mass per unit Cut moves into a mineral comet is still to be set.
+(`CelestialRules.MineralRemovedMoles`). It is the tool for thinning a thick world such as Venus. The game gives
+an ore unit no mass that counts (a rocket's cargo weighs 1 kg per filled slot, not by what it holds), so a unit
+Cut moves into a mineral comet weighs `MineralKgPerUnit`, 2.592 kg, what a unit of water ice weighs (stage 4
+decisions). Its removal of air at the impact goes by that mass, before `CometMassScale`, which is the comet's
+weight in flight only.
 
 ## Cost rule
 
@@ -390,6 +408,9 @@ section, `Celestial terraforming`.
 | DebrisRadiusFactor | the reach of the falling rocks as a multiple of r0 | 7.07 | Where the wave falls to 200 kPa, the weakest limit that breaks (ordinary windows and glass doors, `COMET.md`) and where the hard push starts (`CometRules.ThrownHardKPa`): sqrt(10,000 / 200) = 7.071 times r0, 1,315 m at 1e6 mol. No rock does harm outside the ground the wave already damages |
 | MaxDamagingRocks | the cap on rocks that hit | 40 | No game fact sets it; set to keep the cost rule. The show draws its debris rain at 7 pieces a second, falling off over 12 s, from 4 to 35 s after the impact: 7 x 12 x (1 - e^(-31 / 12)) = 78 pieces. A rock that hits must be one a player could have seen fall, so at most 78; half of them, 40, is at most 1.3 game explosions of 3 m or less a second over the 31 s, each the cost of one grenade |
 | GasArrivingShare | share of the gas left after the trip that reaches the planet | 0.7 | No game fact: a rocket that crashes in the game puts all its fuel into the world (`Rocket.Explode`), which LU ruled out ("only part of the gas reaches the planet"). Kept at the approved design's 70 % (Decisions, below). K is derived through it |
+| CometMassScale | a comet's weight in flight as a share of what the ice or ore cut from its site weighs; the extra gas K gives weighs nothing | 0.39 | The largest hundredth at which the heaviest comet a Mars map can make (K x a D8 R3 S7 site of silanol ice, 2.4M mol cut, 372.4 t, from Lost Moon Fragments, 2,058.5 delta-v, two engines) takes no more time hauling its fuel in a big fuel rocket than cutting it took: 6.84 trips of 100,302 mol in 994 s against 1,000 cycles of 6.8 s. The fuel rocket and the trips are in the stage 4 decisions, below |
+| MineralKgPerUnit | what a unit of ore cut into a mineral comet weighs, before CometMassScale | 2.592 | A unit of water ice by the game's figures: 24 mol, every shipped ice site's unit, at the game's 108 g/mol for water. No game fact gives ore a mass that counts |
+| FuelLitresPerSecond | litres of the rocket's fuel stores whose 2:1 premix the Fuel action moves into the comet each second | 200 | A Turbo Volume Pump moves 100 L a 0.5 s tick at its Maximum (LIVE, atmospherics.md), the pump a fuel rocket hands its fuel across with |
 | MineralRemovalPerKg | kilograms of the planet's air a mineral comet removes per kilogram of comet | 0.7 | No game fact: the game gives an ore unit no mass that counts. Set for symmetry: a mineral comet takes away the mass of air an ice comet of the same mass brings, 0.7 kg per kg at 70 % arriving, so thinning a thick world costs as much comet as thickening a thin one by the same mass of air. On Venus (the game's molar masses: carbon dioxide 44, hydrochloric acid 36, nitrogen 64 g/mol, mean 43.1) that is 16.3 mol per kg |
 
 Fixed, not settings, because they are game facts: the Pumped Gas engine's 16.39 kN (measured) at 36 mol/s, its
@@ -462,6 +483,49 @@ in *What it is judged against*.
 The map icon is drawn by every machine from its own copy of the comets, as rockets' are; it is the one part of
 stage 3 a headless run cannot show.
 
+### Stage 4, as built (0.19.0)
+
+The actions. Cut, Fuel, Burn and Launch are new rocket modes, the byte values 9 to 12 the game's `RocketMode`
+leaves free; Rig is the game's own Deploy. Each is offered at a site by `SpaceMapNode.HasAction` and
+`IsActionAvailable` (answered before the game's own switch, which throws on a mode it does not know), started
+by `GetAction`, listed in the location panel by `Rocket.ActionProgressables` (the miners for Cut and Burn, and a
+line for the comet), and has a button on the rocket map screen copied from the game's Mine button. One answer,
+`CometActions.Refusal`, decides every one of those questions, on the host and on each client from its own copy
+of the comets.
+
+| Action | Where | What runs it | What it does |
+|---|---|---|---|
+| Cut | an ice or mineral site, not mined out, its comet not full | `CutAction`, a subclass of the game's `RocketMine`: the miners' own timing and head wear | each cycle `MineableDeposit.MineDeposit` (prefix) depletes the site as the game does (`OnDepositMined`, first), grows the site's comet by `CelestialRules.CutAdds`, makes the comet on the first cycle, and returns 0 units with the miner's own last prefab, so no ice is made and a stack the miner was part way through is kept |
+| Rig | a site with a comet waiting | the game's `RocketDeploy` and the payload bay's own 20 s deploy | `DeliveryPayload.OnDeploy` (prefix) turns each Pumped Gas engine kit in the container into an engine, 500 kg each |
+| Fuel | a site with a comet waiting | `FuelAction`; the transfer is a postfix on `Rocket.RocketAtmospherics`, on the game tick just before the engines draw | `CelestialRules.PremixTransfer` from each tank and pipe network, gas and liquid in their shares, into the comet's fuel |
+| Burn | a site with an ice comet holding methane and oxygen | `BurnAction`, a `RocketMine` that skips the mined-out check | each cycle, through the same prefix, `CelestialRules.AfterBurn`: methane and oxygen two to one into fuel; the site is not touched |
+| Launch | a site with a comet that has engines and fuel | `LaunchAction` | sends the comet to Entry (stage 3's send) once, logs the rule's arrival time or where its fuel runs out, and puts the rocket back to idle |
+
+The save. A comet mode is never written into the game's own save: a postfix on `RocketSaveData(Rocket)` writes
+any mode the game does not define as None, so the save cannot throw and the unmodded game loads it as an idle
+rocket. The real mode goes into the comets entry (`tr-comets.xml`, version 2), by the rocket's ReferenceId,
+which the game restores with the rocket, and goes back to the rocket once the loaded game is running, where
+the game checks it as any mode it is given. The comet itself gains its kind, its ore and its Cut cycles in the
+entry; a version 1 entry reads as ice comets with no cycles.
+
+The network. The modes travel as the game's own do, a raw byte, which the game does not check. Each comet now
+carries its kind, ore and Cut cycles (its own layout byte, 2). An action that changes a comet every tick (Cut,
+Fuel, Burn) sends the list to every player at most every 2 s.
+
+| Decision | Goal served | Alternative, and why it lost |
+|---|---|---|
+| **A comet weighs what was cut from its site, times `CometMassScale` = 0.39; the extra gas K gives weighs nothing.** Measured from the game: a big fuel rocket (LU's tanker hull, 1,120 kg dry, 8,120 L of gas capsule tanks and lines) filled the game's way (`RocketCommand.Refuel`: 30 MPa at 215 K, 16.78 mol/L) carries 136,272 mol; on Mars it climbs to orbit in 287 s on 10,325 mol, flies out by the rocket rule, keeps back the tanker's 100 kg (6,250 mol) to land on, and hands over 114,143 mol at a Frozen Vapors site (a 630 s trip), 102,664 at the Oxygenated Ice Cluster and 100,302 at Lost Moon Fragments (994 s), not counting refilling on the ground. With every mole of K's gas weighing, as stage 3 had it, the median comet (2.3M mol of water, 248 t) needs 2.8 trips from Frozen Vapors, but the biggest Mars comets (K x a D8 R3 S7 site's 2.4M mol) need 11.5 trips (oxygen ice), 51 (water ice) and 87 (silanol ice at Lost Moon, 1,862 t): a wall. The default is the largest hundredth at which the heaviest of them, silanol from Lost Moon with two engines, takes no more time hauling its fuel (6.84 trips, 6,797 s) than cutting it took (1,000 cycles at density 8 with one head of speed 1, 6,800 s); then the median comet needs 0.22 trips, oxygen ice 0.94, water ice 3.99. K's gas weighing nothing makes the Fuel stage the same work on every planet size, as K makes Cut the same work | the Fuel stage is work, not a wall; LU's "more work makes a bigger comet" stays with Cut | All of the comet weighing at the game's molar masses: 87 trips for the heaviest. A scale on all of it without K's exemption: 0.08 at Standard, but five times the hauling on Long. The game's own precedent, mined cargo weighing nothing (0): no comet would be heavy, and a big comet must steer little (goal 7). `CelestialRules.Check` holds the default to this arithmetic |
+| A mineral comet's ore weighs `MineralKgPerUnit` = 2.592 kg a unit, before the scale: what a unit of water ice weighs by the game's figures (every shipped ice site gives 24 mol a unit, water 108 g/mol) | `MineralRemovalPerKg`'s symmetry: a mineral comet weighs, and so takes away, what an ice comet cut the same way brings | No game fact: the game gives an ore unit no mass that counts. A unit of the heaviest ice (silanol, 3.72 kg): an ice the maps hold little of |
+| Fuel moves `FuelLitresPerSecond` = 200 litres of the rocket's stores a second: what a Turbo Volume Pump moves, 100 L a 0.5 s tick (LIVE `Maximum`, atmospherics.md), the pump a fuel rocket hands its fuel over with. A full tanker's 102,000 mol cross in about 90 to 110 s | 4, the game's own pieces | One engine's draw, 36 mol/s: a trip's fuel would take 47 minutes to cross |
+| Fuel takes only what pairs two to one, from tanks and pipe networks, gas and liquid in their shares, and never an engine's chamber; it runs until the player stops it | the engines burn 2:1 (`Combustion.ResultMethaneOxygen`); the chamber is reset every tick (research section 9) | Keeping back a reserve for the trip home: the mod would have to guess the landing the game's autopilot flies; a player's chip can read the tanks and set the mode |
+| Burn is a drill action with the game's timing and head wear, each cycle asking `CutSharePerCycle` times the head's ice yield of the comet as it stands; the site is not mined | the design: "the drill heads turn its ice into propellant"; head wear is its cost | A rate of its own, with no heads: burning would cost nothing but time. Burn as part of Fuel: no way to choose between hauling and burning. A mole of fuel weighs its full 16 g while the comet's own weighs it scaled, so a mole burnt adds 9.8 g to the comet in flight on Short and 14.8 g at Standard |
+| The site's gas is `TotalOreAtLocation`, the game's own rounded figure, times a unit of the first ice its miners cut | 4: the figure the game shows the player | The unrounded sum the K derivation used (116,050 units against 100,000): a comet bigger than the site the player is shown, and the third-of-a-planet rule only holds more surely with the smaller one |
+| Rig is the game's Deploy, and the payload the game's Pumped Gas engine kit in a Payload Delivery Container; a kit counts as many engines as it would build | 4, 5 | A new kit or a new action: nothing the game does not already have |
+| The comet modes are written as None in the game's save, the real mode in the comets entry by the rocket's ReferenceId | saves stay loadable, with and without the mod | Writing Mine for Cut: the unmodded game would mine the site for real, and with the mod a mode the entry could not restore would mine too |
+| Launch sends the comet whether or not its fuel covers the route, and says which | LU's "no rescue if it runs dry": a bad plan has a bad outcome | Refusing a comet short of fuel: the rule's arrival is a prediction the player can read first, in the comet's line and in `terraform comet list` |
+| **The disc follows the planet's size above Standard**: it grows by twice what K adds to the biggest rocket comet's safe distance, so half of it is that safe distance, rounded up as at Standard, on every size: 5,450 m on Long (half 2,725 m against 2,720 m), 5,750 m on a full-size planet; never below the setting, so 5,100 m on Short (`CelestialRules.DiscRadiusAt`). The cost: on Long the smallest show (scale 0.4, seen out to 2,614 m) can land just past where it clears the drawn horizon at the edge of the tracked half | goal 1, a tracked landing at a safe distance, on every size | Leaving the disc as set: on Long the biggest comets could not be brought down at a safe distance while in sight. Shrinking it on Short too: no goal needs it, and small comets are easier to see nearer |
+| The rocket in `-CometActions` is spawned from the game's prefabs and joined with the calls the game's load makes (`RocketData`, `AdoptFromLoad`, `RefreshRocket`), stood at sites with `SetCurrentNode`, its parts' power held on by the driver | the proof calls the actions' own code paths in a real rocket | Building it into the hull's cells: a headless run has no player to place parts, and the cells' exact geometry is prefab data |
+
 ## Proof as it is built
 
 LU, 2026-10-21: prove each mechanic works as it is built, and that it still works once joined to the rest.
@@ -484,11 +548,20 @@ Build order, each stage proven before the next starts:
 | 1 | the two show bugs: impact height and the curved distant ground | rig shot: the impact sits on the ground the player sees |
 | 2 | the config section, and the pure rules | PatchCheck with mutants |
 | 3 | the comet as a map object, flying by the rocket rule, saved and loaded | a comet with set mass, thrust and fuel reaches Entry in the calculated time, and one short of fuel stops where calculated |
-| 4 | Cut, Rig and Fuel actions | the comet's moles, mass and fuel after each action match the rules |
+| 4 | Cut, Rig, Fuel, Burn and Launch actions | the comet's moles, mass and fuel after each action match the rules |
 | 5 | the sky body, the telescope, the Map motherboard icons | the telescope locks on and reads the calculated values; the icon sits where the sky rule says |
 | 6 | the deorbit and the landing | landings land where the rule says, with and without reserve, and an untracked burn lands in the disc |
 | 7 | the impact zones | structures at measured distances end as the table says |
 | 8 | multiplayer | a dedicated server and a rendered client on bt see the same comet, icon and impact |
+
+Stage 4 is in 0.19.0, proof (1) and (2) written, (2) not yet run: `CelestialRules.CutAdds`, `FlightKg`,
+`PremixTransfer`, `BurnWanted`, `AfterBurn`, `FuelNeeded` and `DiscRadiusAt`, and the defaults of
+`CometMassScale`, `MineralKgPerUnit` and `FuelLitresPerSecond`, are checked at load and by `tools/PatchCheck`,
+which hands the check nine more wrong rules it must catch (a Cut past the cap, a Cut that ignores the head, K's
+gas weighing, fuel that moves what is not premix, fuel moved one to one, fuel that ignores the stores' volume,
+a Burn that takes nothing from the comet, fuel needed without its own weight, and a disc that ignores the
+planet's size), and binds the actions' patches to their targets. `tools/LiveCheck/run.ps1 -CometActions` is the
+in-game proof (`VERIFICATION.md`), for bt.
 
 Stage 3 is in 0.18.0, proof (1) and (2) written, (2) not yet run: `CelestialRules.PositionAt`,
 `DeltaVAfter` and `SizeMultiplier` are checked at load and by `tools/PatchCheck`, which also hands the check
@@ -505,16 +578,12 @@ rules it must catch and reads the game's own molar masses and burn ratio under t
 
 ## Open
 
-- Fuel one rocket can carry per trip. A comet is heavy by the game's molar masses: a 2.3M mol water comet
-  (248 t) with 2 engines needs about 323,000 mol to come in from a Frozen Vapors site.
 - Burning the comet: no single ice site on Mars's map holds both methane and oxygen (volatiles come with
   carbon dioxide, oxygen with nitrogen), so a comet can feed its own engines only if Cut mixes two sites. The
   hydrazine site's ice burns alone in the game, but the rule here burns only methane with oxygen.
-- The mass per unit Cut moves into a mineral comet.
-- The Rig payload item.
 - The default planet size. K follows it now, so it no longer decides whether the third-of-a-planet rule holds.
-- On Long, K = 25 makes the biggest rocket comet about 76M mol, whose safe distance (2,720 m by `COMET.md`'s
-  rule, calculated) lies a little past the half of the disc a telescope can track (2,550 m). The disc was
-  derived at Standard size; whether it should follow the planet's size too is LU's call.
+- `CometMassScale` (0.39) and the disc following the planet's size were decided in stage 4 (above); both are
+  LU's to revisit.
+- What a mineral comet's impact leaves (a mound of ore) is still to come; its removal of air is stage 6's.
 - A map icon of its own for a comet: it borrows an asteroid picture from the game's map icons.
 - Whether a landing past Mars's 4 km of terrain looks right on the far curved ground.
