@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Name>TR Stage8</Name>
+  <Author>XCeled</Author>
+  <Version>0.0.1</Version>
+  <Description>Multiplayer test driver for Terraforming Reloaded's comets: a dedicated server and a rendered client. Not for play. Only acts when its environment variable is set.</Description>
+  <WorkshopHandle>0</WorkshopHandle>
+  <Tags />
+</ModMetadata>
