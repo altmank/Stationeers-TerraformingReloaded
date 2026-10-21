@@ -171,22 +171,47 @@ namespace TerraformingReloaded.Stage8
             string path = PathOf(name);
             string temp = path + ".tmp-" + _role;
             File.WriteAllText(temp, text.ToString());
-            if (File.Exists(path))
+            // The other end, or run.ps1, may hold the file open for the moment it reads it; the file is then
+            // replaced in one step once it lets go. Only one end ever writes a given file.
+            for (int attempt = 0; ; attempt++)
             {
-                File.Delete(path);
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        File.Replace(temp, path, null, true);
+                    }
+                    else
+                    {
+                        File.Move(temp, path);
+                    }
+                    return;
+                }
+                catch (Exception e) when ((e is IOException || e is UnauthorizedAccessException) && attempt < 60)
+                {
+                    System.Threading.Thread.Sleep(Math.Min(40, 2 + 2 * attempt));
+                }
             }
-            File.Move(temp, path);
         }
 
         public static void Append(string name, string line)
         {
-            try
+            for (int attempt = 0; attempt < 20; attempt++)
             {
-                File.AppendAllText(PathOf(name), line + "\n");
-            }
-            catch (IOException)
-            {
-                // The judged file is a convenience copy; the log line is the record.
+                try
+                {
+                    using (FileStream stream = new FileStream(PathOf(name), FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
+                    using (StreamWriter writer = new StreamWriter(stream))
+                    {
+                        writer.Write(line + "\n");
+                    }
+                    return;
+                }
+                catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+                {
+                    // The judged file is a convenience copy; the log line is the record.
+                    System.Threading.Thread.Sleep(5);
+                }
             }
         }
 
@@ -200,23 +225,38 @@ namespace TerraformingReloaded.Stage8
             {
                 return null;
             }
-            try
+            for (int attempt = 0; attempt < 10; attempt++)
             {
-                Dictionary<string, string> values = new Dictionary<string, string>();
-                foreach (string line in File.ReadAllLines(path))
+                try
                 {
-                    int equals = line.IndexOf('=');
-                    if (equals > 0)
+                    string text;
+                    // Opened so that the writer can replace the file while this has it open.
+                    using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    using (StreamReader reader = new StreamReader(stream))
                     {
-                        values[line.Substring(0, equals)] = line.Substring(equals + 1);
+                        text = reader.ReadToEnd();
                     }
+                    Dictionary<string, string> values = new Dictionary<string, string>();
+                    foreach (string line in text.Split('\n'))
+                    {
+                        int equals = line.IndexOf('=');
+                        if (equals > 0)
+                        {
+                            values[line.Substring(0, equals)] = line.Substring(equals + 1).TrimEnd('\r');
+                        }
+                    }
+                    return values;
                 }
-                return values;
+                catch (FileNotFoundException)
+                {
+                    return null;
+                }
+                catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+                {
+                    System.Threading.Thread.Sleep(3);
+                }
             }
-            catch (IOException)
-            {
-                return null;
-            }
+            return null;
         }
 
         public static double D(Dictionary<string, string> values, string key) =>
@@ -398,6 +438,16 @@ namespace TerraformingReloaded.Stage8
         private static readonly List<(string Digest, int Layout, double Clock)> Read = new List<(string, int, double)>();
         private static string _lastWritten;
         private static string _lastRead;
+        private static double _lastWrittenClock = double.NegativeInfinity;
+        private static double _lastReadClock = double.NegativeInfinity;
+
+        /// <summary>
+        /// A state is kept when it differs from the last one kept or comes at least this long after it on the clock.
+        /// The host writes the planet into some 20 updates in each sync window, so this keeps one or two a window
+        /// while keeping every change. Keeping only changes would keep one state in all of a quiet world, where the
+        /// planet does not move from one sync to the next, and the updates after the join could not be told apart.
+        /// </summary>
+        private const double KeepEverySeconds = 0.5;
 
         public static void Install(Harmony harmony, bool server)
         {
@@ -442,12 +492,14 @@ namespace TerraformingReloaded.Stage8
             string digest = Of(__result);
             lock (Gate)
             {
-                if (digest == _lastWritten)
+                double clock = Bus.Clock;
+                if (digest == _lastWritten && clock - _lastWrittenClock < KeepEverySeconds)
                 {
                     return;
                 }
                 _lastWritten = digest;
-                Written.Add((digest, Bus.Clock));
+                _lastWrittenClock = clock;
+                Written.Add((digest, clock));
                 if (Written.Count > 400)
                 {
                     Written.RemoveRange(0, 200);
@@ -490,12 +542,14 @@ namespace TerraformingReloaded.Stage8
             string digest = Of(saveData);
             lock (Gate)
             {
-                if (digest == _lastRead)
+                double clock = Bus.Clock;
+                if (digest == _lastRead && clock - _lastReadClock < KeepEverySeconds)
                 {
                     return;
                 }
                 _lastRead = digest;
-                Read.Add((digest, _reading, Bus.Clock));
+                _lastReadClock = clock;
+                Read.Add((digest, _reading, clock));
                 if (Read.Count > 400)
                 {
                     Read.RemoveRange(0, 200);
