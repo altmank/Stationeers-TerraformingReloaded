@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.17.0 (prototype)
+
+- **New config section, Celestial terraforming.** Thirteen settings for comets made and brought down by
+  rocket: how big Cut makes a comet and how many drill cycles that takes, how long its orbit is and how it is
+  tilted while it waits to come down, how far from the launch pad it can land and how far its spare fuel can
+  steer it, how far ground zero, the fireball and the falling rocks reach, how many rocks can hit, how much of
+  an ice comet's gas reaches the planet and how much air a mineral comet takes away. Each default is worked out
+  from the game's own rules and numbers, and `docs/COMET-ROCKETS.md` shows the arithmetic beside each one. In
+  0.17.0 they change nothing in play: they take effect in the versions that add comets made by rocket.
+- **Each world keeps its own**, like the mod's other world settings: the config decides what a new world starts
+  with, and `terraform set <Key> <value>` changes the world you are playing. A world's settings file gains them
+  the next time it is written; until then that world takes the config's.
+- **In multiplayer the host's values apply**, sent to joining players with the planet. Host and joining
+  players must run the same version, as before.
+
+Nothing in an existing config or save needs changing.
+
 ## 0.16.1 (prototype)
 
 - **A comet comes down on the ground you see.** On worlds whose distant ground curves away below the
