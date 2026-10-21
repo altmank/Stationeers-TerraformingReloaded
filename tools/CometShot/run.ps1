@@ -90,7 +90,7 @@ try {
     $env:TR_COMETSHOT_YAW = $Yaw.ToString([cultureinfo]::InvariantCulture)
     $env:TR_COMETSHOT_SETTLE = $Settle.ToString([cultureinfo]::InvariantCulture)
     Remove-Item $bepLog -ErrorAction SilentlyContinue
-    $game = Start-Process $exe -WorkingDirectory $GameDir -PassThru -ArgumentList @('-batchmode', '-logFile', "`"$unityLog`"", '-new', $World)
+    $game = Start-Process $exe -WorkingDirectory $GameDir -PassThru -ArgumentList @('-batchmode', '-screen-fullscreen', '0', '-screen-width', "$Width", '-screen-height', "$Height", '-logFile', "`"$unityLog`"", '-new', $World)
     Write-Host "Started off-screen instance, PID $($game.Id), on a new $World"
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
