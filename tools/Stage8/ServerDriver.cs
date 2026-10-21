@@ -142,7 +142,7 @@ namespace TerraformingReloaded.Stage8
 
         /// <summary>
         /// A dedicated server with no player may pause its world again (seen on the test server). A pause of more than
-        /// 10 s while nobody is joining is that, and is ended the way the game ends the pause of a join. A run held
+        /// 2 s while nobody is joining is that, and is ended the way the game ends the pause of a join. A run held
         /// paused for a joining player (phase load) is left alone.
         /// </summary>
         private void KeepRunning()
@@ -158,7 +158,7 @@ namespace TerraformingReloaded.Stage8
             {
                 _pausedSince = Time.realtimeSinceStartup;
             }
-            else if (Time.realtimeSinceStartup - _pausedSince > 10f)
+            else if (Time.realtimeSinceStartup - _pausedSince > 2f)
             {
                 Unpause("the world paused itself with nobody joining");
                 _pausedSince = -1f;
@@ -262,11 +262,25 @@ namespace TerraformingReloaded.Stage8
             }
         }
 
+        private const float BootSteadySeconds = 5f;
+        private const float BootLimitSeconds = 60f;
+        private float _bootSteady = -1f;
+        private int _bootRepauses;
+
         private void Boot()
         {
-            if (!_unpaused && WorldManager.IsGamePaused)
+            // A new dedicated world pauses itself until a player acts, and was seen on bt to pause again within
+            // seconds of being unpaused (REPORT-020: 8 ticks, then paused at the judgement). So while booting it is
+            // unpaused whenever it is found paused, each time logged, and judged up only once it has run unpaused
+            // for BootSteadySeconds in a row; after BootLimitSeconds it is judged as it stands.
+            if (WorldManager.IsGamePaused)
             {
-                Unpause("a new world pauses itself until a player acts");
+                Unpause(_unpaused ? "the new world paused itself again while booting (" + (++_bootRepauses) + ")" : "a new world pauses itself until a player acts");
+                _bootSteady = -1f;
+            }
+            else if (_bootSteady < 0f)
+            {
+                _bootSteady = Time.realtimeSinceStartup;
             }
             _unpaused = true;
             if (_bootTick < 0)
@@ -275,7 +289,8 @@ namespace TerraformingReloaded.Stage8
                 _bootReal = Time.realtimeSinceStartup;
                 return;
             }
-            if (Time.realtimeSinceStartup - _bootReal < 10f)
+            bool steady = _bootSteady >= 0f && Time.realtimeSinceStartup - _bootSteady >= BootSteadySeconds;
+            if (Time.realtimeSinceStartup - _bootReal < 10f || (!steady && Time.realtimeSinceStartup - _bootReal < BootLimitSeconds))
             {
                 return;
             }
@@ -283,7 +298,7 @@ namespace TerraformingReloaded.Stage8
             bool parts = CometMap.SaveInstalled && CometSkyBodies.Installed && CometSkyBodies.SafePointInstalled && CometAim.ReadoutsInstalled && CometLand.Installed
                 && CometRules.Verdict == null && CelestialRules.Verdict == null;
             bool pass = ticks >= 5 && !WorldManager.IsGamePaused && parts && SpaceMap.Current?.EntryNode != null && NetworkManager_IsServer();
-            Bus.Judge("server up", pass, string.Format(Bus.C, "world {0} | {1} game ticks in 10 s | paused {2} | comet parts {3} | rules {4} | celestial {5} | planet {6} | gate {7}",
+            Bus.Judge("server up", pass, string.Format(Bus.C, "world {0} | {1} game ticks since boot, " + Bus.R(Time.realtimeSinceStartup - _bootReal) + " s | re-paused " + _bootRepauses + " times while booting | paused {2} | comet parts {3} | rules {4} | celestial {5} | planet {6} | gate {7}",
                 WorldSetting.Current.Id, ticks, WorldManager.IsGamePaused, parts ? "installed" : "MISSING", CometRules.Verdict ?? "pass", CelestialRules.Verdict ?? "pass",
                 CometMap.PlanetSize(), Gate.Describe()));
             if (!pass)
