@@ -178,7 +178,7 @@ namespace TerraformingReloaded.Comets
         {
             try
             {
-                return Check(Shipped);
+                return Check(Shipped) ?? CometYield.Verdict;
             }
             catch (Exception e)
             {
@@ -186,7 +186,10 @@ namespace TerraformingReloaded.Comets
             }
         });
 
-        /// <summary>The shipped rules' own check, run once: null when they hold, else the first case that does not.</summary>
+        /// <summary>
+        /// The shipped rules' own check, and the show's sizes from the yield the wave implies
+        /// (<see cref="CometYield"/>), run once: null when they hold, else the first case that does not.
+        /// </summary>
         public static string Verdict => ShippedVerdict.Value;
 
         /// <summary>

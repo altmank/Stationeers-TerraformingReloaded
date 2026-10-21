@@ -768,6 +768,35 @@ internal static class Program
             string caught = TerraformingReloaded.Comets.CometRules.Check(wrong.Rules);
             failures += Judge(caught != null, "comet rules check fails " + wrong.What + (caught != null ? ": " + caught : ""));
         }
+        string yieldCheck = TerraformingReloaded.Comets.CometYield.Check(TerraformingReloaded.Comets.CometYield.Shipped);
+        failures += Judge(yieldCheck == null, "comet yield: " + (yieldCheck ?? string.Format(System.Globalization.CultureInfo.InvariantCulture,
+            "the wave refitted to the blast curve gives {0:0.####E+0} kt a mole, the laws hold against their sources, the fireball is never drawn inside its damage zone, the cloud stays inside the far clip",
+            TerraformingReloaded.Comets.CometYield.FitKilotonsPerMole(TerraformingReloaded.Comets.CometRules.Shipped))));
+        var wrongYields = new (string What, TerraformingReloaded.Comets.CometYield Yield)[]
+        {
+            ("a yield growing as the 2/3 power of the moles", new TwoThirdsYield()),
+            ("a yield growing with the logarithm of the moles", new LogYield()),
+            ("a yield a fifth too big", new BigYield()),
+            ("a fireball drawn by the law alone, smaller than its damage zone", new FireballInsideZone()),
+            ("a fireball growing as the cube root of the yield", new CubeRootFireball()),
+            ("a cloud rising as the cube root of the yield", new CubeRootCloud()),
+            ("a far clip of four times the impact's distance, as 0.16 had", new ShortFarClip()),
+            ("a show that outlasts the darker sky", new LongShow()),
+        };
+        foreach (var wrong in wrongYields)
+        {
+            string caught = TerraformingReloaded.Comets.CometYield.Check(wrong.Yield);
+            failures += Judge(caught != null, "comet yield check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        foreach (double moles in new[] { 1e5, 1e6, 1e7, 3.6e7, 1e8, 1e9 })
+        {
+            var shipped = TerraformingReloaded.Comets.CometRules.Shipped;
+            var sizes = TerraformingReloaded.Comets.CometYield.Shipped.For(moles, TerraformingReloaded.Comets.CelestialTuning.Defaults);
+            double safe = shipped.SafeDistance(shipped.Scale(moles));
+            double far = TerraformingReloaded.Comets.CometYield.Shipped.FarClipMetres(safe, 0.001 * Math.Pow((safe - 144.0) * 0.3, 2.0), sizes);
+            Console.WriteLine(string.Format(System.Globalization.CultureInfo.InvariantCulture, "table:   {0:0.#E+0} mol: {1}; far clip {2:N0} m from the safe distance, {3:N0} m",
+                moles, sizes, far, safe));
+        }
         string ground = TerraformingReloaded.Comets.CometGround.Check(TerraformingReloaded.Comets.CometGround.Shipped);
         failures += Judge(ground == null, "comet ground: " + (ground ?? "the impact's height from the voxels, the world's edge outside them, and the curved ground's drop as measured on Mars"));
         var wrongGround = new (string What, TerraformingReloaded.Comets.CometGround Ground)[]
@@ -952,6 +981,46 @@ internal static class Program
     private sealed class StuckSky : TerraformingReloaded.Comets.CometRules
     {
         public override double SkyDim(double scale, double secondsSinceImpact) => base.SkyDim(scale, Math.Min(secondsSinceImpact, SkyFallSeconds));
+    }
+
+    private sealed class TwoThirdsYield : TerraformingReloaded.Comets.CometYield
+    {
+        public override double Kilotons(double moles) => base.Kilotons(1e7) * Math.Pow(base.Kilotons(moles) / base.Kilotons(1e7), 2.0 / 3.0);
+    }
+
+    private sealed class LogYield : TerraformingReloaded.Comets.CometYield
+    {
+        public override double Kilotons(double moles) => base.Kilotons(1e7) * Math.Log10(1.0 + Math.Min(moles, TerraformingReloaded.Comets.CometRules.WaveMolesCap)) / 7.0;
+    }
+
+    private sealed class BigYield : TerraformingReloaded.Comets.CometYield
+    {
+        public override double Kilotons(double moles) => 1.2 * base.Kilotons(moles);
+    }
+
+    private sealed class FireballInsideZone : TerraformingReloaded.Comets.CometYield
+    {
+        public override double DrawnFireballMetres(double kilotons, double fireballZoneMetres) => FireballLawMetres(kilotons);
+    }
+
+    private sealed class CubeRootFireball : TerraformingReloaded.Comets.CometYield
+    {
+        public override double FireballLawMetres(double kilotons) => base.FireballLawMetres(1000.0) * Math.Pow(kilotons / 1000.0, 1.0 / 3.0);
+    }
+
+    private sealed class CubeRootCloud : TerraformingReloaded.Comets.CometYield
+    {
+        public override double CloudTopMetres(double kilotons) => CloudTopMetresAt1Mt * Math.Pow(kilotons / 1000.0, 1.0 / 3.0);
+    }
+
+    private sealed class ShortFarClip : TerraformingReloaded.Comets.CometYield
+    {
+        public override double FarClipMetres(double eyeMetres, double dropMetres, TerraformingReloaded.Comets.CometSizes sizes) => 4.0 * eyeMetres;
+    }
+
+    private sealed class LongShow : TerraformingReloaded.Comets.CometYield
+    {
+        public override double ShowSeconds() => RiseSeconds * 3.0;
     }
 
     /// <summary>
