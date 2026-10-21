@@ -839,6 +839,23 @@ Build order, each stage proven before the next starts:
 | 7 | the impact zones | structures at measured distances end as the table says |
 | 8 | multiplayer | a dedicated server and a rendered client on bt see the same comet, icon and impact |
 
+**Status (2026-10-21, 0.22.4): all eight stages proven on bt, each with its earlier stages run again on the
+same build.**
+
+| Stage | Proved by |
+|---|---|
+| 1 | CometShot: every frame after impact `height PASS` and `on the drawn ground PASS` |
+| 2 | the per-world file carries the `Celestial` block; the rules' self-check at load and PatchCheck's mutants |
+| 3 | `-CometFlight`: arrival within 0.02 s of the rule, a stranded comet where the rule puts it, a save in flight resumed, every node found again after a load |
+| 4 | `-CometActions`: Cut, Rig, Burn, Fuel and Launch against the rule tick by tick, across a save, and the save loaded without the mod |
+| 5 | `-CometSky` on Mars2 and Vulcan2: the frame against the game's Sun, the aim, the telescope locked within 0.07 degrees reading the rule's orbit, relock after a load, a storm blanking the orbit readings, the save loaded without the mod |
+| 6 | `-CometLand`: a tracked comet 0 m from its target, one past its reach at its reach along the line, an untracked one inside the disc, gas and a mineral comet's removal per gas to the rule, a fall across a save |
+| 7 | `-CometZones`: 54 structures against the table on a console and a rocket comet, falling rocks, one pass, every structure kept across a load |
+| 8 | Stage 8 (`tools/Stage8`): 59 judged lines on a dedicated server and a rendered client, `Stage8 OK` |
+
+The standing regression (`run.ps1`, `-SaveLoad`, `-Reset`, `-Sidecar`, `-Model -World Venus -SetAir`) passed on
+the same build.
+
 Stage 8 is the multiplayer proof, `tools/Stage8` (0.22.1), written, not yet run: a dedicated server and a rendered
 client of their own on bt, judged line by line (`tools/Stage8/README.md`). Building it confirmed, from the code,
 that a console comet on a dedicated server was aimed from the scene's main camera, which a batch-mode scene keeps
