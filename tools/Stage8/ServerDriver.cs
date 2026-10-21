@@ -128,6 +128,7 @@ namespace TerraformingReloaded.Stage8
             KeepRunning();
             WriteViews();
             WriteSync();
+            WriteBody();
             if (_load)
             {
                 StepLoad();
@@ -198,6 +199,25 @@ namespace TerraformingReloaded.Stage8
             v.Id.ToString(Bus.C), ((int)v.State).ToString(Bus.C), v.AtNode.ToString(Bus.C), v.Hop.ToString(Bus.C), v.HopCount.ToString(Bus.C), v.FromNode.ToString(Bus.C),
             v.ToNode.ToString(Bus.C), Bus.R(v.Progress), Bus.R(v.RouteShare), Bus.R(v.FuelLeft), Bus.R(v.CometKg), v.Engines.ToString(Bus.C),
         });
+
+        private float _bodyWritten = -10f;
+
+        /// <summary>Twice a second: where the server has the joined player's body and the way it faces, from what their game sends.</summary>
+        private void WriteBody()
+        {
+            if (_human == null || Time.realtimeSinceStartup - _bodyWritten < 0.5f)
+            {
+                return;
+            }
+            _bodyWritten = Time.realtimeSinceStartup;
+            Vector3 at = _human.transform.position;
+            Vector3 f = Facing(_human);
+            Bus.Write("server.body", new Dictionary<string, string>
+            {
+                { "x", Bus.R(at.x) }, { "y", Bus.R(at.y) }, { "z", Bus.R(at.z) }, { "yaw", Bus.R(Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg) },
+                { "utc", DateTime.UtcNow.Ticks.ToString(Bus.C) }, { "clock", Bus.R(Clock) },
+            });
+        }
 
         /// <summary>Every second: the planet states the host wrote into the mod's section, with its clock at each.</summary>
         private void WriteSync()

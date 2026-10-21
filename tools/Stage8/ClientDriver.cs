@@ -53,6 +53,8 @@ namespace TerraformingReloaded.Stage8
         private float _yaw;
         private Vector3 _standAt;
         private float _placedAt = -1f;
+        private string _placeJudge;
+        private float _placeChecked;
 
         // Pictures, by the shared clock.
         private readonly List<(double Clock, string Name)> _shots = new List<(double, string)>();
@@ -245,37 +247,141 @@ namespace TerraformingReloaded.Stage8
 
         // ---- standing, facing, pictures -----------------------------------------------------------------------
 
-        /// <summary>The game's own teleport: the character's body put on the ground at a point, as the teleport command does.</summary>
-        private void Stand(float x, float z, float yaw)
+        /// <summary>
+        /// Stands this game's own player at a point on the ground, facing a bearing, and judges it there once both
+        /// this game and the server have it so (<paramref name="judge"/>). The owner's game sends its body's place
+        /// and turn to the server every 50 ms (NetworkClient.OwnerToServerStream, Human.PrepareUpdateMessage:
+        /// ThingTransformPosition and EntityRotation, the turn of CharacterRotationY), so the body has to be where the
+        /// game moves it, not only its transform: the owner's rigidbody is interpolated and puts its transform back
+        /// where the rigidbody is every frame.
+        /// </summary>
+        private void Stand(float x, float z, float yaw, string judge)
         {
             _standAt = SpawnPoint.GetSafePoint(new Vector3(x, 1f, z), Vector3.up);
-            InventoryManager.Parent.Transform.position = _standAt;
-            Rigidbody body = Me.ActiveRigidbody;
-            if (body != null && !body.isKinematic)
-            {
-                body.velocity = Vector3.zero;
-            }
             _yaw = yaw;
             _hold = true;
             _placedAt = Time.realtimeSinceStartup;
-            Bus.Info(string.Format(Bus.C, "stood at {0}, facing {1:0.#} deg", _standAt, yaw));
+            _placeJudge = judge;
+            _placeChecked = 0f;
+            Place("asked");
         }
 
-        /// <summary>The way the character looks, every frame, as the mouse would set it; and the body put back if it fell through ground not yet built.</summary>
+        /// <summary>
+        /// The move itself, as Human.ForceSetPosition moves a body on the host (it does nothing on a player's own
+        /// game): the place, the transform, the rigidbody, no momentum, the interpolation reset; and the turn as the
+        /// game's own scripted spawns set it, through the camera controller's RotationY (TutorialSpawnPoint), which
+        /// CameraController.LateUpdate gives CharacterRotationY.
+        /// </summary>
+        private void Place(string why)
+        {
+            Human me = Me;
+            if (me.ParentSlot == null && me.MovementController != null && me.MovementController.ControlMode != MovementController.Mode.Animation
+                && me.State == EntityState.Alive && !me.IsRagdoll)
+            {
+                Bus.Info("the player's movement was " + me.MovementController.ControlMode + "; set to walking (Animation), as the game does when a body leaves a seat");
+                me.MovementController.ControlMode = MovementController.Mode.Animation;
+            }
+            me.ThingTransformPosition = _standAt;
+            Rigidbody body = me.ActiveRigidbody;
+            if (body != null)
+            {
+                body.position = _standAt;
+                body.MovePosition(_standAt);
+                if (!body.isKinematic)
+                {
+                    body.velocity = Vector3.zero;
+                    body.angularVelocity = Vector3.zero;
+                }
+            }
+            me.ResetInterpolation();
+            Physics.SyncTransforms();
+            Face();
+            Bus.Info(string.Format(Bus.C, "stood at {0}, facing {1:0.#} deg ({2}) | {3}", _standAt, _yaw, why, Describe()));
+        }
+
+        private void Face()
+        {
+            if (CameraController.Instance != null)
+            {
+                CameraController.Instance.RotationY = _yaw;
+                CameraController.Instance.RotationX = Pitch;
+            }
+            Me.CharacterRotationY.rotation = Quaternion.Euler(0f, _yaw, 0f);
+        }
+
+        /// <summary>The player's and the camera's state, for a placement that does not take.</summary>
+        private string Describe()
+        {
+            Human me = Me;
+            CameraController camera = CameraController.Instance;
+            Rigidbody body = me.ActiveRigidbody;
+            return string.Format(Bus.C,
+                "body at {0}, turned {1:0.#} deg, camera looking {2:0.#} deg | state {3}, ragdoll {4}, movement {5}, in slot {6} | rigidbody kinematic {7}, interpolation {8} | camera tracks the player {9}, cinematic {10}, cursor shown {11}, window focused {12}",
+                me.transform.position, me.CharacterRotationY.eulerAngles.y, CameraYaw(), me.State, me.IsRagdoll, me.MovementController?.ControlMode, me.ParentSlot != null,
+                body?.isKinematic, body?.interpolation, camera != null && camera.TrackedEntity == me, CameraController.CinematicMode, Cursor.visible, Application.isFocused);
+        }
+
+        private static float CameraYaw()
+        {
+            Camera camera = CameraController.CurrentCamera;
+            if (camera == null)
+            {
+                return float.NaN;
+            }
+            Vector3 f = camera.transform.forward;
+            return Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg;
+        }
+
+        /// <summary>
+        /// Every frame: the way the character looks, as the mouse would set it. While a placement is to be judged:
+        /// the body put back if it fell through ground not yet built or the move did not take, and judged once this
+        /// game and the server (its server.body, from the stream this game sends) both have it at the spot, turned
+        /// the way asked.
+        /// </summary>
         private void Hold()
         {
-            if (!_hold || CameraController.Instance == null)
+            if (!_hold)
             {
                 return;
             }
-            CameraController.Instance.RotationY = _yaw;
-            CameraController.Instance.RotationX = Pitch;
-            if (_placedAt >= 0f && Time.realtimeSinceStartup - _placedAt < 8f && Me.transform.position.y < _standAt.y - 3f)
+            Face();
+            if (_placeJudge == null)
             {
-                InventoryManager.Parent.Transform.position = _standAt;
-                Bus.Info("put back on the ground at " + _standAt);
+                return;
+            }
+            float now = Time.realtimeSinceStartup;
+            if (now - _placeChecked < 0.5f)
+            {
+                return;
+            }
+            _placeChecked = now;
+            Human me = Me;
+            Vector3 at = me.transform.position;
+            double here = Flat(at, _standAt);
+            double turned = Math.Abs(Mathf.DeltaAngle(me.CharacterRotationY.eulerAngles.y, _yaw));
+            double looks = Math.Abs(Mathf.DeltaAngle(CameraYaw(), _yaw));
+            Dictionary<string, string> server = Bus.Read("server.body");
+            double age = server == null ? double.NaN : (DateTime.UtcNow.Ticks - Bus.L(server, "utc")) / (double)TimeSpan.TicksPerSecond;
+            Vector3 there = server == null ? new Vector3(float.NaN, 0f, float.NaN) : new Vector3((float)Bus.D(server, "x"), (float)Bus.D(server, "y"), (float)Bus.D(server, "z"));
+            double seen = Flat(there, _standAt);
+            double seenTurn = server == null ? double.NaN : Math.Abs(Mathf.DeltaAngle((float)Bus.D(server, "yaw"), _yaw));
+            bool pass = here < 2.0 && turned < 3.0 && looks < 3.0 && seen < 3.0 && seenTurn < 5.0 && age < 3.0;
+            if (pass || now - _placedAt > 30f)
+            {
+                Bus.Judge(_placeJudge, pass, string.Format(Bus.C,
+                    "asked ({0:0.#}, {1:0.#}) facing {2:0.#} deg | here {3:0.###} m off, turned {4:0.#} deg off, the camera {5:0.#} deg off | the server has the body {6:0.###} m off, turned {7:0.#} deg off ({8:0.#} s old) | {9:0.#} s after asking | {10}",
+                    _standAt.x, _standAt.z, _yaw, here, turned, looks, seen, seenTurn, age, now - _placedAt, Describe()));
+                _placeJudge = null;
+                return;
+            }
+            bool fell = now - _placedAt < 8f && at.y < _standAt.y - 3f;
+            if (fell || (here > 2.0 && now - _placedAt > 2f && ((int)((now - _placedAt) * 2f)) % 10 == 0))
+            {
+                Place(fell ? "put back on the ground" : "the move had not taken, " + here.ToString("0.#", Bus.C) + " m off");
             }
         }
+
+        private static double Flat(Vector3 a, Vector3 b) => Math.Sqrt((a.x - b.x) * (a.x - b.x) + (a.z - b.z) * (a.z - b.z));
 
         private static float YawTo(Vector3 from, Vector3 to)
         {
@@ -697,7 +803,7 @@ namespace TerraformingReloaded.Stage8
                 Bus.Judge("client fall A", same, string.Format(Bus.C, "this game's fall of comet {0}: lands ({1:R}, {2:R}) at clock {3:R}, {4:R} mol | the server's ({5}, {6}) at {7}, {8}",
                     cometA, l.ImpactX, l.ImpactZ, l.ImpactClock, l.ShowMoles, Bus.S(_fall, "x"), Bus.S(_fall, "z"), Bus.S(_fall, "clock"), Bus.S(_fall, "moles")));
                 Vector3 spot = new Vector3((float)Bus.D(_fall, "spotx"), 0f, (float)Bus.D(_fall, "spotz"));
-                Stand(spot.x, spot.z, YawTo(spot, impact));
+                Stand(spot.x, spot.z, YawTo(spot, impact), "client stood A");
                 _suitBefore = SuitDamage();
                 Schedule(impactClock, RocketShots, "rocket");
                 double distance = Vector3.Distance(new Vector3(_standAt.x, 0f, _standAt.z), new Vector3(impact.x, 0f, impact.z));
@@ -838,11 +944,13 @@ namespace TerraformingReloaded.Stage8
             }
             if (_consoleReadyAt < 0f)
             {
-                Stand((float)Bus.D(_want, "x"), (float)Bus.D(_want, "z"), (float)Bus.D(_want, "yaw"));
+                Stand((float)Bus.D(_want, "x"), (float)Bus.D(_want, "z"), (float)Bus.D(_want, "yaw"), "client stood B");
                 _consoleReadyAt = Time.realtimeSinceStartup;
                 return;
             }
-            if (Time.realtimeSinceStartup - _consoleReadyAt < 6f)
+            // Called only once the server has the player there and turned that way (or the placement was judged a
+            // failure), and a second after, so the server's copy of the turn has settled.
+            if (_placeJudge != null || Time.realtimeSinceStartup - _consoleReadyAt < 3f)
             {
                 return;
             }
