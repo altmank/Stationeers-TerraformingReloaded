@@ -256,6 +256,7 @@ internal static class Program
         failures += CheckRockets();
         failures += CheckPlanetFire();
         failures += CheckComets();
+        failures += CheckCelestial();
 
         Console.WriteLine(failures == 0 ? "OK" : failures + " problem(s)");
         return failures == 0 ? 0 : 1;
@@ -915,6 +916,223 @@ internal static class Program
     private sealed class StuckSky : TerraformingReloaded.Comets.CometRules
     {
         public override double SkyDim(double scale, double secondsSinceImpact) => base.SkyDim(scale, Math.Min(secondsSinceImpact, SkyFallSeconds));
+    }
+
+    /// <summary>
+    /// The Celestial terraforming rules (docs/COMET-ROCKETS.md) by their own check, then wrong rules the
+    /// check must catch, then the game's own figures the doc's worked examples rest on, read from the
+    /// installed game: the molar masses of the engines' premix and of water, and the methane to oxygen
+    /// ratio the game burns.
+    /// </summary>
+    private static int CheckCelestial()
+    {
+        int failures = 0;
+        string table = TerraformingReloaded.Comets.CelestialSettings.CheckTable();
+        failures += Judge(table == null, "celestial settings: " + (table ?? "each at its place, every key once, every default in its own range"));
+        string rules = TerraformingReloaded.Comets.CelestialRules.Check(TerraformingReloaded.Comets.CelestialRules.Shipped);
+        failures += Judge(rules == null, "celestial rules: " + (rules ?? "flight against the game's ticks, Cut, the sky rule, the reserve, the orbit, the zones, the losses, and every default's derivation"));
+        var wrongRules = new (string What, TerraformingReloaded.Comets.CelestialRules Rules)[]
+        {
+            ("a flight that keeps the mass it started with", new ConstantMassFlight()),
+            ("a flight that leaves the engines' mass out", new MasslessEngines()),
+            ("a hop whose delta-v is its distance, not twice it", new UndoubledHop()),
+            ("a difficulty that multiplies orbit connections too", new DifficultyEverywhere()),
+            ("a comet that arrives however little fuel it has", new NeverStranded()),
+            ("a Cut that grows past the size multiplier times the site", new UncappedCut()),
+            ("a sky rule by the sine of the height, not the angle", new SineSky()),
+            ("a sky rule with east and north swapped", new MirroredSky()),
+            ("a disc the same on every curvature", new FlatDisc()),
+            ("a reserve that steers by all its fuel, however short the fall", new UncappedReach()),
+            ("a landing that overshoots the target by the rest of the reach", new OvershootLanding()),
+            ("a landing allowed out of the disc", new UnclampedLanding()),
+            ("an orbit period upside down", new InvertedOrbit()),
+            ("passes judged by the zenith's height alone", new UntiltedPasses()),
+            ("ground zero growing with the moles, not their cube root", new LinearGroundZero()),
+            ("ground zero growing past where the wave stops", new UncappedGroundZero()),
+            ("zones judged outermost first", new OutermostZone()),
+            ("own fuel burnt one to one", new OneToOneFuel()),
+            ("a mineral comet that takes more than the planet has", new UnclampedMineral()),
+        };
+        foreach (var wrong in wrongRules)
+        {
+            string caught = TerraformingReloaded.Comets.CelestialRules.Check(wrong.Rules);
+            failures += Judge(caught != null, "celestial rules check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+
+        // The game's figures under the doc's examples, from the installed game.
+        double methane = Mole.MolarMass(Chemistry.GasType.Methane);
+        double oxygen = Mole.MolarMass(Chemistry.GasType.Oxygen);
+        double premix = TerraformingReloaded.Comets.CelestialRules.PremixKgPerMole(methane, oxygen);
+        failures += Judge(Math.Abs(premix - 0.016) < 1e-12,
+            string.Format(CultureInfo.InvariantCulture, "the engines' 2:1 premix weighs {0:0.######} kg/mol in the game (methane {1}, oxygen {2} g/mol), as the worked example takes", premix, methane, oxygen));
+        double ratio = Combustion.ResultMethaneOxygen.FuelRatio.ToDouble();
+        failures += Judge(ratio == TerraformingReloaded.Comets.CelestialRules.MethanePerOxygen,
+            "the game burns " + ratio.ToString(CultureInfo.InvariantCulture) + " methane to one oxygen, as a comet feeding its own engines does");
+        TerraformingReloaded.Comets.Flight example = TerraformingReloaded.Comets.CelestialRules.Shipped.Fly(18000.0, 2, 16092.0, 383.0, premix);
+        failures += Judge(example.Arrives && Math.Abs(example.Seconds - 223.5) < 0.05 && Math.Abs(example.FuelMoles - 16091.7) < 1.0,
+            string.Format(CultureInfo.InvariantCulture, "an 18 t comet with two engines flies Mars Orbit to Frozen Vapors (383 delta-v) in {0:0.0} s on {1:N0} mol of the game's premix", example.Seconds, example.FuelMoles));
+        double water = Mole.MolarMass(Chemistry.GasType.Water);
+        double tonnes = TerraformingReloaded.Comets.CelestialRules.Shipped.MassKg(new[] { 2.3e6 }, new[] { water }) / 1000.0;
+        failures += Judge(Math.Abs(tonnes - 248.4) < 0.05,
+            string.Format(CultureInfo.InvariantCulture, "a comet of 2.3 million moles of water weighs {0:0.#} t at the game's {1} g/mol", tonnes, water));
+        return failures;
+    }
+
+    private sealed class ConstantMassFlight : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Flight Fly(double cometKg, int engines, double fuelMoles, double routeDeltaV, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.Flight real = base.Fly(cometKg, engines, fuelMoles, routeDeltaV, fuelKgPerMole);
+            if (engines <= 0 || !(fuelMoles > 0.0))
+            {
+                return real;
+            }
+            double mass = cometKg + EngineMassKg * engines + fuelMoles * fuelKgPerMole;
+            double accel = engines * EngineThrustNewtons / mass;
+            double flow = engines * EngineMolesPerSecond;
+            double seconds = routeDeltaV / accel;
+            if (seconds * flow <= fuelMoles)
+            {
+                return new TerraformingReloaded.Comets.Flight(seconds, seconds * flow, routeDeltaV, 1.0, true);
+            }
+            double reached = accel * fuelMoles / flow;
+            return new TerraformingReloaded.Comets.Flight(fuelMoles / flow, fuelMoles, reached, reached / routeDeltaV, false);
+        }
+    }
+
+    private sealed class MasslessEngines : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Flight Fly(double cometKg, int engines, double fuelMoles, double routeDeltaV, double fuelKgPerMole) =>
+            base.Fly(cometKg - EngineMassKg * engines, engines, fuelMoles, routeDeltaV, fuelKgPerMole);
+    }
+
+    private sealed class UndoubledHop : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double HopDeltaV(double mapDistance, bool standardConnection, double difficultyMultiplier) =>
+            base.HopDeltaV(mapDistance, standardConnection, difficultyMultiplier) / 2.0;
+    }
+
+    private sealed class DifficultyEverywhere : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double HopDeltaV(double mapDistance, bool standardConnection, double difficultyMultiplier) =>
+            base.HopDeltaV(mapDistance, true, difficultyMultiplier);
+    }
+
+    private sealed class NeverStranded : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Flight Fly(double cometKg, int engines, double fuelMoles, double routeDeltaV, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.Flight real = base.Fly(cometKg, engines, fuelMoles, routeDeltaV, fuelKgPerMole);
+            return real.Arrives || engines <= 0 || !(fuelMoles > 0.0) ? real : new TerraformingReloaded.Comets.Flight(real.Seconds, real.FuelMoles, routeDeltaV, 1.0, true);
+        }
+    }
+
+    private sealed class UncappedCut : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double CometMoles(double siteMoles, double cycles, double sharePerCycle, double sizeMultiplier) =>
+            sizeMultiplier * siteMoles * cycles * sharePerCycle;
+    }
+
+    private sealed class SineSky : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.GroundPoint SkyPoint(double padX, double padZ, double dirX, double dirY, double dirZ, double radius)
+        {
+            double length = Math.Sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+            double flat = Math.Sqrt(dirX * dirX + dirZ * dirZ);
+            double distance = radius * (1.0 - dirY / length) / 2.0;
+            return flat > 1e-12 * length
+                ? new TerraformingReloaded.Comets.GroundPoint(padX + dirX / flat * distance, padZ + dirZ / flat * distance)
+                : new TerraformingReloaded.Comets.GroundPoint(padX, padZ + distance);
+        }
+    }
+
+    private sealed class MirroredSky : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.GroundPoint SkyPoint(double padX, double padZ, double dirX, double dirY, double dirZ, double radius) =>
+            base.SkyPoint(padX, padZ, dirZ, dirY, dirX, radius);
+    }
+
+    private sealed class FlatDisc : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double DiscRadius(double settingMetres, double curvature) => settingMetres;
+    }
+
+    private sealed class UncappedReach : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double ReachMetres(double cometKg, int engines, double fuelMoles, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole) =>
+            base.ReachMetres(cometKg, engines, fuelMoles, metresPerDeltaV, 1e9, fuelKgPerMole);
+    }
+
+    private sealed class OvershootLanding : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.GroundPoint Landing(TerraformingReloaded.Comets.GroundPoint sky, TerraformingReloaded.Comets.GroundPoint target, double reachMetres, double padX, double padZ, double radius)
+        {
+            double dx = target.X - sky.X;
+            double dz = target.Z - sky.Z;
+            double gap = Math.Sqrt(dx * dx + dz * dz);
+            TerraformingReloaded.Comets.GroundPoint far = gap > 0.0
+                ? new TerraformingReloaded.Comets.GroundPoint(sky.X + dx / gap * reachMetres, sky.Z + dz / gap * reachMetres)
+                : sky;
+            return base.Landing(far, far, 0.0, padX, padZ, radius);
+        }
+    }
+
+    private sealed class UnclampedLanding : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.GroundPoint Landing(TerraformingReloaded.Comets.GroundPoint sky, TerraformingReloaded.Comets.GroundPoint target, double reachMetres, double padX, double padZ, double radius) =>
+            base.Landing(sky, target, reachMetres, padX, padZ, 1e12);
+    }
+
+    private sealed class InvertedOrbit : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double OrbitPeriodDays(double orbitSeconds, double playerPeriodDays, double timeScale) =>
+            360.0 / (orbitSeconds * playerPeriodDays * timeScale);
+    }
+
+    private sealed class UntiltedPasses : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Pass ClosestPass(double latitudeDegrees, double inclinationDegrees) =>
+            new TerraformingReloaded.Comets.Pass(Math.Abs(latitudeDegrees) / 180.0, Math.Abs(latitudeDegrees) / 180.0);
+    }
+
+    private sealed class LinearGroundZero : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double GroundZeroMetres(double moles, double metresAt1e6) =>
+            metresAt1e6 * Math.Min(Math.Max(0.0, moles), TerraformingReloaded.Comets.CometRules.WaveMolesCap) / ZoneReferenceMoles;
+    }
+
+    private sealed class UncappedGroundZero : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double GroundZeroMetres(double moles, double metresAt1e6) =>
+            metresAt1e6 * Math.Pow(Math.Max(0.0, moles) / ZoneReferenceMoles, 1.0 / 3.0);
+    }
+
+    private sealed class OutermostZone : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.CometZone ZoneAt(double metres, double moles, TerraformingReloaded.Comets.CelestialTuning tuning)
+        {
+            double groundZero = GroundZeroMetres(moles, tuning.GroundZeroMetresAt1e6);
+            if (metres <= groundZero * tuning.DebrisRadiusFactor)
+            {
+                return TerraformingReloaded.Comets.CometZone.Debris;
+            }
+            return TerraformingReloaded.Comets.CometZone.Wave;
+        }
+    }
+
+    private sealed class OneToOneFuel : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.OwnFuel BurnOwnFuel(double methane, double oxygen, double fuelWanted)
+        {
+            double burnt = Math.Min(fuelWanted, 2.0 * Math.Min(methane, oxygen));
+            return new TerraformingReloaded.Comets.OwnFuel(burnt / 2.0, burnt / 2.0);
+        }
+    }
+
+    private sealed class UnclampedMineral : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double MineralRemovedMoles(double cometKg, double airKgPerKg, double planetMoles, double planetGramsPerMole) =>
+            base.MineralRemovedMoles(cometKg, airKgPerKg, double.MaxValue, planetGramsPerMole);
     }
 
     private static int Judge(bool passed, string what)
