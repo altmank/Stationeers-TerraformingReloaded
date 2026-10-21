@@ -47,8 +47,66 @@ namespace TerraformingReloaded.Stage8
             SyncDigest.Install(harmony, role == "server");
             _driver = role == "server" ? new ServerDriver(phase) : (IDriver)new ClientDriver(phase);
             Bus.Info("armed, phase " + phase + ", out " + outDir + ", batch mode " + GameManager.IsBatchMode);
+            if (!JudgeLoad(role, phase))
+            {
+                // Nothing more of this launch: a game loading other mods, or saving where it should not, is not the run.
+                _stopped = true;
+                return;
+            }
             // For run.ps1: this launch got through StationeersLaunchPad's mod loading.
             Bus.Write(role + ".armed", new Dictionary<string, string> { { "phase", phase }, { "utc", DateTime.UtcNow.Ticks.ToString(Bus.C) } });
+        }
+
+        /// <summary>
+        /// This launch loaded exactly the mod and the driver from its own data folder's mods, one copy each, and
+        /// nothing from the Workshop, and the game's own data path is that folder (StationeersLaunchPad's
+        /// SavePathOverride). Every mod assembly is loaded before any mod's entry point runs, so this sees them all.
+        /// </summary>
+        private bool JudgeLoad(string role, string phase)
+        {
+            string data = Environment.GetEnvironmentVariable("TR_STAGE8_DATA") ?? "";
+            List<string> mods = new List<string>();
+            foreach (System.Reflection.Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                string location;
+                try
+                {
+                    location = assembly.IsDynamic ? "" : assembly.Location;
+                }
+                catch (Exception)
+                {
+                    location = "";
+                }
+                if (location.IndexOf("\\mods\\", StringComparison.OrdinalIgnoreCase) >= 0 || location.IndexOf("\\workshop\\content\\", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    mods.Add(location);
+                }
+            }
+            string modsDir = Path.Combine(data, "mods") + "\\";
+            bool ours = mods.Count == 2 && mods.All(m => m.StartsWith(modsDir, StringComparison.OrdinalIgnoreCase))
+                && mods.Count(m => Path.GetFileName(m).Equals("TerraformingReloaded.dll", StringComparison.OrdinalIgnoreCase)) == 1
+                && mods.Count(m => Path.GetFileName(m).Equals("TRStage8.dll", StringComparison.OrdinalIgnoreCase)) == 1;
+            string defaultPath = StationSaveUtils.DefaultPath ?? "";
+            bool path = data.Length > 0 && defaultPath.Length > 0 && Path.GetFullPath(defaultPath).TrimEnd('\\').Equals(Path.GetFullPath(data).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+            string cfg = "";
+            try
+            {
+                string file = Path.Combine(Paths.ConfigPath, "stationeers.launchpad.cfg");
+                cfg = string.Join("; ", File.ReadAllLines(file).Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, @"^\s*(SavePathOverride|DisableSteam|RetainWorkshopMods|ModProfile|DevMode)\s*=")));
+            }
+            catch (Exception e)
+            {
+                cfg = "unreadable: " + e.Message;
+            }
+            return Bus.Judge(role + " mods and paths " + phase, ours && path, string.Format(Bus.C,
+                "{0} mod assemblies: {1} | the game's data path {2} (expected {3}) | LaunchPad: {4}", mods.Count, string.Join(", ", mods), defaultPath, data, cfg))
+                || Fail(role + " loaded mods other than the two, or reads a data folder other than its own");
+        }
+
+        private static bool Fail(string why)
+        {
+            Bus.Abort(why);
+            return false;
         }
 
         private void Update()

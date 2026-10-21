@@ -129,6 +129,7 @@ namespace TerraformingReloaded.Stage8
             WriteViews();
             WriteSync();
             WriteBody();
+            OpenLander();
             if (_load)
             {
                 StepLoad();
@@ -201,6 +202,43 @@ namespace TerraformingReloaded.Stage8
         });
 
         private float _bodyWritten = -10f;
+        private float _landerSeen = -1f;
+        private bool _landerOpened;
+
+        /// <summary>
+        /// A new player arrives seated in a landing capsule (LanderCapsule), locked in while it comes down; the host
+        /// opens and unlocks it 3.5 s after it lands (LanderCapsule.TerminateDescent, WaitThenOpen), and only then can
+        /// the player leave it. If a joined player's capsule is still locked a minute after the server first sees it,
+        /// the server does what the end of a landing does, open and unlock it, and says so.
+        /// </summary>
+        private void OpenLander()
+        {
+            if (_human?.ParentSlot?.Parent is not LanderCapsule lander || _landerOpened)
+            {
+                return;
+            }
+            if (_landerSeen < 0f)
+            {
+                _landerSeen = Time.realtimeSinceStartup;
+                Bus.Info(string.Format(Bus.C, "the player is seated in landing capsule {0} at {1}: locked {2}, open {3}", lander.ReferenceId, lander.transform.position, lander.IsLocked, lander.IsOpen));
+            }
+            if (!lander.IsLocked)
+            {
+                return;
+            }
+            if (Time.realtimeSinceStartup - _landerSeen < 60f)
+            {
+                return;
+            }
+            _landerOpened = true;
+            if (!lander.IsOpen)
+            {
+                OnServer.Interact(lander.InteractOpen, 1);
+            }
+            OnServer.Interact(lander.InteractLock, 0);
+            Bus.Info(string.Format(Bus.C, "the landing capsule {0} was still locked 60 s after the server first saw the player in it; opened and unlocked as the end of a landing does: locked {1}, open {2}",
+                lander.ReferenceId, lander.IsLocked, lander.IsOpen));
+        }
 
         /// <summary>Twice a second: where the server has the joined player's body and the way it faces, from what their game sends.</summary>
         private void WriteBody()
@@ -216,6 +254,7 @@ namespace TerraformingReloaded.Stage8
             {
                 { "x", Bus.R(at.x) }, { "y", Bus.R(at.y) }, { "z", Bus.R(at.z) }, { "yaw", Bus.R(Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg) },
                 { "utc", DateTime.UtcNow.Ticks.ToString(Bus.C) }, { "clock", Bus.R(Clock) },
+                { "slot", _human.ParentSlot == null ? "none" : (_human.ParentSlot.Parent?.PrefabName ?? "a slot") + " " + _human.ParentSlot.Parent?.ReferenceId.ToString(Bus.C) },
             });
         }
 
@@ -385,8 +424,9 @@ namespace TerraformingReloaded.Stage8
                 return;
             }
             bool pass = off <= 1.5 && age < 5.0;
-            Bus.Judge("server sees the client", pass, string.Format(Bus.C, "client {0} id {1}: its game puts it at {2}, {3:0.0} s ago; the server at {4}, {5:0.###} m apart",
-                _clientName, _clientId, theirs, age, ours, off));
+            Bus.Judge("server sees the client", pass, string.Format(Bus.C, "client {0} id {1}: its game puts it at {2}, {3:0.0} s ago; the server at {4}, {5:0.###} m apart | in {6}",
+                _clientName, _clientId, theirs, age, ours, off,
+                _human.ParentSlot == null ? "no slot" : "slot " + _human.ParentSlot.SlotIndex + " of " + _human.ParentSlot.Parent?.PrefabName + " (" + _human.ParentSlot.Parent?.GetType().Name + ")"));
             // A change to the planet once the player is in, for the client to see arrive with the planet sync: a quiet
             // world's planet does not move from one sync to the next. Added at the planet's own temperature.
             RunCommand("gas", "add", "CarbonDioxide", "1000");

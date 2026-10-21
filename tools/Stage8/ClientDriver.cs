@@ -54,6 +54,7 @@ namespace TerraformingReloaded.Stage8
         private Vector3 _standAt;
         private float _placedAt = -1f;
         private string _placeJudge;
+        private float _exitTried = -10f;
         private float _placeChecked;
 
         // Pictures, by the shared clock.
@@ -263,7 +264,36 @@ namespace TerraformingReloaded.Stage8
             _placedAt = Time.realtimeSinceStartup;
             _placeJudge = judge;
             _placeChecked = 0f;
+            _exitTried = -10f;
+            if (Me.ParentSlot != null)
+            {
+                // Seated or held in something (bt: the player stayed seated after joining): out of it first, the game's way.
+                Bus.Info("the player is in " + SlotDescription() + "; leaving it before the move");
+                Leave();
+                return;
+            }
             Place("asked");
+        }
+
+        /// <summary>What holds the player, for the log.</summary>
+        private string SlotDescription()
+        {
+            Slot slot = Me.ParentSlot;
+            Thing parent = slot?.Parent;
+            string locked = parent is LanderCapsule lander ? ", a lander " + (lander.IsLocked ? "LOCKED" : "unlocked") : "";
+            return slot == null ? "no slot" : string.Format(Bus.C, "slot {0} of {1} ({2}, id {3}{4}), locked to its seat {5}", slot.SlotIndex, parent?.PrefabName, parent?.GetType().Name,
+                parent?.ReferenceId, locked, Me.LockedToSeat);
+        }
+
+        /// <summary>
+        /// The game's own way out of a seat or anything a player sits in (Human.ExitAnything, what the movement keys
+        /// call): on a player's game it asks the server to move the body out (MoveToWorldMessage) and leaves locally.
+        /// </summary>
+        private void Leave()
+        {
+            _exitTried = Time.realtimeSinceStartup;
+            bool asked = Me.ExitAnything();
+            Bus.Info("asked to leave " + SlotDescription() + ": " + (asked ? "asked the server" : "the game refused (locked, or nothing to leave)"));
         }
 
         /// <summary>
@@ -356,6 +386,30 @@ namespace TerraformingReloaded.Stage8
             }
             _placeChecked = now;
             Human me = Me;
+            if (me.ParentSlot != null)
+            {
+                if (now - _exitTried > 3f)
+                {
+                    Leave();
+                }
+                if (now - _placedAt > 45f)
+                {
+                    Bus.Judge(_placeJudge, false, "the player never left " + SlotDescription() + " | " + Describe());
+                    _placeJudge = null;
+                }
+                return;
+            }
+            if (_exitTried > 0f)
+            {
+                // Out of the seat: moved once the server's move out has arrived.
+                if (now - _exitTried < 1.5f)
+                {
+                    return;
+                }
+                _exitTried = -10f;
+                Place("out of the seat");
+                return;
+            }
             Vector3 at = me.transform.position;
             double here = Flat(at, _standAt);
             double turned = Math.Abs(Mathf.DeltaAngle(me.CharacterRotationY.eulerAngles.y, _yaw));
@@ -365,12 +419,13 @@ namespace TerraformingReloaded.Stage8
             Vector3 there = server == null ? new Vector3(float.NaN, 0f, float.NaN) : new Vector3((float)Bus.D(server, "x"), (float)Bus.D(server, "y"), (float)Bus.D(server, "z"));
             double seen = Flat(there, _standAt);
             double seenTurn = server == null ? double.NaN : Math.Abs(Mathf.DeltaAngle((float)Bus.D(server, "yaw"), _yaw));
-            bool pass = here < 2.0 && turned < 3.0 && looks < 3.0 && seen < 3.0 && seenTurn < 5.0 && age < 3.0;
-            if (pass || now - _placedAt > 30f)
+            bool free = Bus.S(server, "slot") == "none";
+            bool pass = here < 2.0 && turned < 3.0 && looks < 3.0 && seen < 3.0 && seenTurn < 5.0 && age < 3.0 && free;
+            if (pass || now - _placedAt > 45f)
             {
                 Bus.Judge(_placeJudge, pass, string.Format(Bus.C,
-                    "asked ({0:0.#}, {1:0.#}) facing {2:0.#} deg | here {3:0.###} m off, turned {4:0.#} deg off, the camera {5:0.#} deg off | the server has the body {6:0.###} m off, turned {7:0.#} deg off ({8:0.#} s old) | {9:0.#} s after asking | {10}",
-                    _standAt.x, _standAt.z, _yaw, here, turned, looks, seen, seenTurn, age, now - _placedAt, Describe()));
+                    "asked ({0:0.#}, {1:0.#}) facing {2:0.#} deg | here {3:0.###} m off, turned {4:0.#} deg off, the camera {5:0.#} deg off | the server has the body {6:0.###} m off, turned {7:0.#} deg off, in {11} ({8:0.#} s old) | {9:0.#} s after asking | {10}",
+                    _standAt.x, _standAt.z, _yaw, here, turned, looks, seen, seenTurn, age, now - _placedAt, Describe(), Bus.S(server, "slot") ?? "?"));
                 _placeJudge = null;
                 return;
             }
@@ -926,10 +981,14 @@ namespace TerraformingReloaded.Stage8
             double atClock = CometRules.Shipped.SkyDim(moles, t - impactClock);
             double now = Clock;
             double live = CometRules.Shipped.SkyDim(moles, now - impactClock);
-            bool pass = Math.Abs(atClock - Bus.D(host, "dim")) <= 1e-12 && Math.Abs(CometSky.Dim - (float)live) <= 1e-6f && CometSky.Dim > 0.02f
+            // CometSky.Dim is a float the director sets in its own Update, from the clock as it stood then: a frame's
+            // change of the rule (0.1 s is several frames) and a float's rounding is as near as it can be.
+            double frame = Math.Abs(live - CometRules.Shipped.SkyDim(moles, now - 0.1 - impactClock));
+            double tolerance = frame + 1e-6 * Math.Max(1.0, Math.Abs(live));
+            bool pass = Math.Abs(atClock - Bus.D(host, "dim")) <= 1e-12 && Math.Abs(CometSky.Dim - live) <= tolerance && CometSky.Dim > 0.02f
                 && Bus.R(impactClock) == Bus.S(host, "impact");
-            Bus.Judge("client sky dim", pass, string.Format(Bus.C, "at the server's clock {0:R}: here {1:R}, the server {2} | this frame, clock {3:R}: the sky dimmed by {4:R}, the rule {5:R}",
-                t, atClock, Bus.S(host, "dim"), now, CometSky.Dim, live));
+            Bus.Judge("client sky dim", pass, string.Format(Bus.C, "at the server's clock {0:R}: here {1:R}, the server {2} | this frame, clock {3:R}: the sky dimmed by {4:R}, the rule {5:R}, {6:E2} apart, allowed {7:E2}",
+                t, atClock, Bus.S(host, "dim"), now, CometSky.Dim, live, Math.Abs(CometSky.Dim - live), tolerance));
         }
 
         // ---- comet B --------------------------------------------------------------------------------------------

@@ -76,7 +76,7 @@ $script:cookies = @()
 $script:judged = New-Object System.Collections.Generic.List[string]
 $cookieDir = Join-Path $env:USERPROFILE 'AppData\LocalLow\Rocketwerkz\rocketstation'
 $cookieNames = 'PlayerCookie-v2.xml', 'PlayerCookie.xml'
-$envKeys = 'TR_STAGE8_ROLE', 'TR_STAGE8_PHASE', 'TR_STAGE8_OUT', 'TR_STAGE8_ADDRESS'
+$envKeys = 'TR_STAGE8_ROLE', 'TR_STAGE8_PHASE', 'TR_STAGE8_OUT', 'TR_STAGE8_ADDRESS', 'TR_STAGE8_DATA'
 
 function Say([string]$text) { Write-Host ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $text) }
 
@@ -176,12 +176,32 @@ function Install-Mods([string]$data, [string]$modPackage, [string]$driverPackage
         New-Item -ItemType Directory -Force -Path $to | Out-Null
         Copy-Item (Join-Path $pair[1] '*') $to -Recurse -Force
     }
+    Write-ModConfig $data
+}
+
+# The enabled mods, exactly: the core and our two. Written again before every launch, because the game's own mod
+# menu, at the main menu, adds every Workshop item Steam lists to modconfig.xml, each enabled
+# (WorkshopMenu.GetModFolders, ModData.CreateFrom), and the client's game has Steam. A later launch then had them:
+# StationeersLaunchPad, with Steam off, lists the Workshop mods modconfig.xml already holds (RetainWorkshopMods),
+# so bt's second client launch loaded 47 of them, the published Terraforming Reloaded among them.
+function Write-ModConfig([string]$data) {
+    $mods = Join-Path $data 'mods'
     $xml = @('<?xml version="1.0" encoding="utf-8"?>',
         '<ModConfig xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">',
         '  <Core Enabled="true">', '    <Path />', '  </Core>')
     foreach ($name in 'TerraformingReloaded', 'TRStage8') { $xml += @('  <Local Enabled="true">', "    <Path Value=`"$(Join-Path $mods $name)`" />", '  </Local>') }
     $xml += '</ModConfig>'
     Set-Content -Path (Join-Path $data 'modconfig.xml') -Value $xml -Encoding UTF8
+}
+
+# StationeersLaunchPad's settings that keep an install on its own folder and its own two mods, set before every launch.
+function Set-LaunchPadKeys([string]$install, [string]$data) {
+    $cfg = Join-Path $install 'BepInEx\config\stationeers.launchpad.cfg'
+    Set-Cfg $cfg 'Mod Loading' 'SavePathOverride' $data
+    Set-Cfg $cfg 'Mod Loading' 'RetainWorkshopMods' 'false'
+    Set-Cfg $cfg 'Startup' 'DisableSteam' 'true'
+    Set-Cfg $cfg 'Server Packs' 'Enabled' 'false'
+    Set-Cfg $cfg 'Server Packs' 'AutoConnect' 'false'
 }
 
 function Save-Cookies {
@@ -216,7 +236,9 @@ function Clear-Env { foreach ($k in $envKeys) { Remove-Item "Env:$k" -ErrorActio
 function Start-Server([string]$phase) {
     Remove-Item (Join-Path $serverDir 'BepInEx\LogOutput.log') -ErrorAction SilentlyContinue
     Clear-Env
-    $env:TR_STAGE8_ROLE = 'server'; $env:TR_STAGE8_PHASE = $phase; $env:TR_STAGE8_OUT = $Out
+    Write-ModConfig $serverData
+    Set-LaunchPadKeys $serverDir $serverData
+    $env:TR_STAGE8_ROLE = 'server'; $env:TR_STAGE8_PHASE = $phase; $env:TR_STAGE8_OUT = $Out; $env:TR_STAGE8_DATA = $serverData
     $log = Join-Path $Out "server-$phase-unity.log"
     $script:server = Start-Process -FilePath $serverExe -WorkingDirectory $serverDir -PassThru -WindowStyle Hidden `
         -ArgumentList @('-batchmode', '-nographics', '-logFile', "`"$log`"", '-file', 'start', $station, $World, 'Creative')
@@ -301,6 +323,7 @@ function Start-ClientArmed([string]$phase) {
         while ((Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 2
             if (Test-Path (Join-Path $Out 'client.armed')) { Say "client ($phase) through mod loading"; return }
+            if (Test-Path (Join-Path $Out 'client.failed')) { throw "The client driver stopped: $((Get-Content (Join-Path $Out 'client.failed')) -join ' | ')" }
             if ($script:client.HasExited) { break }
             if ($script:server -and $script:server.HasExited) { throw "The server exited while the client ($phase) was loading." }
         }
@@ -316,7 +339,9 @@ function Start-ClientArmed([string]$phase) {
 function Start-Client([string]$phase) {
     Remove-Item (Join-Path $clientDir 'BepInEx\LogOutput.log') -ErrorAction SilentlyContinue
     Clear-Env
-    $env:TR_STAGE8_ROLE = 'client'; $env:TR_STAGE8_PHASE = $phase; $env:TR_STAGE8_OUT = $Out; $env:TR_STAGE8_ADDRESS = "127.0.0.1:$script:port"
+    Write-ModConfig $clientData
+    Set-LaunchPadKeys $clientDir $clientData
+    $env:TR_STAGE8_ROLE = 'client'; $env:TR_STAGE8_PHASE = $phase; $env:TR_STAGE8_OUT = $Out; $env:TR_STAGE8_ADDRESS = "127.0.0.1:$script:port"; $env:TR_STAGE8_DATA = $clientData
     $log = Join-Path $Out "client-$phase-unity.log"
     $script:client = Start-Process -FilePath $clientExe -WorkingDirectory $clientDir -PassThru `
         -ArgumentList @('-screen-fullscreen', '0', '-screen-width', "$Width", '-screen-height', "$Height", '-logFile', "`"$log`"")
@@ -453,6 +478,7 @@ $expected = @(
     'client map motherboard icons', 'client fall A', 'client impact event A', 'client pushed A', 'client suit damage A', 'client structures', 'client sky dim',
     'client console event', 'client console straight ahead', 'client pushed B', 'client joined late', 'client late join', 'client joined again',
     'client fall after rejoin', 'client impact after rejoin', 'client stood A', 'client stood B',
+    'server mods and paths make', 'server mods and paths load', 'client mods and paths first', 'client mods and paths late', 'client mods and paths rejoin',
     'server mod live', 'client mod live', 'server warning A', 'client warning A', 'client show drawn A', 'client thrown A', 'client thrown B',
     'server suit line A', 'server suit line once', 'server console site line', 'server late site line', 'client late show line', 'server landed line', 'no errors'
 )
