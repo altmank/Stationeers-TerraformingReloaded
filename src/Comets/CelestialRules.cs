@@ -301,16 +301,17 @@ namespace TerraformingReloaded.Comets
         /// <summary>
         /// The disc in force on a planet of this size. The setting is stated at Standard size, where half
         /// the disc is the biggest rocket comet's safe distance; on a bigger planet K makes the biggest
-        /// comet bigger, and the disc grows by twice what that adds to its safe distance, so a landing
-        /// tracked while the comet is in sight can still reach a safe distance. It never shrinks below the
-        /// setting. Then the curvature, as <see cref="DiscRadius"/>.
+        /// comet bigger, and the disc grows by twice what that adds to its safe distance (by the world's
+        /// zones, <paramref name="zones"/>), so a landing tracked while the comet is in sight can still
+        /// reach a safe distance. It never shrinks below the setting. Then the curvature, as
+        /// <see cref="DiscRadius"/>.
         /// </summary>
-        public virtual double DiscRadiusAt(double settingMetres, double curvature, double standardMultiplier, double planetSize)
+        public virtual double DiscRadiusAt(double settingMetres, double curvature, double standardMultiplier, double planetSize, CelestialTuning zones)
         {
             CometRules wave = CometRules.Shipped;
             double inForce = SizeMultiplier(standardMultiplier, planetSize) * LargestShippedSiteMoles;
             double atStandard = SizeMultiplier(standardMultiplier, StandardPlanetSize) * LargestShippedSiteMoles;
-            double grown = 2.0 * (wave.SafeDistance(wave.Scale(inForce)) - wave.SafeDistance(wave.Scale(atStandard)));
+            double grown = 2.0 * (wave.SafeDistance(inForce, zones) - wave.SafeDistance(atStandard, zones));
             return DiscRadius(Math.Max(0.0, settingMetres) + Math.Max(0.0, grown), curvature);
         }
 
@@ -546,29 +547,6 @@ namespace TerraformingReloaded.Comets
         {
             double felt = Math.Min(Math.Max(0.0, moles), CometRules.WaveMolesCap);
             return Math.Max(0.0, metresAt1e6) * Math.Pow(felt / ZoneReferenceMoles, 1.0 / 3.0);
-        }
-
-        /// <summary>
-        /// The one zone a point this far from an impact is in, innermost first. Past the falling rocks only
-        /// the pressure wave reaches, by its own rule (docs/COMET.md section 3).
-        /// </summary>
-        public virtual CometZone ZoneAt(double metres, double moles, CelestialTuning tuning)
-        {
-            double groundZero = GroundZeroMetres(moles, tuning.GroundZeroMetresAt1e6);
-            double d = Math.Max(0.0, metres);
-            if (d <= groundZero)
-            {
-                return CometZone.GroundZero;
-            }
-            if (d <= groundZero * tuning.FireballRadiusFactor)
-            {
-                return CometZone.Fireball;
-            }
-            if (d <= groundZero * tuning.DebrisRadiusFactor)
-            {
-                return CometZone.Debris;
-            }
-            return CometZone.Wave;
         }
 
         // ---- what is lost -------------------------------------------------------------------------------------
@@ -825,14 +803,6 @@ namespace TerraformingReloaded.Comets
             {
                 return "ground zero does not grow with the cube root of the moles, up to where the wave stops growing";
             }
-            foreach (var (metres, zone) in new[] { (0.0, CometZone.GroundZero), (186.0, CometZone.GroundZero), (300.0, CometZone.Fireball), (416.0, CometZone.Fireball), (1000.0, CometZone.Debris), (1315.0, CometZone.Debris), (1316.0, CometZone.Wave), (2000.0, CometZone.Wave) })
-            {
-                CometZone got = rules.ZoneAt(metres, 1e6, tuning);
-                if (got != zone)
-                {
-                    return string.Format(c, "{0} m from a comet of a million moles is {1}, expected {2}", metres, got, zone);
-                }
-            }
 
             // ---- the losses ----
             if (Math.Abs(rules.Arriving(1000.0, 0.7) - 700.0) > 1e-9 || rules.Arriving(1000.0, 0.0) != 0.0 || rules.Arriving(1000.0, 1.5) != 1000.0)
@@ -880,7 +850,7 @@ namespace TerraformingReloaded.Comets
                         size, k * tuning.GasArrivingShare * LargestMarsOrMoonSiteMoles, k, third);
                 }
             }
-            double safe = CometRules.Shipped.SafeDistance(CometRules.Shipped.Scale(tuning.CometSizeMultiplier * LargestSiteMoles));
+            double safe = CometRules.Shipped.SafeDistance(tuning.CometSizeMultiplier * LargestSiteMoles, tuning);
             if (tuning.DiscRadiusMetres / 2.0 < safe || tuning.DiscRadiusMetres / 2.0 > safe + 100.0)
             {
                 return string.Format(c, "half the disc, {0} m, is not the biggest rocket comet's safe distance, {1:0} m, rounded up to the next 100 m", tuning.DiscRadiusMetres / 2.0, safe);
@@ -901,10 +871,10 @@ namespace TerraformingReloaded.Comets
             CometRules wave = CometRules.Shipped;
             double strongest = WaveReach(wave, 1e6, 10000.0);
             if (Math.Abs(tuning.GroundZeroMetresAt1e6 - strongest) > 1.0
-                || Math.Abs(tuning.FireballRadiusFactor * tuning.GroundZeroMetresAt1e6 / WaveReach(wave, 1e6, CometRules.FullForceKPa) - 1.0) > 0.01
+                || tuning.FireballHeatFactor != 1.0
                 || Math.Abs(tuning.DebrisRadiusFactor * tuning.GroundZeroMetresAt1e6 / WaveReach(wave, 1e6, CometRules.ThrownHardKPa) - 1.0) > 0.01)
             {
-                return "the zones are not where the wave passes the strongest wall, throws with full force, and breaks ordinary windows";
+                return "the zones are not where the wave passes the strongest wall, as far as the fireball is drawn, and where the wave breaks ordinary windows";
             }
             if (tuning.MineralRemovalPerKg != tuning.GasArrivingShare)
             {
@@ -928,9 +898,9 @@ namespace TerraformingReloaded.Comets
             // K is no bigger than at Standard it stays the setting, so every landing stays as easy to see.
             foreach (double size in new[] { 0.01, StandardPlanetSize, 0.25, 1.0 })
             {
-                double disc = rules.DiscRadiusAt(tuning.DiscRadiusMetres, ReferenceCurvature, tuning.CometSizeMultiplier, size);
+                double disc = rules.DiscRadiusAt(tuning.DiscRadiusMetres, ReferenceCurvature, tuning.CometSizeMultiplier, size, tuning);
                 double biggest = rules.SizeMultiplier(tuning.CometSizeMultiplier, size) * LargestSiteMoles;
-                double safeThere = CometRules.Shipped.SafeDistance(CometRules.Shipped.Scale(biggest));
+                double safeThere = CometRules.Shipped.SafeDistance(biggest, tuning);
                 bool grows = rules.SizeMultiplier(tuning.CometSizeMultiplier, size) > rules.SizeMultiplier(tuning.CometSizeMultiplier, StandardPlanetSize);
                 if (grows ? disc / 2.0 < safeThere || disc / 2.0 > safeThere + 100.0 : Math.Abs(disc - tuning.DiscRadiusMetres) > 1e-9)
                 {
@@ -938,12 +908,12 @@ namespace TerraformingReloaded.Comets
                         size, disc, safeThere);
                 }
             }
-            if (!(rules.DiscRadiusAt(tuning.DiscRadiusMetres, ReferenceCurvature, tuning.CometSizeMultiplier, 0.25) > tuning.DiscRadiusMetres + 300.0))
+            if (!(rules.DiscRadiusAt(tuning.DiscRadiusMetres, ReferenceCurvature, tuning.CometSizeMultiplier, 0.25, tuning) > tuning.DiscRadiusMetres + 300.0))
             {
                 return "the disc does not grow on a Long planet, where K makes the biggest comet's safe distance pass half the setting";
             }
-            if (Math.Abs(rules.DiscRadiusAt(tuning.DiscRadiusMetres, 0.45, tuning.CometSizeMultiplier, 0.25)
-                    - rules.DiscRadiusAt(tuning.DiscRadiusMetres, ReferenceCurvature, tuning.CometSizeMultiplier, 0.25) * ReferenceCurvature / 0.45) > 1e-9)
+            if (Math.Abs(rules.DiscRadiusAt(tuning.DiscRadiusMetres, 0.45, tuning.CometSizeMultiplier, 0.25, tuning)
+                    - rules.DiscRadiusAt(tuning.DiscRadiusMetres, ReferenceCurvature, tuning.CometSizeMultiplier, 0.25, tuning) * ReferenceCurvature / 0.45) > 1e-9)
             {
                 return "the disc that follows the planet's size does not then shrink with the world's curvature";
             }

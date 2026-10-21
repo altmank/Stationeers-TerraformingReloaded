@@ -84,7 +84,7 @@ namespace TerraformingReloaded
             string comets = Comets.CometRules.Verdict ?? Comets.CometGround.Verdict;
             if (comets == null)
             {
-                Logger.LogInfo("Comet rules checked: the wave, the push, the sky, the ground under an impact and its drop on curved worlds.");
+                Logger.LogInfo("Comet rules checked: the safe distance, the wave, the push, the sound, the sky, the show drawn from its yield, the zones near the impact, the ground under an impact and its drop on curved worlds.");
             }
             else
             {

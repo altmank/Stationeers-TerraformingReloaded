@@ -237,11 +237,11 @@ namespace TerraformingReloaded.Comets
                 HeadScale(moles), HeadLight(moles));
         }
 
-        /// <summary>The zones in force for a comet this size, by the world's Celestial terraforming settings.</summary>
+        /// <summary>The zones in force for a comet this size, by the world's Celestial terraforming settings (<see cref="CometZones.ReachFor"/>).</summary>
         public CometSizes For(double moles, CelestialTuning tuning)
         {
-            double groundZero = CelestialRules.Shipped.GroundZeroMetres(moles, tuning.GroundZeroMetresAt1e6);
-            return For(moles, groundZero * tuning.FireballRadiusFactor, groundZero * tuning.DebrisRadiusFactor);
+            ZoneReach reach = CometZones.Shipped.ReachFor(moles, tuning);
+            return For(moles, reach.Heat, reach.Debris);
         }
 
         /// <summary>How far out from the impact anything of the show is drawn, at most.</summary>
@@ -387,7 +387,7 @@ namespace TerraformingReloaded.Comets
             CelestialTuning shipped = CelestialTuning.Defaults;
             CelestialTuning wide = CelestialTuning.Defaults
                 .With(CelestialSettings.GroundZeroMetresAt1e6, CelestialSettings.GroundZeroMetresAt1e6.Range.Max)
-                .With(CelestialSettings.FireballRadiusFactor, CelestialSettings.FireballRadiusFactor.Range.Max)
+                .With(CelestialSettings.FireballHeatFactor, CelestialSettings.FireballHeatFactor.Range.Max)
                 .With(CelestialSettings.DebrisRadiusFactor, CelestialSettings.DebrisRadiusFactor.Range.Max);
             foreach (CelestialTuning tuning in new[] { shipped, wide })
             {
@@ -395,9 +395,10 @@ namespace TerraformingReloaded.Comets
                 {
                     CometSizes sizes = yield.For(moles, tuning);
                     double groundZero = CelestialRules.Shipped.GroundZeroMetres(moles, tuning.GroundZeroMetresAt1e6);
-                    if (sizes.FireballMetres < groundZero * tuning.FireballRadiusFactor - 1e-6 || sizes.FireballMetres < groundZero)
+                    double heat = yield.FireballLawMetres(yield.Kilotons(moles)) * tuning.FireballHeatFactor;
+                    if (sizes.FireballMetres < heat - 1e-6 || sizes.FireballMetres < yield.FireballLawMetres(yield.Kilotons(moles)) - 1e-6)
                     {
-                        return string.Format(c, "a comet of {0:0.#E+0} mol is drawn with a fireball of {1:N0} m, smaller than its fireball zone of {2:N0} m", moles, sizes.FireballMetres, groundZero * tuning.FireballRadiusFactor);
+                        return string.Format(c, "a comet of {0:0.#E+0} mol is drawn with a fireball of {1:N0} m, smaller than its heat zone of {2:N0} m or its law", moles, sizes.FireballMetres, heat);
                     }
                     if (Math.Abs(sizes.DebrisMetres - groundZero * tuning.DebrisRadiusFactor) > 1e-6)
                     {
@@ -411,7 +412,7 @@ namespace TerraformingReloaded.Comets
                     {
                         return string.Format(c, "a comet of {0:0.#E+0} mol tops its cloud below its own fireball", moles);
                     }
-                    foreach (double eye in new[] { wave.SafeDistance(wave.Scale(moles)), 5100.0, 20000.0 })
+                    foreach (double eye in new[] { wave.SafeDistance(moles, tuning), 5100.0, 20000.0 })
                     {
                         foreach (double drop in new[] { 0.0, 0.001 * Sq((eye - 144.0) * 0.3) })
                         {

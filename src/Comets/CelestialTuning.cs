@@ -87,9 +87,9 @@ namespace TerraformingReloaded.Comets
             "GroundZeroMetresAt1e6", "Ground zero at 1,000,000 mol (m)", "m", 186.0, new Range(0.0, 5000.0), "%.0f",
             "Radius in which a comet of a million moles destroys every structure and kills anyone there. A bigger comet reaches further by the cube root of its size: twice as far for eight times the gas. 186 is where the pressure wave of such a comet is past what the strongest wall can take.");
 
-        public static readonly CelestialSetting FireballRadiusFactor = new CelestialSetting(8,
-            "FireballRadiusFactor", "Fireball (x ground zero)", "x", 2.24, new Range(1.0, 20.0), "%.2f",
-            "How far the fireball's heat reaches, as a multiple of ground zero, damaging structures outside and burning players. 2.24 is where the pressure wave throws a player with its full force.");
+        public static readonly CelestialSetting FireballHeatFactor = new CelestialSetting(8,
+            "FireballHeatFactor", "Fireball heat (x the fireball)", "x", 1.0, new Range(0.1, 5.0), "%.2f",
+            "How far the fireball's heat reaches, as a multiple of the fireball the comet's size draws: structures facing the outside and players outdoors inside it are burned. At 1 the heat reaches exactly as far as the fireball is drawn. Above 1 the fireball is drawn as far as its heat reaches.");
 
         public static readonly CelestialSetting DebrisRadiusFactor = new CelestialSetting(9,
             "DebrisRadiusFactor", "Falling rocks (x ground zero)", "x", 7.07, new Range(1.0, 50.0), "%.2f",
@@ -123,7 +123,7 @@ namespace TerraformingReloaded.Comets
         public static readonly CelestialSetting[] All =
         {
             CutSharePerCycle, CometSizeMultiplier, OrbitSeconds, OrbitInclinationDegrees, DiscRadiusMetres,
-            CorrectionMetresPerDeltaV, EntryWindowSeconds, GroundZeroMetresAt1e6, FireballRadiusFactor,
+            CorrectionMetresPerDeltaV, EntryWindowSeconds, GroundZeroMetresAt1e6, FireballHeatFactor,
             DebrisRadiusFactor, MaxDamagingRocks, GasArrivingShare, MineralRemovalPerKg,
             CometMassScale, MineralKgPerUnit, FuelLitresPerSecond,
         };
@@ -208,7 +208,7 @@ namespace TerraformingReloaded.Comets
         public double CorrectionMetresPerDeltaV => this[CelestialSettings.CorrectionMetresPerDeltaV];
         public double EntryWindowSeconds => this[CelestialSettings.EntryWindowSeconds];
         public double GroundZeroMetresAt1e6 => this[CelestialSettings.GroundZeroMetresAt1e6];
-        public double FireballRadiusFactor => this[CelestialSettings.FireballRadiusFactor];
+        public double FireballHeatFactor => this[CelestialSettings.FireballHeatFactor];
         public double DebrisRadiusFactor => this[CelestialSettings.DebrisRadiusFactor];
         public double MaxDamagingRocks => this[CelestialSettings.MaxDamagingRocks];
         public double GasArrivingShare => this[CelestialSettings.GasArrivingShare];
@@ -219,6 +219,6 @@ namespace TerraformingReloaded.Comets
 
         /// <summary>The landing disc in force on a world of this curvature and planet size (CelestialRules.DiscRadiusAt).</summary>
         public double DiscRadiusAt(double curvature, double planetSize) =>
-            CelestialRules.Shipped.DiscRadiusAt(DiscRadiusMetres, curvature, CometSizeMultiplier, planetSize);
+            CelestialRules.Shipped.DiscRadiusAt(DiscRadiusMetres, curvature, CometSizeMultiplier, planetSize, this);
     }
 }

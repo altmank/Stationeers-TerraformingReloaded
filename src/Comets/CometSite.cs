@@ -65,7 +65,7 @@ namespace TerraformingReloaded.Comets
             refused = null;
             CultureInfo c = CultureInfo.InvariantCulture;
             Look(out Vector3 eye, out Vector3 forward, out string from);
-            float safe = (float)rules.SafeDistance(plan.Scale);
+            float safe = (float)rules.SafeDistance(plan.Moles, Effective.Celestial);
             List<Obstacle> obstacles = Obstacles(out int structures, out int humans);
             float asked = plan.Range ?? safe;
             float first = Mathf.Max(asked, safe);

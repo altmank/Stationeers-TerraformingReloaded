@@ -755,12 +755,16 @@ internal static class Program
     {
         int failures = 0;
         string rules = TerraformingReloaded.Comets.CometRules.Check(TerraformingReloaded.Comets.CometRules.Shipped);
-        failures += Judge(rules == null, "comet rules: " + (rules ?? "the safe distance, the wave, the push bands and the darker sky hold docs/COMET.md's tables"));
+        failures += Judge(rules == null, "comet rules: " + (rules ?? "the safe distance outside the drawn fireball and ground zero, the wave, the push bands, the loudness and the darker sky hold docs/COMET.md's tables"));
         var wrongRules = new (string What, TerraformingReloaded.Comets.CometRules Rules)[]
         {
             ("a wave that falls with the distance rather than its square", new LinearWave()),
             ("a wave that goes on growing past a billion moles", new UncappedWave()),
             ("a safe distance 500 m short", new ShortSafeDistance()),
+            ("a safe distance on the 0.16 log scale alone, inside the drawn fireball of a big comet", new LogScaleSafeDistance()),
+            ("a safe distance at the drawn fireball's edge, with no margin past its boils", new BareFireballSafeDistance()),
+            ("a sound as loud wherever the listener is", new FlatLoudness()),
+            ("a darker sky as deep as the 0.16 log scale made it", new LogScaleSky()),
             ("a hard push past the game's 20 m/s", new OverspeedPush()),
             ("suit damage that can knock a player out", new KnockoutPush()),
             ("a gentle push with no upward part", new FlatPush()),
@@ -816,10 +820,43 @@ internal static class Program
         {
             var shipped = TerraformingReloaded.Comets.CometRules.Shipped;
             var sizes = TerraformingReloaded.Comets.CometYield.Shipped.For(moles, TerraformingReloaded.Comets.CelestialTuning.Defaults);
-            double safe = shipped.SafeDistance(shipped.Scale(moles));
+            double safe = shipped.SafeDistance(moles, TerraformingReloaded.Comets.CelestialTuning.Defaults);
             double far = TerraformingReloaded.Comets.CometYield.Shipped.FarClipMetres(safe, 0.001 * Math.Pow((safe - 144.0) * 0.3, 2.0), sizes);
             Console.WriteLine(string.Format(System.Globalization.CultureInfo.InvariantCulture, "table:   {0:0.#E+0} mol: {1}; far clip {2:N0} m from the safe distance, {3:N0} m",
                 moles, sizes, far, safe));
+        }
+        string zoneCheck = TerraformingReloaded.Comets.CometZones.Check(TerraformingReloaded.Comets.CometZones.Shipped);
+        failures += Judge(zoneCheck == null, "comet zones: " + (zoneCheck ?? "ground zero, the fireball's heat as far as it is drawn and the falling rocks nest in one table; the heat is the game's lava rate for the fireball's growth, inside it only; a rock is the game's suit-burst explosion, one to a square, by its chance as an ejecta blanket thins, nearest first up to the cap, never outside the falling rocks and never before the wave"));
+        var wrongZones = new (string What, TerraformingReloaded.Comets.CometZones Zones)[]
+        {
+            ("a fireball's heat at 2.24 times ground zero, smaller than the fireball drawn", new GroundZeroHeat()),
+            ("zones judged outermost first", new OutermostZone()),
+            ("a fireball's heat that falls off toward its edge", new FadingHeat()),
+            ("a fireball's heat for the thermal pulse's peak alone", new PeakHeat()),
+            ("a fireball that burns past its own edge", new HeatPastTheFireball()),
+            ("rocks past the cap", new UncappedRocks()),
+            ("rocks over the whole wave, past the falling rocks", new RocksEverywhere()),
+            ("a chance of a rock the same everywhere in the falling rocks", new EvenRocks()),
+            ("rocks the farthest first", new FarthestRocks()),
+            ("rocks that come down before the wave gets there", new EarlyRocks()),
+        };
+        foreach (var wrong in wrongZones)
+        {
+            string caught = TerraformingReloaded.Comets.CometZones.Check(wrong.Zones);
+            failures += Judge(caught != null, "comet zones check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        foreach (double moles in new[] { 1e5, 1e6, 1e7, 1.524e7, 1e8, 1e9 })
+        {
+            var shipped = TerraformingReloaded.Comets.CometRules.Shipped;
+            var tuning = TerraformingReloaded.Comets.CelestialTuning.Defaults;
+            var reach = TerraformingReloaded.Comets.CometZones.Shipped.ReachFor(moles, tuning);
+            var sizes = TerraformingReloaded.Comets.CometYield.Shipped.For(moles, tuning);
+            double safe = shipped.SafeDistance(moles, tuning);
+            Console.WriteLine(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "zones:   {0:0.###E+0} mol: {1}; burn {2:0.#} in the fireball; a rock certain at {3:N0} m, {4:0.###} at {5:N0} m; safe distance {6:N0} m, {7:0.#} kPa there; sound {8:0.##} there; sky {9:0.###} dimmer",
+                moles, reach, TerraformingReloaded.Comets.CometZones.Shipped.HeatBurn(0.5 * (reach.GroundZero + reach.Heat), reach, sizes), reach.Inner,
+                TerraformingReloaded.Comets.CometZones.Shipped.RockChance(reach.Debris, reach), reach.Debris, safe, shipped.PeakKPa(moles, safe),
+                shipped.Loudness(shipped.PeakKPa(moles, safe)), shipped.SkyDepth(moles)));
         }
         string ground = TerraformingReloaded.Comets.CometGround.Check(TerraformingReloaded.Comets.CometGround.Shipped);
         failures += Judge(ground == null, "comet ground: " + (ground ?? "the impact's height from the voxels, the world's edge outside them, and the curved ground's drop as measured on Mars"));
@@ -974,7 +1011,106 @@ internal static class Program
 
     private sealed class ShortSafeDistance : TerraformingReloaded.Comets.CometRules
     {
-        public override double SafeDistance(double scale) => base.SafeDistance(scale) - 500.0;
+        public override double SafeDistance(double moles, TerraformingReloaded.Comets.CelestialTuning tuning) => base.SafeDistance(moles, tuning) - 500.0;
+    }
+
+    private sealed class LogScaleSafeDistance : TerraformingReloaded.Comets.CometRules
+    {
+        public override double SafeDistance(double moles, TerraformingReloaded.Comets.CelestialTuning tuning) => SafeBaseMetres + SafeMetresPerScale * Scale(moles);
+    }
+
+    private sealed class BareFireballSafeDistance : TerraformingReloaded.Comets.CometRules
+    {
+        public override double SafeDistance(double moles, TerraformingReloaded.Comets.CelestialTuning tuning) =>
+            Math.Max(SafeBaseMetres + SafeMetresPerScale * Scale(moles), base.SafeDistance(moles, tuning) / SafeFireballMargin);
+    }
+
+    private sealed class FlatLoudness : TerraformingReloaded.Comets.CometRules
+    {
+        public override double Loudness(double peakKPa) => 0.85;
+    }
+
+    private sealed class LogScaleSky : TerraformingReloaded.Comets.CometRules
+    {
+        public override double SkyDepth(double moles) => SkyDimSmallest + (SkyDimLargest - SkyDimSmallest) * Math.Max(0.0, Math.Min(1.0, (Scale(moles) - 1.0) / 2.0));
+    }
+
+    private sealed class GroundZeroHeat : TerraformingReloaded.Comets.CometZones
+    {
+        public override TerraformingReloaded.Comets.ZoneReach ReachFor(double moles, TerraformingReloaded.Comets.CelestialTuning tuning)
+        {
+            var reach = base.ReachFor(moles, tuning);
+            return new TerraformingReloaded.Comets.ZoneReach(reach.GroundZero, 2.24 * reach.GroundZero, reach.Debris);
+        }
+    }
+
+    private sealed class OutermostZone : TerraformingReloaded.Comets.CometZones
+    {
+        public override TerraformingReloaded.Comets.CometZone ZoneAt(double metres, TerraformingReloaded.Comets.ZoneReach reach)
+        {
+            if (metres <= reach.Debris)
+            {
+                return TerraformingReloaded.Comets.CometZone.Debris;
+            }
+            return TerraformingReloaded.Comets.CometZone.Wave;
+        }
+    }
+
+    private sealed class FadingHeat : TerraformingReloaded.Comets.CometZones
+    {
+        public override double HeatBurn(double metres, TerraformingReloaded.Comets.ZoneReach reach, TerraformingReloaded.Comets.CometSizes sizes) =>
+            base.HeatBurn(metres, reach, sizes) * Math.Max(0.0, 1.0 - metres / Math.Max(1.0, reach.Heat));
+    }
+
+    private sealed class PeakHeat : TerraformingReloaded.Comets.CometZones
+    {
+        public override double HeatBurn(double metres, TerraformingReloaded.Comets.ZoneReach reach, TerraformingReloaded.Comets.CometSizes sizes) =>
+            base.HeatBurn(metres, reach, sizes) * sizes.FlashPeakSeconds / Math.Max(1e-9, sizes.FireballSeconds);
+    }
+
+    private sealed class HeatPastTheFireball : TerraformingReloaded.Comets.CometZones
+    {
+        public override double HeatBurn(double metres, TerraformingReloaded.Comets.ZoneReach reach, TerraformingReloaded.Comets.CometSizes sizes) =>
+            metres > reach.GroundZero ? LavaBurnPerSecond * sizes.FireballSeconds : 0.0;
+    }
+
+    private sealed class UncappedRocks : TerraformingReloaded.Comets.CometZones
+    {
+        public override int[] Rocks(double[] spotMetres, TerraformingReloaded.Comets.ZoneReach reach, int seed, int cap) =>
+            base.Rocks(spotMetres, reach, seed, cap <= 0 ? 0 : int.MaxValue);
+    }
+
+    private sealed class RocksEverywhere : TerraformingReloaded.Comets.CometZones
+    {
+        public override double RockChance(double metres, TerraformingReloaded.Comets.ZoneReach reach) =>
+            metres > reach.Inner ? Math.Min(1.0, Math.Pow(reach.Inner / metres, 3.0)) : 0.0;
+    }
+
+    private sealed class EvenRocks : TerraformingReloaded.Comets.CometZones
+    {
+        public override double RockChance(double metres, TerraformingReloaded.Comets.ZoneReach reach) => base.RockChance(metres, reach) > 0.0 ? 0.5 : 0.0;
+    }
+
+    private sealed class FarthestRocks : TerraformingReloaded.Comets.CometZones
+    {
+        public override int[] Rocks(double[] spotMetres, TerraformingReloaded.Comets.ZoneReach reach, int seed, int cap)
+        {
+            if (spotMetres == null)
+            {
+                return new int[0];
+            }
+            int[] all = base.Rocks(spotMetres, reach, seed, int.MaxValue);
+            Array.Sort(all, (a, b) => spotMetres[b].CompareTo(spotMetres[a]));
+            int n = Math.Max(0, Math.Min(cap, all.Length));
+            int[] kept = new int[n];
+            Array.Copy(all, kept, n);
+            return kept;
+        }
+    }
+
+    private sealed class EarlyRocks : TerraformingReloaded.Comets.CometZones
+    {
+        public override double RockSeconds(double metres, double gravity) => gravity > 0.05 ? Math.Sqrt(2.0 * Math.Max(0.0, metres) / gravity) : WeightlessRockSeconds;
     }
 
     private sealed class OverspeedPush : TerraformingReloaded.Comets.CometRules
@@ -1118,7 +1254,6 @@ internal static class Program
             ("passes judged by the zenith's height alone", new UntiltedPasses()),
             ("ground zero growing with the moles, not their cube root", new LinearGroundZero()),
             ("ground zero growing past where the wave stops", new UncappedGroundZero()),
-            ("zones judged outermost first", new OutermostZone()),
             ("own fuel burnt one to one", new OneToOneFuel()),
             ("a mineral comet that takes more than the planet has", new UnclampedMineral()),
             ("a flight along a route whose mass does not fall as it burns", new ConstantMassProgress()),
@@ -1296,19 +1431,6 @@ internal static class Program
     {
         public override double GroundZeroMetres(double moles, double metresAt1e6) =>
             metresAt1e6 * Math.Pow(Math.Max(0.0, moles) / ZoneReferenceMoles, 1.0 / 3.0);
-    }
-
-    private sealed class OutermostZone : TerraformingReloaded.Comets.CelestialRules
-    {
-        public override TerraformingReloaded.Comets.CometZone ZoneAt(double metres, double moles, TerraformingReloaded.Comets.CelestialTuning tuning)
-        {
-            double groundZero = GroundZeroMetres(moles, tuning.GroundZeroMetresAt1e6);
-            if (metres <= groundZero * tuning.DebrisRadiusFactor)
-            {
-                return TerraformingReloaded.Comets.CometZone.Debris;
-            }
-            return TerraformingReloaded.Comets.CometZone.Wave;
-        }
     }
 
     private sealed class OneToOneFuel : TerraformingReloaded.Comets.CelestialRules
@@ -1543,7 +1665,7 @@ internal static class Program
 
     private sealed class SizelessDisc : TerraformingReloaded.Comets.CelestialRules
     {
-        public override double DiscRadiusAt(double settingMetres, double curvature, double standardMultiplier, double planetSize) => DiscRadius(settingMetres, curvature);
+        public override double DiscRadiusAt(double settingMetres, double curvature, double standardMultiplier, double planetSize, TerraformingReloaded.Comets.CelestialTuning zones) => DiscRadius(settingMetres, curvature);
     }
 
     /// <summary>

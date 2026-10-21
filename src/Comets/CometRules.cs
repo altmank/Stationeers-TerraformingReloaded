@@ -4,9 +4,9 @@ using System.Globalization;
 namespace TerraformingReloaded.Comets
 {
     /// <summary>
-    /// Every number an impact is judged by, in one place (docs/COMET.md sections 2, 3, 5 and 8): how
+    /// Every number an impact is judged by, in one place (docs/COMET.md sections 2, 3, 5, 7 and 8): how
     /// big a comet is drawn, how far from anyone it must land, the pressure wave and what it does to
-    /// structures and to a player outdoors, and how dark the sky goes afterwards. Plain arithmetic with
+    /// structures and to a player outdoors, how loud it is, and how dark the sky goes afterwards. Plain arithmetic with
     /// no game or Unity calls, so tools/PatchCheck runs <see cref="Check(CometRules)"/> outside the
     /// game. The parts are virtual so PatchCheck can hand the check wrong rules and see each caught.
     ///
@@ -22,6 +22,13 @@ namespace TerraformingReloaded.Comets
 
         public const double SafeBaseMetres = 1500.0;
         public const double SafeMetresPerScale = 500.0;
+
+        /// <summary>
+        /// How far past the drawn fireball, and past ground zero, a console comet lands from anyone, as a
+        /// multiple of the larger: the fireball's boils bulge out to 0.85 R plus half a 0.55 R boil grown 1.2
+        /// times, 1.18 R (<see cref="CometLook"/>), and this stands a little past them.
+        /// </summary>
+        public const double SafeFireballMargin = 1.25;
 
         /// <summary>The wave of a comet this size, at this distance, peaks at this overpressure.</summary>
         public const double ReferenceMoles = 1e7;
@@ -61,8 +68,21 @@ namespace TerraformingReloaded.Comets
         public const double WorstStunPerImpulse = 18.0;
         public const double KnockoutStun = 100.0;
 
+        /// <summary>The sky's depth at <see cref="SkyReferenceMoles"/>, and the most it can dim.</summary>
         public const double SkyDimSmallest = 0.15;
         public const double SkyDimLargest = 0.55;
+
+        /// <summary>The comet the darker sky's smallest depth is stated for: a hundred thousand moles, the 0.16 show's "small".</summary>
+        public const double SkyReferenceMoles = 1e5;
+
+        /// <summary>
+        /// The sound is at full loudness where the wave is strong enough to throw a player (<see cref="ThrownKPa"/>),
+        /// and never quieter than this share of it.
+        /// </summary>
+        public const double QuietestLoudness = 0.1;
+
+        /// <summary>Loudness goes as the sound's pressure to this power: it halves for every 10 dB less (Stevens' power law).</summary>
+        public const double LoudnessExponent = 0.6;
         public const double SkyFallSeconds = 30.0;
         public const double SkyRecoverSeconds = 300.0;
 
@@ -78,10 +98,18 @@ namespace TerraformingReloaded.Comets
             return Math.Max(0.4, Math.Min(3.0, (Math.Log10(Math.Max(1.0, moles)) - 3.0) / 2.0));
         }
 
-        /// <summary>How close to a structure or a player a comet of this scale may land, in metres.</summary>
-        public virtual double SafeDistance(double scale)
+        /// <summary>
+        /// How close to a structure or a player a console comet of this size may land, in metres, by the
+        /// world's zones: 1,500 m plus 500 m for each step of <see cref="Scale"/> (docs/COMET.md section 2's
+        /// table), and never inside <see cref="SafeFireballMargin"/> times the larger of the drawn fireball
+        /// and ground zero, so nobody is in what is drawn burning or in what the impact destroys.
+        /// </summary>
+        public virtual double SafeDistance(double moles, CelestialTuning tuning)
         {
-            return SafeBaseMetres + SafeMetresPerScale * scale;
+            double floor = SafeBaseMetres + SafeMetresPerScale * Scale(moles);
+            double fireball = CometYield.Shipped.For(moles, tuning).FireballMetres;
+            double groundZero = CelestialRules.Shipped.GroundZeroMetres(moles, tuning.GroundZeroMetresAt1e6);
+            return Math.Max(floor, SafeFireballMargin * Math.Max(fireball, groundZero));
         }
 
         /// <summary>
@@ -144,16 +172,44 @@ namespace TerraformingReloaded.Comets
         }
 
         /// <summary>
-        /// How much dimmer the sky, the ambient light and the sun are, 0 to 1, this long after the
-        /// impact: down to a depth set by the comet's size over the first 30 s, back over 5 minutes.
+        /// How loud this machine plays an impact, 0 to 1 of the game's volume, from the wave's peak where its
+        /// listener is: full where the wave throws a player, and as the loudness a listener hears, the peak
+        /// to the 0.6 (Stevens' power law: half as loud for every 10 dB less), never under
+        /// <see cref="QuietestLoudness"/>.
         /// </summary>
-        public virtual double SkyDim(double scale, double secondsSinceImpact)
+        public virtual double Loudness(double peakKPa)
+        {
+            if (!(peakKPa > 0.0))
+            {
+                return QuietestLoudness;
+            }
+            return Math.Max(QuietestLoudness, Math.Min(1.0, Math.Pow(peakKPa / ThrownKPa, LoudnessExponent)));
+        }
+
+        /// <summary>
+        /// The darker sky's depth for a comet this size: the dust's optical depth over its cap goes as the
+        /// yield over the cap's area, W / W^(1/2) (the cap's width grows as the cloud's top, W^(1/4)), and the
+        /// sky dims as 1 - e^(-depth) of the most it may, <see cref="SkyDimLargest"/>, stated
+        /// <see cref="SkyDimSmallest"/> at <see cref="SkyReferenceMoles"/>. No deeper past the wave's cap.
+        /// </summary>
+        public virtual double SkyDepth(double moles)
+        {
+            double felt = Math.Min(Math.Max(0.0, moles), WaveMolesCap);
+            double reference = -Math.Log(1.0 - SkyDimSmallest / SkyDimLargest);
+            return SkyDimLargest * (1.0 - Math.Exp(-reference * Math.Sqrt(felt / SkyReferenceMoles)));
+        }
+
+        /// <summary>
+        /// How much dimmer the sky, the ambient light and the sun are, 0 to 1, this long after the
+        /// impact: down to <see cref="SkyDepth"/> over the first 30 s, back over 5 minutes.
+        /// </summary>
+        public virtual double SkyDim(double moles, double secondsSinceImpact)
         {
             if (!(secondsSinceImpact > 0.0))
             {
                 return 0.0;
             }
-            double depth = Lerp(SkyDimSmallest, SkyDimLargest, Clamp01((scale - 1.0) / 2.0));
+            double depth = SkyDepth(moles);
             if (secondsSinceImpact <= SkyFallSeconds)
             {
                 return depth * SmoothStep(secondsSinceImpact / SkyFallSeconds);
@@ -178,7 +234,7 @@ namespace TerraformingReloaded.Comets
         {
             try
             {
-                return Check(Shipped) ?? CometYield.Verdict ?? CometLook.Verdict;
+                return Check(Shipped) ?? CometYield.Verdict ?? CometLook.Verdict ?? CometZones.Verdict;
             }
             catch (Exception e)
             {
@@ -188,8 +244,9 @@ namespace TerraformingReloaded.Comets
 
         /// <summary>
         /// The shipped rules' own check, the show's sizes from the yield the wave implies
-        /// (<see cref="CometYield"/>) and how its cloud and flash are drawn from them
-        /// (<see cref="CometLook"/>), run once: null when they hold, else the first case that does not.
+        /// (<see cref="CometYield"/>), how its cloud and flash are drawn from them (<see cref="CometLook"/>)
+        /// and what it does near the impact (<see cref="CometZones"/>), run once: null when they hold, else the
+        /// first case that does not.
         /// </summary>
         public static string Verdict => ShippedVerdict.Value;
 
@@ -212,21 +269,23 @@ namespace TerraformingReloaded.Comets
             }
 
             // Section 3's table: the safe distance, the peak there, and the weakest and strongest
-            // limits (kPa) that break and hold there. 0 is "nothing breaks".
+            // limits (kPa) that break and hold there. 0 is "nothing breaks". From about 2e7 mol up the
+            // drawn fireball, not the log scale, sets the safe distance.
+            CelestialTuning zones = CelestialTuning.Defaults;
             (double Moles, double Safe, double Peak, double Breaks, double Holds)[] table =
             {
                 (1e4, 1750.0, double.NaN, 0.0, 200.0),
                 (1e5, 2000.0, 19.0, 0.0, 200.0),
                 (1e6, 2250.0, 68.0, 0.0, 200.0),
                 (1e7, 2500.0, 256.0, 200.0, 300.0),
-                (1e8, 2750.0, 982.0, 500.0, 1000.0),
-                (1e9, 3000.0, 3830.0, 1000.0, 8000.0),
-                (1e12, 3000.0, 3830.0, 1000.0, 8000.0),
+                (1e8, 4929.0, 306.0, 300.0, 350.0),
+                (1e9, 12382.0, 225.0, 200.0, 300.0),
+                (1e12, 12382.0, 225.0, 200.0, 300.0),
             };
             foreach (var (moles, safe, peak, breaks, holds) in table)
             {
-                double distance = rules.SafeDistance(rules.Scale(moles));
-                if (Math.Abs(distance - safe) > 1e-9)
+                double distance = rules.SafeDistance(moles, zones);
+                if (Math.Abs(distance - safe) > (moles > 1e7 ? 1.0 : 1e-9))
                 {
                     return string.Format(c, "a comet of {0:0.#E+0} mol must land {1} m from anyone, expected {2} m", moles, distance, safe);
                 }
@@ -242,6 +301,37 @@ namespace TerraformingReloaded.Comets
                 if (rules.Breaks(at, holds))
                 {
                     return string.Format(c, "a comet of {0:0.#E+0} mol breaks a {1} kPa structure at {2} m, which must hold", moles, holds, distance);
+                }
+            }
+            // Nobody stands in what is drawn burning or in what the impact destroys, whatever the world's zones.
+            CelestialTuning widest = zones
+                .With(CelestialSettings.GroundZeroMetresAt1e6, CelestialSettings.GroundZeroMetresAt1e6.Range.Max)
+                .With(CelestialSettings.FireballHeatFactor, CelestialSettings.FireballHeatFactor.Range.Max);
+            CometSizes tenMillion = CometYield.Shipped.For(1e7, zones);
+            CometLayer boils = CometLook.Shipped.Layer(tenMillion, "boils");
+            double outline = (boils.ReachMetres + 0.5 * boils.PuffMaxMetres * boils.GrowsTo) / tenMillion.FireballMetres;
+            if (!(SafeFireballMargin > outline))
+            {
+                return string.Format(c, "the safe distance stands {0} times the fireball out, inside its boils at {1:0.###}", SafeFireballMargin, outline);
+            }
+            foreach (CelestialTuning t in new[] { zones, widest })
+            {
+                double last = 0.0;
+                for (double moles = 1.0; moles <= 1e12; moles *= 2.0)
+                {
+                    double distance = rules.SafeDistance(moles, t);
+                    double fireball = CometYield.Shipped.For(moles, t).FireballMetres;
+                    double groundZero = CelestialRules.Shipped.GroundZeroMetres(moles, t.GroundZeroMetresAt1e6);
+                    if (distance < SafeFireballMargin * fireball - 1e-6 || distance < SafeFireballMargin * groundZero - 1e-6 || distance < SafeBaseMetres + SafeMetresPerScale * rules.Scale(moles) - 1e-6)
+                    {
+                        return string.Format(c, "a comet of {0:0.#E+0} mol lands {1:N0} m from anyone, inside {2} times its fireball ({3:N0} m) or its ground zero ({4:N0} m), or short of section 2's table",
+                            moles, distance, SafeFireballMargin, fireball, groundZero);
+                    }
+                    if (distance < last - 1e-6 || rules.Breaks(rules.PeakKPa(moles, distance), 8000.0))
+                    {
+                        return string.Format(c, "a comet of {0:0.#E+0} mol: the safe distance {1:N0} m shrinks with the size, or a reinforced window breaks there", moles, distance);
+                    }
+                    last = distance;
                 }
             }
             if (Math.Abs(rules.PeakKPa(1e7, 4000.0) * 4.0 - rules.PeakKPa(1e7, 2000.0)) > 1e-9)
@@ -302,28 +392,55 @@ namespace TerraformingReloaded.Comets
                 return "no wave pushes nobody";
             }
 
-            // Section 8: the darker sky.
-            foreach (var (scale, depth) in new[] { (0.4, SkyDimSmallest), (1.0, SkyDimSmallest), (3.0, SkyDimLargest) })
+            // Section 7: as loud as the wave is strong where the listener is.
+            if (Math.Abs(rules.Loudness(ThrownKPa) - 1.0) > 1e-9 || rules.Loudness(1e5) != 1.0 || rules.Loudness(0.0) != QuietestLoudness || rules.Loudness(1e-6) != QuietestLoudness
+                || Math.Abs(rules.Loudness(ThrownKPa / Math.Sqrt(10.0)) - Math.Pow(10.0, -0.3)) > 1e-9)
             {
-                double deepest = rules.SkyDim(scale, SkyFallSeconds);
-                if (Math.Abs(deepest - depth) > 1e-9)
+                return string.Format(c, "the sound is {0:0.###} as loud where the wave throws a player and {1:0.###} 10 dB below that: expected full, and half (Stevens)",
+                    rules.Loudness(ThrownKPa), rules.Loudness(ThrownKPa / Math.Sqrt(10.0)));
+            }
+            double louder = 0.0;
+            for (double kpa = 0.01; kpa < 1e4; kpa *= 1.1)
+            {
+                double loud = rules.Loudness(kpa);
+                if (loud < louder - 1e-12 || loud < QuietestLoudness || loud > 1.0)
                 {
-                    return string.Format(c, "at scale {0} the sky dims to {1:0.###}, expected {2}", scale, deepest, depth);
+                    return string.Format(c, "at {0:0.###} kPa the sound is {1:0.###} as loud", kpa, loud);
                 }
-                if (rules.SkyDim(scale, 0.0) != 0.0 || Math.Abs(rules.SkyDim(scale, SkyClearSeconds)) > 1e-9 || rules.SkyDim(scale, SkyClearSeconds + 60.0) != 0.0)
+                louder = loud;
+            }
+
+            // Section 8: the darker sky, as deep as the yield's dust over its cap.
+            foreach (var (moles, depth) in new[] { (SkyReferenceMoles, SkyDimSmallest), (1e6, 0.349), (1e7, 0.527), (1e9, SkyDimLargest), (1e12, SkyDimLargest) })
+            {
+                double deepest = rules.SkyDim(moles, SkyFallSeconds);
+                if (Math.Abs(deepest - depth) > (depth == SkyDimLargest ? 1e-4 : 1e-3))
                 {
-                    return string.Format(c, "at scale {0} the sky is dimmed before the impact or after it has cleared", scale);
+                    return string.Format(c, "a comet of {0:0.#E+0} mol dims the sky to {1:0.###}, expected {2}", moles, deepest, depth);
+                }
+                if (rules.SkyDim(moles, 0.0) != 0.0 || Math.Abs(rules.SkyDim(moles, SkyClearSeconds)) > 1e-9 || rules.SkyDim(moles, SkyClearSeconds + 60.0) != 0.0)
+                {
+                    return string.Format(c, "a comet of {0:0.#E+0} mol dims the sky before the impact or after it has cleared", moles);
                 }
                 double last = 0.0;
                 for (double s = 0.5; s <= SkyClearSeconds + 1.0; s += 0.5)
                 {
-                    double dim = rules.SkyDim(scale, s);
+                    double dim = rules.SkyDim(moles, s);
                     bool falling = s <= SkyFallSeconds;
                     if (dim < -1e-12 || dim > SkyDimLargest + 1e-12 || (falling ? dim < last - 1e-12 : dim > last + 1e-12))
                     {
-                        return string.Format(c, "at scale {0}, {1} s after the impact the sky dims {2:0.####}", scale, s, dim);
+                        return string.Format(c, "a comet of {0:0.#E+0} mol, {1} s after the impact the sky dims {2:0.####}", moles, s, dim);
                     }
                     last = dim;
+                }
+            }
+            foreach (double moles in new[] { 1e3, 1e5, 1e6, 1e7 })
+            {
+                double here = -Math.Log(1.0 - rules.SkyDepth(moles) / SkyDimLargest);
+                double there = -Math.Log(1.0 - rules.SkyDepth(4.0 * moles) / SkyDimLargest);
+                if (Math.Abs(there / here - 2.0) > 1e-6)
+                {
+                    return string.Format(c, "four times the comet of {0:0.#E+0} mol does not double the dust's optical depth (the yield over the cap's area, W^(1/2)): x{1:0.####}", moles, there / here);
                 }
             }
             return null;

@@ -300,7 +300,7 @@ namespace TerraformingReloaded.Comets
                 Current = current = null;
             }
             CometSky.Dim = current == null ? 0f
-                : (float)CometRules.Shipped.SkyDim(current.Plan.Scale, now - current.ImpactClock);
+                : (float)CometRules.Shipped.SkyDim(current.Plan.Moles, now - current.ImpactClock);
         }
     }
 }
