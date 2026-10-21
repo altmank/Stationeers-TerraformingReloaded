@@ -1495,6 +1495,21 @@ internal static class Program
         List<string> calls = CecilCallNames(body);
         string order = TerraformingReloaded.Comets.CometSkyBodies.SafePointOrder(calls);
         failures += Judge(order == null, "comet sky safe point: " + (order ?? "the game tick sets the sea's level on the main thread once, then leaves it once for its off-thread work, the logic tick among it, then comes back once"));
+        // The game reads the same order through the runtime's own view of the method; it must agree here.
+        try
+        {
+            TerraformingReloaded.Comets.CometSkyBodies.ApplySafePoint(new HarmonyLib.Harmony("patchcheck.safepoint.runtime"));
+            Console.WriteLine("checked: comet sky safe point, read through the runtime as the game reads it, takes the game tick's order too");
+        }
+        catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+        {
+            Console.WriteLine("bound:   comet sky safe point through the runtime (the order was read; compiling the patch needs Unity)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  comet sky safe point through the runtime: " + e.Message);
+            failures++;
+        }
         int liquid = calls.IndexOf("GlobalAtmosphereLiquid.UpdateLiquid");
         int away = calls.IndexOf("UniTask.SwitchToThreadPool");
         int logic = calls.IndexOf("LogicStack.LogicStackTick");
