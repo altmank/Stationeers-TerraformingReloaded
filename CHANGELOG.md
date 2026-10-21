@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.22.0 (prototype)
+
+- **Close to an impact, a comet does more than its pressure wave.** Worked out once, at the impact, for every
+  structure and every player, and done as the wave reaches each one:
+  - **Ground zero**: every structure there is destroyed, whatever it is built of, inside a base or out, and anyone
+    standing there dies. Out to 186 m from where it lands for a comet of a million moles, 400 m for ten million.
+  - **The fireball** burns what is in it: every structure facing the outside, and anyone outdoors, takes the burn
+    damage of standing in lava for as long as the fireball takes to grow. About 110 for a million moles and 300 for
+    ten million, where a Composite Window has 220 and a solar panel 445; a suit takes it in place of the person
+    wearing it. The wave then breaks what it would break anyway. The heat reaches exactly as far as the fireball is
+    drawn: 625 m for a million moles, 1.6 km for ten million.
+  - **Falling rocks**, further out, to where the wave still breaks ordinary windows: a rock may come down on a
+    structure, or on a player out in the open, as a small explosion. They come down most often just past the
+    fireball and less and less further out, and a little after the wave. At most `MaxDamagingRocks` (40) a comet;
+    rocks over open ground are only seen.
+- **New setting `FireballHeatFactor`** (1): how far the fireball's heat reaches, as a multiple of the fireball as
+  drawn. It replaces `FireballRadiusFactor`, which measured the fireball against ground zero. A world that had
+  changed `FireballRadiusFactor` now takes `FireballHeatFactor` from the config; set it again with
+  `terraform set FireballHeatFactor <value>`.
+- **`terraform comet` never lands a comet so close that you stand in its fireball.** It keeps a quarter of the
+  fireball's size beyond it, and beyond ground zero, from everything you have built and every player: 4.9 km for a
+  hundred million moles and 12.4 km for a billion (2.75 and 3 km before). Up to ten million moles nothing changes.
+- **Comets brought down by rocket on a Long or full-size planet** have a wider landing area, reaching 8.9 km and 15.4
+  km from the launch pad (5.45 and 5.75 km before), so the biggest comet such a planet allows can
+  still be brought down outside its own fireball while you watch it. Standard and Short planets are unchanged.
+- **Comets are drawn at the size of the blast their wave implies.** A million moles is drawn as a 219 kiloton
+  blast, a fireball reaching 625 m out and a cloud rising to 15 km; ten million as 2.2 megatons, 1.6 km and 27
+  km. The cloud goes on rising and spreading for about five and a half minutes, and a second
+  `terraform comet` waits until it is done.
+- **Comet impacts read as the size they are from close by**: a glowing fireball with a boiling, darker-edged
+  surface that cools from white through orange to red; a rising column of lit cloud as wide as the plume; a
+  mushroom cap with a sunlit top and an underside lit warm by the fireball; a low dust surge rolling out along the
+  ground. The impact flash no longer whites out the view for more than a few tenths of a second, so the ground
+  stays readable. Fewer, larger particles.
+- **The sound is as loud as the wave is strong where you are**: a big comet close by at full volume, a small or
+  distant one quieter, by how loud sound seems to the ear.
+- **The darker sky follows the comet's size**: a small comet barely dims it (5 % for ten thousand moles), a
+  million moles by about a third, ten million and more by about half.
+
+Nothing in an existing save needs changing. A config or world that set `FireballRadiusFactor` loses that value
+(above).
+
 ## 0.21.0 (prototype)
 
 - **Bring a comet down.** A new action on the rocket map screen, **Deorbit**, for a rocket at the planet's orbit
