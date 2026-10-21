@@ -313,8 +313,9 @@ namespace TerraformingReloaded.Comets
         private static bool Rebuild(OrbitalSimulation sky, SkyFrame frame, List<Shown> standing, List<int> parked, bool mayShorten)
         {
             RotatingCelestialBody planet = sky.PlayerBody;
+            Shown[] previous = _shown;
             HashSet<Celestial> leaving = new HashSet<Celestial>();
-            foreach (Shown old in _shown)
+            foreach (Shown old in previous)
             {
                 leaving.Add(old.Body);
             }
@@ -402,11 +403,11 @@ namespace TerraformingReloaded.Comets
                         one.Orbit.SemiMajorAxisAu, one.Orbit.EpochDegrees));
                 }
             }
-            foreach (Celestial gone in leaving)
+            foreach (Shown gone in previous)
             {
-                if (!after.Contains(gone))
+                if (!after.Contains(gone.Body))
                 {
-                    Log.Info("[TR comet sky] " + gone.Name + " left the sky" + (after.Count < before.Count ? (_safePoint ? ", at the game tick's main-thread moment" : ", in a frame") : ""));
+                    Log.Info("[TR comet sky] comet " + gone.CometId.ToString(c) + " left the sky" + (after.Count < before.Count ? (_safePoint ? ", at the game tick's main-thread moment" : ", in a frame") : ""));
                 }
             }
             return true;

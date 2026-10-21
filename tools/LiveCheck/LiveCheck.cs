@@ -295,6 +295,10 @@ namespace TerraformingReloaded.LiveCheck
         private object _cometSky;
         private object _cometSkyVanilla;
 
+        // -CometLand (CometLand.cs): the same way.
+        private object _cometLand;
+        private object _cometLandVanilla;
+
         private void Awake()
         {
             _instance = this;
@@ -327,6 +331,15 @@ namespace TerraformingReloaded.LiveCheck
             else if (sky != null)
             {
                 StartCometSky();
+            }
+            string land = Environment.GetEnvironmentVariable("TR_LIVECHECK_COMETLAND");
+            if (land == "vanilla")
+            {
+                StartCometLandVanilla();
+            }
+            else if (land != null)
+            {
+                StartCometLand();
             }
             // Sample at the top of the planet tick: it runs on the simulation thread after the
             // previous tick's atmosphere workers have been joined and before this tick's start, so
@@ -460,6 +473,30 @@ namespace TerraformingReloaded.LiveCheck
         private void StepCometSky()
         {
             ((CometSkyCheck)_cometSky).Step();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StartCometLand()
+        {
+            _cometLand = CometLandCheck.FromEnvironment(Logger, RunCommand);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StepCometLand()
+        {
+            ((CometLandCheck)_cometLand).Step();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StartCometLandVanilla()
+        {
+            _cometLandVanilla = CometLandVanilla.FromEnvironment(Logger);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StepCometLandVanilla()
+        {
+            ((CometLandVanilla)_cometLandVanilla).Step();
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -603,6 +640,14 @@ namespace TerraformingReloaded.LiveCheck
             if (_cometSkyVanilla != null)
             {
                 StepCometSkyVanilla();
+            }
+            if (_cometLand != null)
+            {
+                StepCometLand();
+            }
+            if (_cometLandVanilla != null)
+            {
+                StepCometLandVanilla();
             }
             if (RainSave.Length > 0 && !_rainDone && GameManager.GameTickCount >= 15)
             {

@@ -95,6 +95,20 @@ namespace TerraformingReloaded.Comets
             return views;
         }
 
+        /// <summary>
+        /// The impact event in force on this machine is the one of comet <paramref name="cometId"/> brought down by
+        /// rocket, and when and where it lands; for tools/LiveCheck. A joining player's game cannot tell, since
+        /// which comet an event belongs to is never sent: false there.
+        /// </summary>
+        public static bool EventFor(int cometId, out double impactClock, out Vector3 impact)
+        {
+            CometEvent current = CometDirector.Current;
+            bool ours = current != null && current.RocketComet == cometId && cometId != 0;
+            impactClock = ours ? current.ImpactClock : double.NaN;
+            impact = ours ? current.Impact : Vector3.zero;
+            return ours;
+        }
+
         /// <summary>A comet is coming down, or the show of the last one is still playing: one at a time.</summary>
         public static bool Busy()
         {
