@@ -255,6 +255,7 @@ internal static class Program
 
         failures += CheckRockets();
         failures += CheckPlanetFire();
+        failures += CheckComets();
 
         Console.WriteLine(failures == 0 ? "OK" : failures + " problem(s)");
         return failures == 0 ? 0 : 1;
@@ -738,6 +739,86 @@ internal static class Program
     private sealed class TraceKeepsAll : TerraformingReloaded.Patching.TraceHoldRule
     {
         public override bool Deleted(double share, double exchangeRate) => true;
+    }
+
+    /// <summary>
+    /// A comet's rules (docs/COMET.md sections 2, 3, 5 and 8) by their own check, then wrong rules the
+    /// check must catch, and its reactions by worked cases.
+    /// </summary>
+    private static int CheckComets()
+    {
+        int failures = 0;
+        string rules = TerraformingReloaded.Comets.CometRules.Check(TerraformingReloaded.Comets.CometRules.Shipped);
+        failures += Judge(rules == null, "comet rules: " + (rules ?? "the safe distance, the wave, the push bands and the darker sky hold docs/COMET.md's tables"));
+        var wrongRules = new (string What, TerraformingReloaded.Comets.CometRules Rules)[]
+        {
+            ("a wave that falls with the distance rather than its square", new LinearWave()),
+            ("a wave that goes on growing past a billion moles", new UncappedWave()),
+            ("a safe distance 500 m short", new ShortSafeDistance()),
+            ("a hard push past the game's 20 m/s", new OverspeedPush()),
+            ("suit damage that can knock a player out", new KnockoutPush()),
+            ("a gentle push with no upward part", new FlatPush()),
+            ("a sky that never clears", new StuckSky()),
+        };
+        foreach (var wrong in wrongRules)
+        {
+            string caught = TerraformingReloaded.Comets.CometRules.Check(wrong.Rules);
+            failures += Judge(caught != null, "comet rules check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        string reactions = TerraformingReloaded.Comets.CometReactions.Check();
+        failures += Judge(reactions == null, "comet reactions: " + (reactions ?? "steam, burning, dry ice, toxic and ionised each as strong as their share, fuel burning only with an oxidiser"));
+        return failures;
+    }
+
+    private sealed class LinearWave : TerraformingReloaded.Comets.CometRules
+    {
+        public override double PeakKPa(double moles, double metres) => base.PeakKPa(moles, metres) * Math.Max(100.0, metres) / ReferenceMetres;
+    }
+
+    private sealed class UncappedWave : TerraformingReloaded.Comets.CometRules
+    {
+        public override double PeakKPa(double moles, double metres)
+        {
+            double ratio = ReferenceMetres / Math.Max(NearestMetres, metres);
+            return ReferencePeakKPa * Math.Pow(moles / ReferenceMoles, 2.0 / 3.0) * ratio * ratio;
+        }
+    }
+
+    private sealed class ShortSafeDistance : TerraformingReloaded.Comets.CometRules
+    {
+        public override double SafeDistance(double scale) => base.SafeDistance(scale) - 500.0;
+    }
+
+    private sealed class OverspeedPush : TerraformingReloaded.Comets.CometRules
+    {
+        public override Push PushFor(double peakKPa)
+        {
+            Push push = base.PushFor(peakKPa);
+            return push.Band == 3 ? new Push(20.0, push.Up, push.SuitImpulse, 3) : push;
+        }
+    }
+
+    private sealed class KnockoutPush : TerraformingReloaded.Comets.CometRules
+    {
+        public override Push PushFor(double peakKPa)
+        {
+            Push push = base.PushFor(peakKPa);
+            return push.Band == 3 ? new Push(push.Away, push.Up, push.SuitImpulse * 2.0, 3) : push;
+        }
+    }
+
+    private sealed class FlatPush : TerraformingReloaded.Comets.CometRules
+    {
+        public override Push PushFor(double peakKPa)
+        {
+            Push push = base.PushFor(peakKPa);
+            return push.Band == 1 ? new Push(push.Away, 0.0, 0.0, 1) : push;
+        }
+    }
+
+    private sealed class StuckSky : TerraformingReloaded.Comets.CometRules
+    {
+        public override double SkyDim(double scale, double secondsSinceImpact) => base.SkyDim(scale, Math.Min(secondsSinceImpact, SkyFallSeconds));
     }
 
     private static int Judge(bool passed, string what)
