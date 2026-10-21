@@ -33,7 +33,7 @@ namespace TerraformingReloaded.CometShot
     ///     whole stack is rendered, into a target cleared first.
     /// Does nothing unless TR_COMETSHOT_ARGS is set.
     /// </summary>
-    [BepInPlugin("xceled.stationeers.terraformingreloaded.cometshot", "TR CometShot", "0.0.2")]
+    [BepInPlugin("xceled.stationeers.terraformingreloaded.cometshot", "TR CometShot", "0.0.3")]
     public class CometShot : BaseUnityPlugin
     {
         /// <summary>The density the game counts as solid ground (127 / 255).</summary>
@@ -467,6 +467,42 @@ namespace TerraformingReloaded.CometShot
             File.WriteAllBytes(file, _readback.EncodeToPNG());
             Logger.LogInfo(string.Format(CultureInfo.InvariantCulture, "CometShot: shot t={0:0.00} -> {1} (far {2:N0}, sun height {3:0.000}, sun {4:0.00})",
                 since, file, _camera.farClipPlane, OrbitalSimulation.WorldSunVector.y, OrbitalSimulation.WorldSun ? OrbitalSimulation.WorldSun.intensity : 0f));
+            ImpactOnGround();
+        }
+
+        /// <summary>
+        /// Once the comet has landed: the impact's height against this driver's own read of the
+        /// voxels, the drop the game's TerrainCurvature draws there for this camera, and where the
+        /// show put the impact, which must be the ground as drawn. Worked out here apart from the
+        /// mod's own rule, so the two are checked against each other.
+        /// </summary>
+        private void ImpactOnGround()
+        {
+            Transform impact = GameObject.Find("TR Comet/Drawn/Impact")?.transform;
+            if (impact == null || impact.parent == null || impact.parent.parent == null)
+            {
+                return;
+            }
+            CultureInfo c = CultureInfo.InvariantCulture;
+            Vector3 real = impact.parent.parent.TransformPoint(impact.localPosition);
+            int half = VoxelConstants.Offset;
+            bool inside = real.x >= -half && real.x < half && real.z >= -half && real.z < half;
+            float columnX = inside ? real.x : Mathf.Clamp(real.x, -half + 0.5f, half - 0.5f);
+            float columnZ = inside ? real.z : Mathf.Clamp(real.z, -half + 0.5f, half - 0.5f);
+            float? ground = Surface(columnX, columnZ);
+            TerrainCurvature.Refresh();
+            Vector3 eye = _camera.transform.position;
+            float drop = TerrainCurvature.Drop(real, eye);
+            float groundDrawn = (ground ?? real.y) - drop;
+            float showDrawn = impact.position.y;
+            bool height = ground.HasValue && Mathf.Abs(real.y - ground.Value) < 0.5f;
+            bool drawn = Mathf.Abs(showDrawn - groundDrawn) < 0.5f;
+            Logger.LogInfo(string.Format(c,
+                "CometShot: impact at ({0:0.0}, {1:0.0}), {2:N0} m from the camera{3}: voxel ground {4}, event height {5:0.0} -> height {6}; drawn {7:0.0} m lower for this camera, ground drawn at {8:0.0}, show drawn at {9:0.0} (frame {10:+0.0;-0.0}) -> on the drawn ground {11}",
+                real.x, real.z, Vector2.Distance(new Vector2(real.x, real.z), new Vector2(eye.x, eye.z)),
+                inside ? "" : string.Format(c, ", outside the voxel world, read at its edge ({0:0.0}, {1:0.0})", columnX, columnZ),
+                ground.HasValue ? ground.Value.ToString("0.0", c) : "none", real.y, height ? "PASS" : "FAIL",
+                drop, groundDrawn, showDrawn, impact.parent.localPosition.y, drawn ? "PASS" : "FAIL"));
         }
 
         private void Finish()
