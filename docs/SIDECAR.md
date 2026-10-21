@@ -50,6 +50,21 @@ per-world value comes back for free. Nothing else has a carrier like that.
   <PlanetHoldsBackWhileIgnitable>false</PlanetHoldsBackWhileIgnitable>
   <PlanetKeepsTraceGas>false</PlanetKeepsTraceGas>
   <PlanetFireHeatJoules>0</PlanetFireHeatJoules>
+  <Celestial>
+    <Setting Key="CutSharePerCycle" Value="0.001" />
+    <Setting Key="CometSizeMultiplier" Value="5" />
+    <Setting Key="OrbitSeconds" Value="372" />
+    <Setting Key="OrbitInclinationDegrees" Value="60" />
+    <Setting Key="DiscRadiusMetres" Value="5100" />
+    <Setting Key="CorrectionMetresPerDeltaV" Value="25" />
+    <Setting Key="EntryWindowSeconds" Value="50" />
+    <Setting Key="GroundZeroMetresAt1e6" Value="186" />
+    <Setting Key="FireballRadiusFactor" Value="2.24" />
+    <Setting Key="DebrisRadiusFactor" Value="7.07" />
+    <Setting Key="MaxDamagingRocks" Value="40" />
+    <Setting Key="GasArrivingShare" Value="0.7" />
+    <Setting Key="MineralRemovalPerKg" Value="0.7" />
+  </Celestial>
 </TerraformingReloaded>
 ```
 
@@ -318,6 +333,7 @@ what a missing or unreadable file falls back to.
 | `PlanetAirBurns` | reversible | Whether the planet's own air burns when it holds a fuel beside an oxidiser and would catch fire. What a fire burns is gone, as any fire's is, but the switch deletes nothing by itself and turning it off stops the next tick's burn. Not recorded takes the config's, which is off, so a world saved before 0.13.0 does not burn unless the config says otherwise. Turning it on asks first when the planet already holds a mix, because the outdoor air beside a base can flash once |
 | `PlanetHoldsBackWhileIgnitable` | reversible | Whether the planet's fire holds back the side it would use up whenever its air would light itself, or only while it burns. Holding back moves nothing: the held gas stays in the planet. Not recorded takes the config's, which is off |
 | `PlanetKeepsTraceGas` | reversible | Whether the planet keeps a gas too thin for an outdoor cell to keep, or hands it out for the game to delete. On deletes nothing; off is the game's own deletion, a gas at a time, and turning it back on keeps what is left. Not recorded takes the config's, which is off |
+| The thirteen `Celestial terraforming` settings | reversible | Decide comets made and brought down by rocket: how big Cut makes one, its orbit, where it can land, its impact zones and what it loses. They change what the next comet does and nothing already in the world. Each is one `Setting` entry under `Celestial`, keyed as in the config; an entry's value is text, parsed on the way in, so one that is not a number is refused like one out of range. Every range is declared once, beside the key (`Comets.CelestialSettings`). Not recorded takes the config's |
 
 Not world-scoped:
 
@@ -388,7 +404,7 @@ you get the current snapshot, not the one in force when that autosave was writte
 per-save sidecars, which delete saves.
 
 **A client takes the host's values for what it works out itself.** The client skips the file. The
-three response settings and `DynamicSky` arrive from the host with the planet state, under a new
+three response settings, `DynamicSky`, the storm bounds and the Celestial terraforming settings arrive from the host with the planet state, under a new
 section byte so an older reader skips rather than misreads them (MULTIPLAYER.md, *What the mod
 adds*); until the first state arrives the client runs on its own config, which is as it joins. The
 other world settings are never read on a client.

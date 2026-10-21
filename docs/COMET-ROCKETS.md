@@ -1,7 +1,8 @@
 # Comets by rocket
 
 Design for how a player makes a comet and brings it down, on branch `comet-impact`. The impact itself (the
-show, the pressure wave, structures, players, sound, sky) is `COMET.md`. Nothing here is built yet.
+show, the pressure wave, structures, players, sound, sky) is `COMET.md`. Built so far: the settings and
+the pure rules (stage 2 of *Proof as it is built*, 0.17.0); nothing uses them in play yet.
 
 Game facts below are from the decompile; file and line references are kept out of this public repo.
 
@@ -34,13 +35,16 @@ Game facts below are from the decompile; file and line references are kept out o
 ## Cut
 
 - A rocket with a miner and drill heads sits at an ice or mineral site and runs Cut.
-- Each cycle moves 10 % of the site's deposit into the comet. **Tuning number.**
+- Each cycle adds 0.1 % of K times the site's gas to the comet (`CutSharePerCycle`, below), so a whole comet is
+  1,000 cycles.
 - Cycle time and head wear follow the game's mining: `(10 - 0.4 x Density) / head speed` seconds, and heads
   wear as they do mining.
 - The site panel shows the comet's moles and how much of the site it holds.
 - The deposit is the limit. A Mars ice site holds 6,000 to 100,000 units of ice at 24 mol each, so 0.14M to
   2.4M mol (calculated from the game's site rules, not measured).
-- The comet's mass is its moles times each gas's molar mass. Water at 2.3M mol is about 41 t.
+- The comet's mass is its moles times each gas's molar mass as the game defines it (`Mole.MolarMass`), which
+  is not the physical one: water 108 g/mol, oxygen and methane 16, nitrogen 64, carbon dioxide 44. Water at
+  2.3M mol is 248 t.
 
 ## Rig
 
@@ -79,8 +83,12 @@ The comet obeys the game's rocket travel rule and nothing else:
 
 Its icon moves on the map as a rocket's does.
 
-Worked example: an 18 t comet with 2 engines going to Frozen Vapors (383 Δv) burns for about 225 s and uses
-about 16,000 mol of fuel. Doubling the comet doubles the fuel.
+Worked example: an 18 t comet with 2 engines going from Mars Orbit to the Frozen Vapors node (383 Δv) burns
+for 223.5 s and uses 16,092 mol of fuel. That is the exact integral: the mass falls as the fuel burns, at the
+game's 16 g/mol for the 2:1 premix, and `CelestialRules.Check` holds it to a flight stepped as the game steps
+one (fuel drawn every 0.5 s, thrust every 0.02 s) within 0.2 %. Thrust over a fixed mass gives 225 s. Doubling
+the comet doubles the fuel. A discovered site adds 200 Δv to its node, and a comet is heavy: a 2.3M mol water
+comet (248 t) with 2 engines needs 4,484 s and 322,800 mol from a Frozen Vapors site (583 Δv).
 
 ## Bring it down (the new part)
 
@@ -124,7 +132,11 @@ At Entry the comet becomes a body in the game's own sky, the system that moves t
 - The game puts the observer at the planet's centre, so it looks the same from anywhere on the map. It rises,
   crosses the sky and sets, and its path shifts from one orbit to the next as the planet turns.
 - The game compresses sky time by the world's day length (a "2 hour" orbit loops in 97 s of real time on Mars
-  and 1.3 s on Venus, calculated from the code), so each world's orbit is set from a real time between passes.
+  and 1.3 s on Venus, calculated from the code), so each world's orbit is set from a real time between passes:
+  `OrbitSeconds`, 372 s by default, turned into the world's own period by `CelestialRules.OrbitPeriodDays`
+  (0.3189 d on Mars, Phobos's own).
+- Its orbit is tilted to the planet's equator (`OrbitInclinationDegrees`, 60 by default). Between passes the
+  ground turns 360 x 372 / 1,200 = 112 degrees, and the tilt decides how far that moves the line.
 
 ### The sky rule: from the comet's place in the sky to a point on the ground
 
@@ -139,6 +151,14 @@ distance from the pad = R x (90° - its height in the sky) / 180°
 | straight below, the planet's far side | R out, the edge of the disc |
 
 R is the disc radius. Nothing lands out of play: the far side of the planet maps to the edge of the disc.
+`DiscRadiusMetres` is R on a world drawn with Mars's and Venus's curvature, 0.3; a world drawn more curved takes
+R x 0.3 / curvature (`CelestialRules.DiscRadius`), since how far a column stays in sight goes as one over the
+curvature: 3,400 m on Vulcan, 3,060 m on the Moon and Mimas, 6,120 m on Europa.
+
+Steering: the fuel left at Entry gives a Δv, the reach is that Δv times `CorrectionMetresPerDeltaV`, but no more
+Δv than the engines give in the fall (`EntryWindowSeconds` of burning), and the landing is the sky point moved
+straight toward the target by the reach or the whole gap, kept inside the disc (`CelestialRules.ReachMetres`,
+`CelestialRules.Landing`). An 18 t comet with 2 engines steers up to 2.1 km; a 248 t one with 2 engines 165 m.
 
 ### Skipping the skill
 
@@ -146,15 +166,19 @@ Burn at any moment, with no target or with a target out of reach. The comet come
 rule puts it, a random point in the disc around the pad. A small comet usually does no harm; a big one has a
 real chance of wrecking the base.
 
-Chance that a random landing breaks the base's windows, for an 8 km disc, from the wave rule in `COMET.md`:
+Chance that a random landing breaks the windows of a base at the pad, for the 5,100 m disc, from the wave rule
+in `COMET.md`, taking the comet's direction at a random moment as equally likely anywhere in the sky (an
+approximation: its real path favours some directions). By the sky rule a direction within an angle a of
+straight overhead lands within R x a / 180 of the pad, so the chance of landing within d is
+(1 - cos(180 x d / R)) / 2:
 
-| Comet | Wave breaks windows out to | Chance |
-|---|---|---|
-| 1e6 mol | 1.3 km | about 3 % |
-| 1e7 mol | 2.8 km | about 12 % |
-| 1e8 mol | 6.1 km | about 58 % |
+| Comet | Wave breaks windows out to | Chance | Ground zero | Chance it is on the pad |
+|---|---|---|---|---|
+| 1e6 mol | 1.3 km | about 16 % | 186 m | 0.3 % |
+| 1e7 mol | 2.8 km | about 59 % | 401 m | 1.5 % |
+| 1e8 mol | 6.1 km | every landing | 863 m | 7 % |
 
-Ground zero on the pad itself is about 0.4 %. Calculated, not measured.
+Calculated, not measured.
 
 ### How each goal is met
 
@@ -209,24 +233,27 @@ comet lands wherever it is brought down.
 
 ## Near the impact
 
-The pressure wave only breaks what is over its limit. Closer in, an impact does more. Zones grow with the cube
-root of the comet's mass; r0 is 150 m at 1e6 mol. **Tuning numbers.**
+The pressure wave only breaks what is over its limit. Closer in, an impact does more. Each zone ends where the
+wave falls to a game threshold, so the zones grow with the cube root of the comet's moles as the wave does, and
+stop growing at 1e9 mol where the wave stops (`CelestialRules.GroundZeroMetres`, `CelestialRules.ZoneAt`). r0 is
+186 m at 1e6 mol (settings below).
 
-| Zone | Radius | What happens |
-|---|---|---|
-| Ground zero | r0 | every structure destroyed whatever its limit; anyone there dies |
-| Fireball | about 2.5 x r0 | heat damage to structures outside and to players |
-| Debris rain | about 8 x r0 | falling rocks; each one that lands on a structure or player is a small game explosion |
-| Pressure wave | as `COMET.md` | breaks what is over its limit |
+| Zone | Radius | Where the wave there is | What happens |
+|---|---|---|---|
+| Ground zero | r0 | past the strongest wall, 10,000 kPa | every structure destroyed whatever its limit; anyone there dies |
+| Fireball | 2.24 x r0 | past the full-force push, 2,000 kPa | heat damage to structures outside and to players |
+| Debris rain | 7.07 x r0 | past ordinary windows, 200 kPa | falling rocks; each one that lands on a structure or player is a small game explosion |
+| Pressure wave | as `COMET.md` | | breaks what is over its limit |
 
 | Comet | Ground zero | Fireball | Debris rain |
 |---|---|---|---|
-| 1e6 mol | 150 m | 375 m | 1.2 km |
-| 1e7 mol | 320 m | 810 m | 2.6 km |
-| 1e8 mol | 700 m | 1.7 km | 5.6 km |
+| 1e6 mol | 186 m | 417 m | 1.3 km |
+| 1e7 mol | 401 m | 898 m | 2.8 km |
+| 1e8 mol | 863 m | 1.9 km | 6.1 km |
 
-A rocket comet is capped at its site's contents times K, so with K = 5 and the biggest ice site the largest is
-about 36M mol, ground zero about 500 m. The 1e8 row and above happen only through the console command.
+A rocket comet is capped at its site's contents times K. The biggest ice site on any shipped map holds 3.05M
+mol (Europa's; 2.79M on Mars's and the Moon's), so with K = 5 the largest rocket comet is 15.2M mol, ground zero
+461 m. The 1e8 row and above happen only through the console command.
 
 ## Ore comets: what they leave
 
@@ -237,8 +264,11 @@ small.
 
 ## Mineral comets
 
-Same loop. At impact a mineral comet blasts the planet's own air away, in proportion to its mass. **Open:**
-the constant. It is the tool for thinning a thick world such as Venus.
+Same loop. At impact a mineral comet blasts the planet's own air away, in proportion to its mass: 0.7 kg of air
+per kg of comet by default (`MineralRemovalPerKg`), taken from each gas in its share of the air
+(`CelestialRules.MineralRemovedMoles`). It is the tool for thinning a thick world such as Venus. **Open:** the
+mass of a mineral comet. The game gives an ore unit no mass that counts (a rocket's cargo weighs 1 kg per filled
+slot, not by what it holds), so the mass per unit Cut moves into a mineral comet is still to be set.
 
 ## Cost rule
 
@@ -274,7 +304,10 @@ about 15 % lower. Comets needed to bring Mars to about 50 kPa:
 
 Calculated from the game's site rules and the losses above, not measured. Planet size and K trade against
 each other, but the wave follows each comet's absolute moles, so on a bigger planet every comet hits harder.
-Proposed: Standard, K about 5, which makes a median comet about 2.3M mol. **Open:** LU has not decided.
+K = 5 is now the default, derived from LU's third-of-a-planet rule at Standard size (the config table below),
+which makes a median comet about 2.3M mol. **Open:** the rule holds at Standard and Long; on Short (1/100) a
+K = 5 comet from the biggest site brings 9.7M mol against the 6.1M the whole Moon needs there, and the rule
+would hold only at K = 1 (Decisions, below).
 
 ## What building it needs that the game does not do
 
@@ -297,25 +330,61 @@ section, `Celestial terraforming`.
   was worked out.
 - **The host's values rule.** The host decides every comet; values that clients compute with (the orbit, the
   sky rule, the disc) are sent to them with TR's planet sync, as other settings already are.
-- **Ranges live in one place**, as `Settings.Limits` does today, so the config and any saved value are checked
-  against the same bounds.
+- **Ranges live in one place.** Each setting is declared once, with its key, default and range
+  (`Comets.CelestialSettings`, `src/Comets/CelestialTuning.cs`); the config editor, a world's settings file, the
+  planet sync and `terraform set` all check against it.
+- **Each world keeps its own.** They are world settings like the rest (`SIDECAR.md`): the config decides what a
+  new world starts with, and `terraform set <Key> <value>` changes the world being played. All of them are sent
+  with the planet sync (layout 6, `MULTIPLAYER.md`).
+- **Held to their derivation.** `CelestialRules.Check`, at load and in `tools/PatchCheck`, fails if a default
+  drifts from the arithmetic below wherever the arithmetic can be written down.
 
-| Setting | What it sets | Default derived from |
+| Setting | What it sets | Default | Derived from |
+|---|---|---|---|
+| CutSharePerCycle | share of K times the site's gas added to the comet per Cut cycle | 0.001 | A drill head holds 100 and loses 1 with a chance of 0.1 / Health each cycle, so a Basic head (Health 1) lasts 1,000 cycles on average and an Ice head (Health 2) 2,000. 1 / 1,000 makes a whole comet one Basic head's life and half an Ice head's: with the head made for ice, no trip home for a new head on average. It is also the 1,000 cycles that mining out a middling Frozen Vapors site takes (Density 3, Richness 2, Size 2.5, by the game's depletion rule), so a comet costs the drilling of a typical site: 1,000 x (10 - 0.4 x 3) s = 2.4 h with one head of speed 1 |
+| CometSizeMultiplier | K: a comet's gas, once the whole site is cut, as a multiple of the site's | 5 | LU's rule that one site never delivers a third of a planet, read as a third of the air the planet needs before you can breathe outside without a suit. At Standard size (250,000 outdoor cells) that need is 125 mol per cell on Mars and 121 on the Moon (`BALANCE.md`), so a third is 10.08M mol for the Moon. The biggest ice site on Mars's or the Moon's map holds 2,785,190 mol (Density 8, Richness 3, Size 7: 116,050 units of 24 mol by the game's own sum, which it shows rounded to 100,000). At 70 % arriving, K x 0.7 x 2.785M under 10.08M gives K under 5.17: the largest whole K is 5 |
+| OrbitSeconds | real seconds for one orbit of a comet waiting at Entry, on every world; one pass per orbit | 372 | Phobos, the fastest body in Mars's sky, goes round it in 360 x 0.3189 / (687 x 4.494e-4) = 371.9 real seconds (its period, Mars's year, and Mars's sky clock `OrbitalSimulation.TimeScale`), and the Ground Telescope tracks it. A comet no faster across the sky stays trackable. Half the orbit, 186 s, is above the horizon (the game puts the observer at the planet's centre): long enough to read a telescope and burn. 3.2 passes in a 20 minute day. Each world's `Orbit.Period` is 372 x its own period x its TimeScale / 360 (`CelestialRules.OrbitPeriodDays`) |
+| OrbitInclinationDegrees | the orbit's tilt to the planet's equator; with the orbit time it sets how far the line moves between passes (the design's `LineShiftPerOrbit`, which is not a number of its own) | 60 | Between passes the ground turns 360 x 372 / 1,200 = 112 degrees (`CelestialRules.TurnPerOrbitDegrees`). A pad's zenith sits 90 - latitude from the planet's axis and the orbit's pole i from it, so over a day the angle between them sweeps from their difference to their sum, and passes go straight overhead when that sweep crosses 90 degrees, which is when i is at least the latitude (`CelestialRules.ClosestPass`). The shipped world farthest from its equator is Mimas, at -58.4; the next whole ten above it is 60, so every shipped world gets passes straight overhead. On Mars (13.5) a day's passes then come within 0 to 73.5 degrees of overhead at their highest, so the line's nearest point sweeps from the pad out to 0.41 R, 2.1 km |
+| DiscRadiusMetres | R in the sky rule, on a world drawn with curvature 0.3 (Mars, Venus); others take R x 0.3 / curvature | 5100 | **Far enough:** a landing aimed while the comet is in sight (above the horizon, so within R / 2 by the sky rule, where a telescope can follow it) must reach the safe distance of the biggest rocket comet, K x 3,048,381 mol (Europa's map's biggest site) = 15.2M mol, scale 2.09, safe distance 2,546 m (`COMET.md`). R / 2 at least 2,546 m, rounded up to the next 100 m, gives 5,100. **Near enough to be seen:** the terrain shader draws ground lower by 0.001 x ((d - 144) x 0.3)^2, so over unbroken ground a column H high at d is seen by a standing player (eye 1.8 m) while d is at most 144 + sqrt(1.8 / k) + sqrt(H / k), k = 9e-5. The show's column and cap reach 1,220 m per unit of scale (`CometShow`: plume 1,100 x scale, cap at plume plus radius 120 x scale). The smallest show (scale 0.4, 488 m) is seen out to 2,614 m, past R / 2 = 2,550 m, so every landing made with the comet in sight is seen; at the edge, 5,100 m, the column clears the drawn horizon from 2.6M mol up. The game's far clip does not bind: the show raises it to four times the impact's distance. **Past the voxel world's edge:** Mars2's terrain is 4,096 m across, so for a pad near its middle the disc beyond about 2 km is mostly past the edge, where nothing is built or stands and the impact takes the nearest edge's height (0.16.1); the half a tracked landing reaches lies mostly over the terrain. **More curved worlds:** the sight distance goes as one over the curvature, so R x 0.3 / curvature: 3,400 m on Vulcan (0.45), 3,060 m on the Moon and Mimas (0.5), 6,120 m on Europa (0.25) |
+| CorrectionMetresPerDeltaV | reach in metres per m/s of Δv the reserve can give | 25 | A steady burn through the whole fall of T seconds moves the comet a T^2 / 2 sideways for a Δv of a T: T / 2 metres per m/s, 25 at T = 50. Exact for the largest steer (the cap below); a short burn early in the fall would drift up to T per m/s, so this errs short |
+| EntryWindowSeconds | how long the deorbit burn can run, so thrust caps the usable reserve | 50 | A landing rocket starts down at its leg's Δv, 400 m/s (2 x the map's OrbitDistance of 200), from the game's default re-entry height of 25,000 m (ReEntryProfile Low). Falling freely under Mars's gravity of 3.7 m/s^2 it reaches the ground in (-400 + sqrt(400^2 + 2 x 3.7 x 25,000)) / 3.7 = 50.6 s (`CelestialRules.FallSeconds`). Vulcan and Venus (gravity clamped to 5.5) 47.2 s, the Moon 56.1 s, Mimas 58.3 s: one figure, Mars's, rounded |
+| GroundZeroMetresAt1e6 | r0 at 1e6 mol; the zones grow from it with the cube root of the moles | 186 | The wave rule (`COMET.md` section 3), dP = 400 x (n / 1e7)^(2/3) x (2000 / d)^2 kPa. The strongest limit any structure has is the Reinforced Wall's 10,000 kPa; at 1e6 mol the wave passes it inside d = 2000 x sqrt(400 x 0.1^(2/3) / 10,000) = 185.7 m. Ground zero, where everything goes whatever its limit, is where the wave already breaks everything. A fixed peak's distance goes as n^(1/3), so the zones' cube root is the wave's own |
+| FireballRadiusFactor | the fireball's radius as a multiple of r0 | 2.24 | Where the wave falls to the full-force push, 2,000 kPa (`CometRules.FullForceKPa`), which throws a player hard and damages the suit: sqrt(10,000 / 2,000) = 2.236 times r0, 417 m at 1e6 mol |
+| DebrisRadiusFactor | the reach of the falling rocks as a multiple of r0 | 7.07 | Where the wave falls to 200 kPa, the weakest limit that breaks (ordinary windows and glass doors, `COMET.md`) and where the hard push starts (`CometRules.ThrownHardKPa`): sqrt(10,000 / 200) = 7.071 times r0, 1,315 m at 1e6 mol. No rock does harm outside the ground the wave already damages |
+| MaxDamagingRocks | the cap on rocks that hit | 40 | No game fact sets it; set to keep the cost rule. The show draws its debris rain at 7 pieces a second, falling off over 12 s, from 4 to 35 s after the impact: 7 x 12 x (1 - e^(-31 / 12)) = 78 pieces. A rock that hits must be one a player could have seen fall, so at most 78; half of them, 40, is at most 1.3 game explosions of 3 m or less a second over the 31 s, each the cost of one grenade |
+| GasArrivingShare | share of the gas left after the trip that reaches the planet | 0.7 | No game fact: a rocket that crashes in the game puts all its fuel into the world (`Rocket.Explode`), which LU ruled out ("only part of the gas reaches the planet"). Kept at the approved design's 70 % (Decisions, below). K is derived through it |
+| MineralRemovalPerKg | kilograms of the planet's air a mineral comet removes per kilogram of comet | 0.7 | No game fact: the game gives an ore unit no mass that counts. Set for symmetry: a mineral comet takes away the mass of air an ice comet of the same mass brings, 0.7 kg per kg at 70 % arriving, so thinning a thick world costs as much comet as thickening a thin one by the same mass of air. On Venus (the game's molar masses: carbon dioxide 44, hydrochloric acid 36, nitrogen 64 g/mol, mean 43.1) that is 16.3 mol per kg |
+
+Fixed, not settings, because they are game facts: the Pumped Gas engine's 16.39 kN (measured) at 36 mol/s, its
+500 kg, the 2:1 methane to oxygen burn (`Combustion.ResultMethaneOxygen`), the gases' molar masses
+(`Mole.MolarMass`), each world's curvature, sky clock and day. `tools/PatchCheck` reads the game's own molar
+masses and burn ratio from the installed game and checks the worked examples above against them.
+
+## Decisions made while building
+
+Stage 2 (0.17.0). Each: the decision, the goal it serves, the alternative and why it lost. Goals are numbered as
+in *What it is judged against*.
+
+| Decision | Serves | Alternative, and why it lost |
 |---|---|---|
-| CutSharePerCycle | share of the site moved into the comet per Cut cycle | to be derived: mining cycle time and head wear, so a whole site costs a set number of head swaps |
-| GasArrivingShare | share of the gas left after the trip that reaches the planet | to be derived |
-| DiscRadiusMetres | R in the sky rule | to be derived: far enough that the safe distance fits inside, near enough that the impact can be seen (the game's far clip and the measured terrain curvature), and how much of the disc may lie past the voxel world's edge (Mars2 is 4096 m across; past it the impact takes its nearest edge's height, since 0.16.1) |
-| SecondsBetweenPasses | real time from one pass to the next | to be derived: long enough to plan a pass, short enough not to wait an evening |
-| LineShiftPerOrbit | how far the line moves between passes | to be derived from the orbit's inclination and the world's turn rate |
-| CorrectionMetresPerDeltaV | reach per unit of reserve Δv | to be derived |
-| EntryWindowSeconds | how long the deorbit burn can run, so thrust caps usable reserve | to be derived |
-| GroundZeroMetresAt1e6 | r0 at 1e6 mol; other zones scale from it | to be derived |
-| FireballRadiusFactor, DebrisRadiusFactor | zone radii as multiples of r0 | to be derived |
-| MaxDamagingRocks | the debris cap | from the cost rule |
-| MineralRemovalPerKg | air a mineral comet removes per kilogram | to be derived |
-| CometSizeMultiplier (K) | a comet's gas as a multiple of its site's | 5, from the balance table, until measured |
-
-Names are working names. The table is filled in as each piece is built.
+| The thirteen settings are world settings, recorded in each world's file and changed with `terraform set` | `SIDECAR.md`'s rule that every setting that affects a world lives in that world's own file | Config only: tuning a new world would change the next comet of every older world |
+| A comet weighs by the game's molar masses (water 108 g/mol), so it is about six times heavier than this design first assumed | 4, the game's own pieces: a rocket's fuel weighs by the same figures, and a comet flies by the rocket's rule | Physical molar masses (water 18): a comet and the rocket feeding it would weigh their gas by two different rules |
+| A whole comet is 1,000 Cut cycles (0.1 % a cycle), not 10 cycles (10 %) | LU's "more work at the site makes a bigger comet"; 4, the game's mining and head wear | 10 %: a whole comet in about 90 s, a head barely worn, so the work never decides anything |
+| K = 5, from the third-of-a-planet rule at Standard size and the site's true contents | LU's rule that one site never delivers a third of a planet | K = 6 from the 100,000 units the game shows: the site really holds 116,050, and K = 6 brings 16 % over the third. Not decided: on Short the rule holds only at K = 1; that is LU's call with the default planet size |
+| The disc shrinks with the world's drawn curvature | 3, never out of sight, on every world | One radius everywhere: on Vulcan and the Moon most of the disc's far half would be below the drawn horizon. Cost: there, the biggest comets' safe distance lies beyond the tracked half and needs reserve to reach |
+| R = 5,100 m, twice the biggest rocket comet's safe distance | 1, a tracked landing can be made at a safe distance; 3, every tracked landing is seen; 2, a blind burn often lands near the pad | The 8 km of the earlier table: a blind burn near the base far less likely, and small comets out of sight at the edge |
+| The orbit's tilt is the setting, and the line's shift between passes follows from it and the day | the approved mechanic: the line comes from the comet's real place in the game's sky | A line-shift number of its own: it would move the line by a rule the sky does not follow, so the telescope and the line would disagree |
+| 60 degrees of tilt | 1 and 6: every shipped world's pad gets passes straight overhead, so the line can be brought to any part of the disc near the pad | An equatorial orbit: off the equator no pass ever comes overhead, and the line hardly moves from pass to pass |
+| 372 s an orbit, Phobos's | 1: trackable by the Ground Telescope, as Phobos is; a pass in view for three minutes | 120 s, for a line that moves only 36 degrees a pass: the comet would cross the sky three times faster than anything the game shows |
+| Steering is T / 2 metres per m/s, capped by the engines' Δv in the fall | 7, a big comet steers little; exact at the cap | T per m/s: twice the largest steer the kinematics allow |
+| One fall time, Mars's 50 s, for every world | 5, simple | Per world from its gravity: 47 to 58 s, a spread smaller than the tuning matters |
+| The zones end where the wave crosses game thresholds (10,000, 2,000 and 200 kPa) | 4, the game's own limits; the zones and the wave never disagree | The earlier 150 m, 2.5 and 8 picked by eye: ground zero inside where the wave already breaks everything, and rocks that could hit beyond it |
+| The engines are counted at the measured 16.39 kN, not the 4 % more `RocketsBurnCompletely` gives a real engine | 4: the one thrust measured in the game | The modelled 16.95 kN: not measured |
+| 70 % arriving, as the approved design text has it | LU's "only part of the gas reaches the planet" | 60 %, the earlier balance table's figure: no fact favours it, and every comet count there is about a sixth higher |
+| A mineral comet takes 0.7 kg of air per kg | symmetry with an ice comet, so Venus costs as much comet per tonne of air as Mars | A momentum or energy estimate from the game's 590 m/s impact: 0.01 to 0.1 kg per kg, too little for a tool LU wants for thinning Venus |
+| 40 damaging rocks, half the 78 the show draws | the cost rule | All 78: twice the explosions for rocks that land only where the pass already found something |
+| All thirteen values ride the planet sync, not only those a client computes with | 5, one rule rather than a choice per setting; 108 bytes a planet update | Sending only the orbit and the disc: each later stage would have to revisit the list |
+| No `terraform comet sky` command in this stage | 5, no shipped code without a use | A console readout of the sky rule: its proof in the game comes with the sky body, stage 5, where a telescope reading gives it real inputs |
 
 ## Proof as it is built
 
@@ -345,13 +414,18 @@ Build order, each stage proven before the next starts:
 | 7 | the impact zones | structures at measured distances end as the table says |
 | 8 | multiplayer | a dedicated server and a rendered client on bt see the same comet, icon and impact |
 
+Stage 2 is in 0.17.0: `src/Comets/CelestialTuning.cs` (the settings) and `src/Comets/CelestialRules.cs` (the
+rules), checked at load (the log says so) and by `tools/PatchCheck`, which also hands the check nineteen wrong
+rules it must catch and reads the game's own molar masses and burn ratio under the worked examples.
+
 ## Open
 
-- The tuning numbers: Cut share per cycle, disc radius, orbit time per world, correction constant, entry
-  window, zone radii.
-- Fuel one rocket can carry per trip.
+- Fuel one rocket can carry per trip. A comet is heavy by the game's molar masses: a 2.3M mol water comet
+  (248 t) with 2 engines needs about 323,000 mol to come in from a Frozen Vapors site.
+- Burning the comet: no single ice site on Mars's map holds both methane and oxygen (volatiles come with
+  carbon dioxide, oxygen with nitrogen), so a comet can feed its own engines only if Cut mixes two sites. The
+  hydrazine site's ice burns alone in the game, but the rule here burns only methane with oxygen.
+- The mass per unit Cut moves into a mineral comet.
 - The Rig payload item.
-- A fixed 70 % arriving.
-- The mineral comet's removal constant.
-- K and the default planet size.
-- Whether an 8 km landing, past Mars's roughly 4 km of terrain, looks right on the far curved ground.
+- K on Short, and the default planet size.
+- Whether a landing past Mars's 4 km of terrain looks right on the far curved ground.

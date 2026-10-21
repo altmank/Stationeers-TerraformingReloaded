@@ -168,6 +168,21 @@ for name in world_scoped:
     need(re.search(r'public static readonly Range %s = new Range\(' % name, read('src/Settings.cs')) is not None,
          'Limits declares a range for %s' % name)
 need(('Limits.%s' % 'MaxPressureKPa') in read('src/Patching/Sidecar.cs'), 'the settings file is checked against Limits')
+# The Celestial terraforming settings are declared once, each key with its default and range, in
+# CelestialTuning.cs; the config entry, the settings file and the planet sync all take the range from there,
+# and every key is in the settings reference and in the design's config table.
+celestial = read('src/Comets/CelestialTuning.cs')
+celestial_keys = re.findall(r'new CelestialSetting\(\d+,\s*"(\w+)"', celestial)
+need(len(celestial_keys) >= 1 and len(set(celestial_keys)) == len(celestial_keys), 'the Celestial terraforming keys are declared once each %s' % celestial_keys)
+need('Comets.CelestialSettings.All' in plugin and 'Bounds(one.Range)' in plugin, 'every Celestial terraforming config entry takes its range from its one declaration')
+need('Recorded(value, setting.Range' in read('src/Patching/Sidecar.cs'), 'the settings file checks every Celestial terraforming value against its declared range')
+need('setting.Range.Holds(' in read('src/Sync.cs'), "the planet sync checks every host's Celestial terraforming value against its declared range")
+settings_doc = read('docs/SETTINGS.md')
+rockets_doc = read('docs/COMET-ROCKETS.md')
+for key in celestial_keys:
+    need(('| Celestial terraforming | %s |' % key) in settings_doc, 'docs/SETTINGS.md lists %s' % key)
+    need(('| %s |' % key) in rockets_doc, "docs/COMET-ROCKETS.md's config table derives %s" % key)
+need('to be derived' not in rockets_doc, "docs/COMET-ROCKETS.md's config table has no default left to be derived")
 
 tracked = subprocess.run(['git', 'ls-files'], capture_output=True, text=True, check=True).stdout.split('\n')
 tracked_set = set(tracked)
