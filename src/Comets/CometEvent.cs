@@ -18,8 +18,11 @@ namespace TerraformingReloaded.Comets
         /// <summary>Seconds from first sight to the impact.</summary>
         public const double ApproachSeconds = 15.0;
 
-        /// <summary>Seconds from first sight until the show is gone. The darker sky outlasts it.</summary>
-        public const double EndSeconds = 115.0;
+        /// <summary>
+        /// Seconds from first sight until the show is gone: the approach, then until the cloud is near
+        /// its height (<see cref="CometYield.ShowSeconds"/>), never past the darker sky's clearing.
+        /// </summary>
+        public static readonly double EndSeconds = ApproachSeconds + CometYield.Shipped.ShowSeconds();
 
         public int Sequence;
 
