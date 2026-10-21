@@ -63,7 +63,7 @@ The host picks the impact point. It starts from where the host is looking, turne
 `range=` if given. It must be at least the **safe distance** from every structure and every player in the
 world:
 
-- safe distance = 1,500 m + 500 m x the show scale: 1,750 m at 1e4 mol, 2,000 m at 1e5, 2,250 m at 1e6,
+- safe distance = 1,500 m + 500 m x the comet's scale (`CometRules.Scale`, the log scale the 0.16 show was drawn at): 1,750 m at 1e4 mol, 2,000 m at 1e5, 2,250 m at 1e6,
   2,500 m at 1e7, 2,750 m at 1e8, 3,000 m from 1e9 up;
 - if the point is too close to anything, it moves outward along the same bearing, then tries other bearings,
   until it fits;
@@ -228,7 +228,8 @@ and its delivery; `CometNet.cs` the instant message; `CometSite.cs` section 2; `
   the last event called off, so a planet sync written just before the stop cannot start it again.
 - The host keeps the event in force, and in the planet sync, until its darker sky has cleared (impact plus
   330 s), so a player who joins late still gets the sky. A second comet can be sent once the first show
-  has ended (115 s), which replaces it.
+  has ended, which replaces it: 345 s after first sight since the show is drawn from the comet's yield
+  ("Size from yield"), 115 s before.
 - The message is processed on the main thread: LaunchPadBooster reads its packets from
   `NetworkManager.ManagerUpdate` (its transpiler on `ReceiveEvents` calls `ReceiveUnknownEvent`, then
   `ConnectionState.ReceiveMessage` calls `Process`). Read in the installed `LaunchPadBooster.dll`. The event
@@ -280,8 +281,10 @@ and its delivery; `CometNet.cs` the instant message; `CometSite.cs` section 2; `
   down to it is in that frame: the head and its tail, sparks and smoke, every glow, the impact and its
   cloud. Their particles simulate in that frame, so those already out move with it. The approach moves as
   one and stays straight; the game curves nothing in the sky either.
-- Left in the real frame: the debris falling around the player and the gust of dust past them, both seen
-  near the player, where the ground is drawn where it is. The head's short glowing trail keeps its points
+- Left in the real frame: the gust of dust past the player, seen near the player, where the ground is drawn
+  where it is. The debris rain moved into the drawn frame with "Size from yield": it now falls over the
+  falling rocks zone around the impact, not around the player, so those far out land on the ground as drawn
+  and those near the player stop where they hit the ground there. The head's short glowing trail keeps its points
   where they were drawn, so it lags by the change in drop over its 2.5 s if the camera moves fast.
 - The sounds of the head and of the explosion come from where they are drawn. The wave and the sound's
   arrival stay at the real distance: they are physics.
@@ -346,7 +349,169 @@ sky.
   side; the comet, flash, shock front, sparks, ejecta and debris (3150) over everything.
 - By day the glow is drawn down to 55 % and smoke up to 128 % of its night opacity, and the column and cap
   emit up to 35 % more.
-- The whole show is held under 6,000 particles.
+- The whole show is held under 6,000 particles. How that holds for a show tens of kilometres across is
+  under "Size from yield", Cost.
 - The rig does not time frames itself. The show logs its own frame time, mean and worst, for the
   approach, the first 10 s after the impact and the rest, when it ends, and the rig's log carries that line.
 - The head is the prototype's glow, not a model.
+
+## Size from yield
+
+The 0.16 show drew everything from a log scale, (log10(mol) - 3) / 2 held to 0.4 to 3: at 1e7 mol a 240 m
+fireball and a 2.2 km column, and 1e8 only a quarter bigger. The wave rule (section 3) already says 1e7 is a
+megaton-class blast (256 kPa at 2.5 km). Now the show is drawn from the yield the wave implies, by the
+scaling laws of large explosions, so what is drawn and what is done agree. `src/Comets/CometYield.cs` holds
+the rule and its check; `CometShow` draws from its `CometSizes`.
+
+### The yield
+
+The wave, dP = 400 x (n / 1e7)^(2/3) x (2000 / d)^2 kPa, depends on the moles n and the distance d only
+through d / n^(1/3). That is cube-root blast scaling, Z = d / W^(1/3), with the yield W proportional to n.
+So the exponent is 1 by the rule's own form, not by a fit; only the constant is fitted.
+
+- **Reference curve:** Kinney and Graham (Explosive Shocks in Air, 1985), free-air TNT,
+  P / P0 = 808 (1 + (Z / 4.5)^2) / sqrt((1 + (Z / 0.048)^2)(1 + (Z / 0.32)^2)(1 + (Z / 1.35)^2)),
+  Z in m / kg^(1/3), P0 = 101.325 kPa.
+- **Nuclear surface burst:** W of nuclear yield on the ground is a free-air TNT burst of W: half a nuclear
+  yield goes to blast (Glasstone and Dolan 1977, 1.22) and the ground reflects it, doubling it (3.34). So the
+  nuclear laws below take W as it is.
+- **Fit:** least squares in the logarithm of the peak, at 41 distances from 500 m to 20 km (even on a log
+  scale) and 17 comets from 1e5 to 1e9 mol (quarter decades), over the points where the wave is between
+  200 kPa (the weakest limit that breaks) and 10,000 kPa (the strongest wall): **2.194e-4 kt a mole**, shipped
+  as 2.19e-4. A million moles is 219 kt, ten million 2.19 Mt. That band is where the wave decides what breaks
+  and who is thrown hard, so the drawn yield matches the damage where the damage is. Fitting all of 500 m
+  to 20 km instead gives 2.32e-4 (6 % more), and a mismatch there of x1.45 on average against the band's x1.08.
+- **Residual**, the wave over the curve (above 1 the wave is stronger):
+
+| Comet | 500 m | 2 km | 20 km | 500 m to 20 km, rms / worst | 200 to 10,000 kPa: points, rms / worst |
+|---|---|---|---|---|---|
+| 1e5 mol | 1.10 | 1.16 | 0.16 | x2.22 / 0.16 | 3, x1.14 / 1.17 |
+| 1e6 mol | 0.92 | 1.30 | 0.34 | x1.49 / 0.34 | 11, x1.08 / 1.16 |
+| 1e7 mol | 1.02 | 1.05 | 0.68 | x1.19 / 0.68 | 19, x1.07 / 1.15 |
+| 3.6e7 mol | 1.26 | 0.94 | 0.95 | x1.17 / 1.32 | 21, x1.08 / 1.16 |
+| 1e8 mol | 1.61 | 0.91 | 1.16 | x1.21 / 1.61 | 22, x1.08 / 1.17 |
+| 1e9 mol | 3.48 | 1.08 | 1.30 | x1.55 / 3.48 | 21, x1.08 / 1.16 |
+
+  Within the band the two agree to 8 % on average and 17 % at worst, for every size. Outside it they part,
+  because the wave falls as d^-2 everywhere and a real blast does not: far out, weak, it falls more slowly
+  (a 1e5 comet at 20 km: the wave 0.19 kPa, the curve 1.2 kPa); close in, strong, faster (1e9 at 500 m: the
+  wave 138,000 kPa, the curve 40,000). Neither end changes what breaks.
+
+### The laws
+
+W in kilotons, a nuclear surface burst. Each is held against its source by `CometYield.Check`.
+
+| What | Law | Source | 1e7 mol (2.19 Mt) |
+|---|---|---|---|
+| Fireball, largest radius | R = 180 ft x (2W)^0.4 = 54.9 m x (2W)^0.4 | Glasstone and Dolan: 180 W^0.4 ft in free air (1 Mt: 5,700 ft across); a surface burst as twice the yield, its hemisphere holding a sphere's energy | 1,570 m |
+| Thermal pulse peak | t_max = 0.0417 W^0.44 s | Glasstone and Dolan, chapter VII | 1.23 s |
+| Fireball full grown, flash over | 10 t_max | Glasstone and Dolan's 1 Mt fireball is 5,700 ft across about 10 s after; 10 t_max = 8.7 s | 12.3 s |
+| Flash shape | P / P_max = 2x^2 / (1 + x^4), x = t / t_max; about 90 % of the energy is out by 10 t_max | a fit to Glasstone and Dolan's thermal pulse curve (from memory; check against their figure) | |
+| Flash brightness | peak irradiance ∝ W / t_max / d^2 ∝ W^0.56 / d^2, stated against 1e7 mol at 2.5 km | energy over the pulse's length; the thermal share is the same at every yield | 1 at 2.5 km |
+| Cloud top | H = 22.5 km x (W / 1 Mt)^(1/4) | exponent: a buoyant thermal in stratified air rises as its energy to the 1/4, z ∝ (F / N^2)^(1/4) (Morton, Taylor and Turner 1956). Constant: the geometric mean through Ivy Mike (10.4 Mt, 41 km), Castle Bravo (15 Mt, about 40 km) and Tsar Bomba (50 Mt, about 65 km), off by -1.5 %, +10.7 %, -8.0 % | 27.4 km |
+| Cloud rise | top(t) = R + (H - R)(1 - e^(-t / 150 s)) | Castle Bravo was at 14 of 40 km a minute in (model 33 %, measured 35 %), Ivy Mike at 17 of 41 km at 90 s (45 %, 41 %). A stratified thermal reaches its height in a time set by the air's stability, not its energy, so one time for every yield | 10.1 km at 1 min |
+| Cap width | 1.5 x the cloud's top | Tsar Bomba's cap, 95 km across a cloud about 65 km high; a self-similar thermal keeps the ratio. Caps go on spreading afterwards (Bravo's reached 100 km, Mike's 161 km); the show ends before | 41 km |
+| Stem | radius 0.35 R at the ground, widening as b = (6/5) α z with α = 0.1: half-angle 6.8 degrees | a buoyant plume's entrainment (Morton, Taylor and Turner 1956); the 0.16 show's 7 degrees, chosen by eye, was the same | |
+| Shock front | leaves at 340 m/s | the wave's own speed (section 3) | |
+| Ground dust | out to where the wave throws a player, 50 kPa: d = 2000 x sqrt(400 (n / 1e7)^(2/3) / 50) m, leaving at the speed of sound and slowing to stop there | the game's own threshold: there is no law for a land burst's surge to cite | 5.7 km |
+| Thrown rocks | up to v = sqrt(g x R_rocks), which lands exactly at R_rocks at 45 degrees and nothing beyond; the highest throw tops out at R_rocks / 4; under the world's own gravity, no drag | ballistics; R_rocks is the falling rocks zone, 7.07 r0 | 2.8 km |
+| Head | size 2 x (n / 1e7)^(1/3) (the 0.16 head at 1e7), tail length with it; light ∝ n^(2/3), at most 4 times 1e7's | a body's diameter is the cube root of its mass; a meteor's light is the kinetic energy it sheds, which goes with the area it ablates over | as 0.16 |
+| Show length | until the cloud is at 90 % of its height, 150 x ln 10 = 345 s, and never past the darker sky's clearing, 330 s after the impact | the event already lasts that long (section 1), so no new lifetime | 330 s |
+
+Every length a 0.16 element took from its 120 m x scale radius it now takes from R, the cap's width, the
+dust's reach or the rocks' reach; every time from the fireball's growth, the cloud's rise, the wave's travel
+or the fall. The proportions inside an element (a puff a third of the cap's width, a stem 0.35 R at its root)
+are the drawing's own and the same at every size.
+
+### The table
+
+From `tools/PatchCheck`, which prints it, at the shipped zone settings:
+
+| Comet | W | Fireball (law / zone) | Grown by | Cloud top | Cap width | Dust | Rocks | Show after impact | Far clip from the safe distance |
+|---|---|---|---|---|---|---|---|---|---|
+| 1e5 mol | 21.9 kt | 249 m (249 / 193) | 1.6 s | 8.7 km | 13.0 km | 1.2 km | 610 m | 330 s | 19 km |
+| 1e6 mol | 219 kt | 625 m (625 / 417) | 4.5 s | 15.4 km | 23.1 km | 2.6 km | 1.3 km | 330 s | 32 km |
+| 1e7 mol | 2.19 Mt | 1,570 m (1,570 / 898) | 12.3 s | 27.4 km | 41.1 km | 5.7 km | 2.8 km | 330 s | 56 km |
+| 3.6e7 mol | 7.88 Mt | 2,621 m (2,621 / 1,376) | 21.6 s | 37.7 km | 56.6 km | 8.7 km | 4.3 km | 330 s | 77 km |
+| 1e8 mol | 21.9 Mt | 3,943 m (3,943 / 1,934) | 33.9 s | 48.7 km | 73.0 km | 12.2 km | 6.1 km | 330 s | 99 km |
+| 1e9 mol | 219 Mt | 9,906 m (9,906 / 4,166) | 93.3 s | 86.6 km | 129.8 km | 26.3 km | 13.2 km | 330 s | 174 km |
+
+Calculated, not seen: `tools/CometShot` on bt is what shows them.
+
+### The thin air
+
+Not adjusted anywhere. The cloud's rise is the one place a documented relation says how: the thermal's
+buoyancy is F = g E / (ρ c_p T) = g E (γ - 1) / (γ P), so at the same stability its height goes as P^(-1/4).
+On the game's shipped Mars (about 2.1 kPa) that is 2.6 times Earth's height: a 1e7 cloud at 72 km, a 1e9 at
+225 km, and on an airless world no limit at all. It is left out because:
+
+- the yield is the wave's, and the wave ignores the planet's air by design (section 3). A cloud that grew in
+  thin air while the damage did not would put the show and the damage apart again;
+- the relation assumes the cloud rises a small part of the air's scale height. From about 1e5 mol up every
+  cloud here already rises past Earth's 8 km, and past Mars's 11 km by a wider margin;
+- holding it to anything finite would need a limit no physics gives.
+
+The fireball, the flash and the dust are not adjusted for the air either. The rocks fall under the world's own
+gravity (`Physics.gravity`), which is ballistics, not the air: their flight goes as one over the square
+root of the gravity, so on the Moon they fly 1.5 times as long as on Mars.
+
+### Against the damage
+
+- The drawn fireball is never smaller than the fireball zone. `CometYield.Check` sweeps 1 to 1e12 mol at the
+  shipped zone settings and at every zone setting's maximum. The law is the larger at every shipped size;
+  below about 2,300 mol the cube-root zone overtakes it and the zone is drawn.
+- The rocks land inside the falling rocks zone, the fastest at its edge, and the rain of them falls over that
+  zone and nowhere else: a player outside it sees it fall in the distance.
+- The dust stops exactly where the wave stops throwing a player, and the shock front travels with the wave.
+- **Not closed, LU's call.** The law's fireball is 1.3 times (1e5) to 2.4 times (1e9) the fireball zone, so a
+  player between the zone's edge and the drawn fireball's stands in drawn fire and takes no heat. And from
+  about 3.7e7 mol, just past the largest rocket comet, the drawn fireball reaches past the console comet's
+  safe distance: 1e8's 3.9 km fireball
+  covers the nearest allowed point at 2.75 km, 1e9's 9.9 km the one at 3 km. Either the fireball zone follows
+  the law (`FireballLawMetres` in place of 2.24 r0) or the fireball is drawn at the zone and the law kept for
+  its timing. The zones are `CelestialRules`/`CelestialTuning`; the safe distance and the sky's depth keep the
+  0.16 log scale (`CometRules.Scale`, `SafeDistance`, `SkyDim`), whose tables are approved and which the
+  rocket stage's disc radius is derived from. At 1e9 the safe distance was already inside the fireball zone
+  (3 km against 4.2 km).
+
+### The camera
+
+- The far clip is raised, never lowered, every frame, to 1.05 times the distance to the far corner of the
+  show's bounds: out to the largest of 1.6 times the cap's half-width, 1.2 times the dust's reach and 1.05
+  times the rocks', up to the cloud's top plus 0.6 times the cap's half-width, plus the drawn drop at the
+  impact and the eye's height above it. During the approach it also covers 1.3 times the distance to the
+  comet's start. Restored when the show ends, as before. `CometYield.Check` holds it past the farthest
+  corner for every size from the safe distance, from 5,100 m and from 20 km, with and without the drop there.
+- The drawn frame still applies: the cap and the fireball are drawn in frames of their own (`Cap`, `Ball`)
+  that climb with the cloud inside `TR Comet/Drawn/Impact`, so they move with the drawn ground as everything
+  else there does.
+
+### Cost
+
+- **Per frame:** the same systems as 0.16, plus a handful of shape lengths, radii and start sizes set each
+  frame for the stem and the cap, and the far clip. No per-tick work and nothing that grows with the size.
+- **Particles:** the cap of 6,000 across the show is unchanged, and so is each system's own count.
+- **Overdraw:** every puff in an element is sized to that element, and the counts are as in 0.16, so a pixel
+  the cloud covers is covered by as many layers as in 0.16. What a bigger show adds is the share of the
+  screen it covers, at most all of it, and no puff draws past the screen's edges, so none costs more than one
+  screen. Puffs hundreds of metres across turn more slowly, and fade into the ground over a tenth of their
+  size rather than the art's 30 m. The show logs its frame time, mean and worst, at its end, and the rig's log
+  carries the line.
+- **Length:** 345 s from first sight, against 115. A second console comet waits until then; the event in force
+  already lasted until 330 s after the impact.
+
+### How it is proved
+
+- `CometYield.Check` runs at load, chained into the comet rules' own verdict, so a failure turns comets off as
+  the other rules' do, and in `tools/PatchCheck`, which hands it eight wrong rules it must catch: a yield as
+  the 2/3 power of the moles, as their logarithm, a fifth too big; a fireball drawn by the law alone inside
+  its zone; a fireball and a cloud as the cube root of the yield; the 0.16 far clip of four times the impact's
+  distance; a show that outlasts the darker sky. It refits the yield itself, so retuning the wave without
+  refitting fails the build.
+- Every machine logs, per event, `[TR comet] event N drawn from its yield: yield W (kt), fireball R m (law,
+  zone) full grown at t, flash peak, cloud top, cap across, dust, rocks, show s after the impact, head scale;
+  the show ends s after first sight`; the show's own line adds the far clip it set.
+- `tools/CometShot` takes `-Times` items of the form `every=<s> until=<s>` with an optional `from=<s>` (for
+  example `2,8,14,every=0.5 from=15 until=20,every=5 until=345`), and its timeout grows to the last shot;
+  `-Fov` sets the camera's vertical field of view and `-Back` stands it that many metres further back along
+  its view. Both default to 0, which leaves the camera as it was.
