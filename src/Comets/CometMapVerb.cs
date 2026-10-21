@@ -183,7 +183,7 @@ namespace TerraformingReloaded.Comets
         {
             CultureInfo c = CultureInfo.InvariantCulture;
             StringBuilder text = new StringBuilder("Comets on the space map (debug).");
-            double size = PlanetSize();
+            double size = CometMap.PlanetSize();
             if (size > 0.0)
             {
                 CelestialTuning tuning = Effective.Celestial;
@@ -198,7 +198,9 @@ namespace TerraformingReloaded.Comets
             foreach (CometView comet in comets)
             {
                 text.AppendLine();
-                text.Append(string.Format(c, "  {0}: {1:N0} mol, {2:N1} t, {3} engine{4}; ", comet.Id, comet.TotalMoles, comet.CometKg / 1000.0, comet.Engines, comet.Engines == 1 ? "" : "s"));
+                text.Append(string.Format(c, "  {0}: {1}, {2:N1} t in flight, {3} engine{4}{5}; ", comet.Id,
+                    comet.Kind == CometKind.Mineral ? string.Format(c, "{0:N0} units of ore", comet.OreUnits) : string.Format(c, "{0:N0} mol", comet.TotalMoles),
+                    comet.CometKg / 1000.0, comet.Engines, comet.Engines == 1 ? "" : "s", comet.Cycles > 0 ? string.Format(c, ", {0} Cut cycles", comet.Cycles) : ""));
                 string from = NodeName(comet.FromNode);
                 string to = NodeName(comet.ToNode);
                 switch (comet.State)
@@ -298,14 +300,6 @@ namespace TerraformingReloaded.Comets
                 deltaV += transit.GetDistance();
             }
             return deltaV > 0.0;
-        }
-
-        /// <summary>The planet being played as a share of the one the world ships, or 0 when there is none.</summary>
-        private static double PlanetSize()
-        {
-            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
-            double shipped = WorldSetting.Current?.Data?.GlobalAtmosphereData?.Volume?.Value ?? 0.0;
-            return tank != null && shipped > 0.0 ? tank.Volume.ToDouble() / shipped : 0.0;
         }
     }
 }

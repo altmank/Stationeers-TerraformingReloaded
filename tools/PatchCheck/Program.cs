@@ -819,6 +819,8 @@ internal static class Program
             ("comet map save", TerraformingReloaded.Comets.CometMapPatches.ApplySave),
             ("comet map icon", TerraformingReloaded.Comets.CometMapIcons.Apply),
             ("comet site guard", TerraformingReloaded.Comets.CometMapPatches.ApplyGuard),
+            ("comet rocket actions", TerraformingReloaded.Comets.CometActionPatches.Apply),
+            ("comet action buttons", TerraformingReloaded.Comets.CometActionPatches.ApplyButtons),
         };
         foreach (var part in parts)
         {
@@ -994,6 +996,15 @@ internal static class Program
             ("a comet that runs dry and is still put at the end of its route", new StrandedAtTheEnd()),
             ("a size multiplier that ignores the planet's size", new FixedSizeMultiplier()),
             ("a size multiplier that falls under 1 on a small planet", new UnflooredSizeMultiplier()),
+            ("a Cut cycle that grows past the size multiplier times the site", new UncappedCutCycle()),
+            ("a Cut cycle that ignores the drill head's yield", new YieldlessCut()),
+            ("a comet whose size multiplier's extra gas weighs", new HeavyMultiplier()),
+            ("fuel that moves every methane and oxygen, not only what pairs two to one", new UnpairedFuel()),
+            ("fuel that moves one methane to one oxygen", new EvenFuel()),
+            ("fuel that moves the same however big the rocket's stores are", new VolumelessFuel()),
+            ("a Burn that gives fuel without taking it from the comet", new FreeBurn()),
+            ("fuel needed that leaves out the fuel's own weight", new WeightlessFuelNeeded()),
+            ("a disc that ignores the planet's size", new SizelessDisc()),
         };
         foreach (var wrong in wrongRules)
         {
@@ -1241,6 +1252,75 @@ internal static class Program
     private sealed class UnflooredSizeMultiplier : TerraformingReloaded.Comets.CelestialRules
     {
         public override double SizeMultiplier(double standardMultiplier, double planetSize) => standardMultiplier * planetSize / StandardPlanetSize;
+    }
+
+    private sealed class UncappedCutCycle : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double CutAdds(double siteAmount, double cometAmount, double sharePerCycle, double sizeMultiplier, double headYield) =>
+            sharePerCycle * headYield * sizeMultiplier * siteAmount;
+    }
+
+    private sealed class YieldlessCut : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double CutAdds(double siteAmount, double cometAmount, double sharePerCycle, double sizeMultiplier, double headYield) =>
+            base.CutAdds(siteAmount, cometAmount, sharePerCycle, sizeMultiplier, 1.0);
+    }
+
+    private sealed class HeavyMultiplier : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double FlightKg(double contentsKg, double massScale, double sizeMultiplierInForce) => base.FlightKg(contentsKg, massScale, 1.0);
+    }
+
+    private sealed class UnpairedFuel : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.OwnFuel PremixTransfer(double methane, double oxygen, double storesLitres, double litresPerSecond, double seconds)
+        {
+            double share = storesLitres > 0.0 ? Math.Min(1.0, litresPerSecond * seconds / storesLitres) : 0.0;
+            return new TerraformingReloaded.Comets.OwnFuel(share * methane, share * oxygen);
+        }
+    }
+
+    private sealed class EvenFuel : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.OwnFuel PremixTransfer(double methane, double oxygen, double storesLitres, double litresPerSecond, double seconds)
+        {
+            TerraformingReloaded.Comets.OwnFuel real = base.PremixTransfer(methane, oxygen, storesLitres, litresPerSecond, seconds);
+            double half = (real.Methane + real.Oxygen) / 2.0;
+            return new TerraformingReloaded.Comets.OwnFuel(half, half);
+        }
+    }
+
+    private sealed class VolumelessFuel : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.OwnFuel PremixTransfer(double methane, double oxygen, double storesLitres, double litresPerSecond, double seconds) =>
+            base.PremixTransfer(methane, oxygen, storesLitres > 0.0 ? 1500.0 : 0.0, litresPerSecond, seconds);
+    }
+
+    private sealed class FreeBurn : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double[] AfterBurn(double[] moles, int methane, int oxygen, double wanted, out double fuelGained)
+        {
+            base.AfterBurn(moles, methane, oxygen, wanted, out fuelGained);
+            return (double[])moles.Clone();
+        }
+    }
+
+    private sealed class WeightlessFuelNeeded : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double FuelNeeded(double cometKg, int engines, double routeDeltaV, double fuelKgPerMole)
+        {
+            if (engines <= 0)
+            {
+                return 0.0;
+            }
+            double dry = cometKg + EngineMassKg * engines;
+            return dry * routeDeltaV / (EngineThrustNewtons / (EngineMolesPerSecond * fuelKgPerMole)) / fuelKgPerMole;
+        }
+    }
+
+    private sealed class SizelessDisc : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double DiscRadiusAt(double settingMetres, double curvature, double standardMultiplier, double planetSize) => DiscRadius(settingMetres, curvature);
     }
 
     private static int Judge(bool passed, string what)

@@ -410,6 +410,11 @@ namespace TerraformingReloaded.Patching
             Extra(report, "comet map icon", () => Comets.CometMapIcons.Apply(harmony));
             // A site a comet holds stays on the map: the host's two ways of removing one skip it.
             Extra(report, "comet site guard", () => Comets.CometMapPatches.ApplyGuard(harmony));
+            // The rocket actions that make and send a comet (stage 4): Cut, Rig, Fuel, Burn and Launch, the
+            // save kept from ever holding a mode the game does not define. Offered only with the save above.
+            Extra(report, "comet rocket actions", () => Comets.CometActionPatches.Apply(harmony));
+            // Their buttons on the rocket map screen, copied from the game's Mine button.
+            Extra(report, "comet action buttons", () => Comets.CometActionPatches.ApplyButtons(harmony));
 
             return report;
         }

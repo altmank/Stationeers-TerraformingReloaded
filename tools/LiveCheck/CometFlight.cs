@@ -20,7 +20,7 @@ namespace TerraformingReloaded.LiveCheck
     ///
     /// Phase "make", in a new world: the driver discovers a real site with the game's own discovery (the
     /// node nearest the orbit that can discover one), and makes three comets there with the mod's debug
-    /// verb: A with a quarter more fuel than its route needs, B with half of what A needs, C four times A's
+    /// verb: A with a quarter more fuel than its route needs, B with half of what A needs, C sixteen times A's
     /// gas with a quarter more than it needs. Before they go, the site guard: the site holding A is kept
     /// when the game's own removal is called on it, and a second site with no comet is removed. Then all
     /// three are sent at once. A must reach Entry when the rule says, and when a flight stepped as the game
@@ -190,13 +190,13 @@ namespace TerraformingReloaded.LiveCheck
                 _site.DisplayName, _site.Data?.Id, _site.ReferenceId, parent.DisplayName, index, hops, _route, _premix, DifficultySetting.Current?.Id));
 
             double aKg = Kg(100000.0);
-            double cKg = Kg(400000.0);
+            double cKg = Kg(1600000.0);
             double aFuel = FuelFor(aKg, 2, 1.25);
             double bFuel = 0.5 * aFuel / 1.25;
             double cFuel = FuelFor(cKg, 2, 1.25);
             _a = Make(index, "100000", 2, aFuel);
             _b = Make(index, "100000", 2, bFuel);
-            _c = Make(index, "400000", 2, cFuel);
+            _c = Make(index, "1600000", 2, cFuel);
             if (_a == 0 || _b == 0 || _c == 0)
             {
                 Fail("the mod's make verb did not make all three comets");
@@ -529,7 +529,17 @@ namespace TerraformingReloaded.LiveCheck
 
         private Flight Rule(double kg, int engines, double fuel) => CelestialRules.Shipped.Fly(kg, engines, fuel, _route, _premix);
 
-        private double Kg(double carbonDioxide) => carbonDioxide * Mole.MolarMass(Chemistry.GasType.CarbonDioxide) / 1000.0;
+        /// <summary>
+        /// A comet of this much carbon dioxide's weight in flight: its weight by the game's molar mass, less
+        /// the share the size multiplier in force adds, times the comet weight setting (CometMassScale).
+        /// </summary>
+        private double Kg(double carbonDioxide)
+        {
+            TerraformingReloaded.Comets.CelestialTuning tuning = TerraformingReloaded.Effective.Celestial;
+            double size = CometMap.PlanetSize();
+            double k = tuning.SizeMultiplierAt(size > 0.0 ? size : CelestialRules.StandardPlanetSize);
+            return carbonDioxide * Mole.MolarMass(Chemistry.GasType.CarbonDioxide) / 1000.0 * tuning.CometMassScale / k;
+        }
 
         /// <summary>The fuel that is <paramref name="margin"/> times what the route needs, the fuel's own mass included.</summary>
         private double FuelFor(double kg, int engines, double margin)

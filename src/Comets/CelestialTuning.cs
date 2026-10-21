@@ -107,12 +107,25 @@ namespace TerraformingReloaded.Comets
             "MineralRemovalPerKg", "Air a mineral comet removes (kg per kg)", "kg per kg", 0.7, new Range(0.0, 100.0), "%.2f",
             "Kilograms of the planet's air a mineral comet blasts away for every kilogram it weighs. At 0.7 it takes away as much air as an ice comet of the same weight brings.");
 
+        public static readonly CelestialSetting CometMassScale = new CelestialSetting(13,
+            "CometMassScale", "Comet weight (share of what was cut)", "", 0.39, new Range(0.0, 10.0), "%.2f",
+            "How much a comet weighs in flight, as a share of what the ice or ore cut from its site weighs. The extra gas the comet size setting gives weighs nothing, so a comet cut the same way weighs the same on every planet size. At 0.39 the heaviest comet a Mars map can make needs no more time spent flying its fuel up to it in a big fuel rocket than cutting it took with one drill.");
+
+        public static readonly CelestialSetting MineralKgPerUnit = new CelestialSetting(14,
+            "MineralKgPerUnit", "Mineral comet weight per unit of ore (kg)", "kg", 2.592, new Range(0.001, 100.0), "%.3f",
+            "What one unit of ore cut into a mineral comet weighs before the comet weight share above. 2.592 kg is a unit of water ice by the game's own figures, 24 mol at 108 g/mol, so a mineral comet weighs what a water ice comet cut the same way does.");
+
+        public static readonly CelestialSetting FuelLitresPerSecond = new CelestialSetting(15,
+            "FuelLitresPerSecond", "Fuel into a comet (litres a second)", "L/s", 200.0, new Range(1.0, 100000.0), "%.0f",
+            "How fast the Fuel action moves fuel from the rocket's tanks and pipes into a comet: each second, the 2:1 methane and oxygen held in this many litres of those stores. 200 is what a Turbo Volume Pump moves, 100 litres every half-second tick.");
+
         /// <summary>Every setting, in the order the config editor shows them; each one's place is its <see cref="CelestialSetting.Index"/>.</summary>
         public static readonly CelestialSetting[] All =
         {
             CutSharePerCycle, CometSizeMultiplier, OrbitSeconds, OrbitInclinationDegrees, DiscRadiusMetres,
             CorrectionMetresPerDeltaV, EntryWindowSeconds, GroundZeroMetresAt1e6, FireballRadiusFactor,
             DebrisRadiusFactor, MaxDamagingRocks, GasArrivingShare, MineralRemovalPerKg,
+            CometMassScale, MineralKgPerUnit, FuelLitresPerSecond,
         };
 
         /// <summary>The setting with this key, ignoring case, or null.</summary>
@@ -200,5 +213,12 @@ namespace TerraformingReloaded.Comets
         public double MaxDamagingRocks => this[CelestialSettings.MaxDamagingRocks];
         public double GasArrivingShare => this[CelestialSettings.GasArrivingShare];
         public double MineralRemovalPerKg => this[CelestialSettings.MineralRemovalPerKg];
+        public double CometMassScale => this[CelestialSettings.CometMassScale];
+        public double MineralKgPerUnit => this[CelestialSettings.MineralKgPerUnit];
+        public double FuelLitresPerSecond => this[CelestialSettings.FuelLitresPerSecond];
+
+        /// <summary>The landing disc in force on a world of this curvature and planet size (CelestialRules.DiscRadiusAt).</summary>
+        public double DiscRadiusAt(double curvature, double planetSize) =>
+            CelestialRules.Shipped.DiscRadiusAt(DiscRadiusMetres, curvature, CometSizeMultiplier, planetSize);
     }
 }

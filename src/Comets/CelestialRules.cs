@@ -83,6 +83,21 @@ namespace TerraformingReloaded.Comets
         }
 
         /// <summary>
+        /// The fuel a comet must carry to fly a route by the rocket rule, the fuel's own weight included:
+        /// its dry mass (the comet and its engines) times (e^(Δv / exhaust speed) - 1).
+        /// </summary>
+        public virtual double FuelNeeded(double cometKg, int engines, double routeDeltaV, double fuelKgPerMole)
+        {
+            if (engines <= 0 || !(fuelKgPerMole > 0.0) || !(routeDeltaV > 0.0))
+            {
+                return 0.0;
+            }
+            double dry = Math.Max(0.0, cometKg) + EngineMassKg * engines;
+            double exhaust = EngineThrustNewtons / (EngineMolesPerSecond * fuelKgPerMole);
+            return dry * (Math.Exp(routeDeltaV / exhaust) - 1.0) / fuelKgPerMole;
+        }
+
+        /// <summary>
         /// The Δv a comet has gained once its engines have burnt for <paramref name="seconds"/> at full
         /// throttle, by the rocket equation, and no more once the fuel is gone: Δv = (thrust / fuel flow)
         /// x ln(mass at the start / mass now).
@@ -191,6 +206,80 @@ namespace TerraformingReloaded.Comets
             return grams / 1000.0;
         }
 
+        /// <summary>
+        /// What one Cut cycle adds to a comet, in the site's own measure (moles of its ice, or units of
+        /// its ore): the share of the site a cycle cuts, times the drill head's yield for the site's kind
+        /// (IceYieldMultiplier or ReagentYieldMultiplier, as the game's mining uses them), times the size
+        /// multiplier, and never past the size multiplier times the site. A head that yields nothing of
+        /// the site's kind cuts nothing, as it mines nothing in the game.
+        /// </summary>
+        public virtual double CutAdds(double siteAmount, double cometAmount, double sharePerCycle, double sizeMultiplier, double headYield)
+        {
+            double cap = Math.Max(0.0, sizeMultiplier) * Math.Max(0.0, siteAmount);
+            double step = Math.Max(0.0, sharePerCycle) * Math.Max(0.0, headYield) * cap;
+            double room = cap - Math.Max(0.0, cometAmount);
+            // A comet within rounding of the cap is full: summing cycles never lands on it exactly.
+            return room > 1e-9 * cap ? Math.Min(step, room) : 0.0;
+        }
+
+        /// <summary>
+        /// A comet's weight in flight: what its contents weigh by the game's figures, less the share the
+        /// size multiplier added, which weighs nothing (the game leaves mined cargo weightless on a
+        /// rocket), times the mass scale. So the comet weighs the ice or ore cut from its site, scaled,
+        /// the same on every planet size.
+        /// </summary>
+        public virtual double FlightKg(double contentsKg, double massScale, double sizeMultiplierInForce)
+        {
+            return Math.Max(0.0, contentsKg) * Math.Max(0.0, massScale) / Math.Max(1.0, sizeMultiplierInForce);
+        }
+
+        /// <summary>
+        /// What the Fuel action takes from one of the rocket's fuel stores in <paramref name="seconds"/>:
+        /// of the methane and oxygen it holds, only what pairs at the engines' two to one counts as fuel,
+        /// and of that the share a pump moving <paramref name="litresPerSecond"/> through all
+        /// <paramref name="storesLitres"/> of the rocket's stores moves, never more than all of it.
+        /// What is not premix stays behind.
+        /// </summary>
+        public virtual OwnFuel PremixTransfer(double methane, double oxygen, double storesLitres, double litresPerSecond, double seconds)
+        {
+            if (!(storesLitres > 0.0))
+            {
+                return new OwnFuel(0.0, 0.0);
+            }
+            double share = Math.Min(1.0, Math.Max(0.0, litresPerSecond) * Math.Max(0.0, seconds) / storesLitres);
+            double oxygenInPairs = Math.Min(Math.Max(0.0, methane) / MethanePerOxygen, Math.Max(0.0, oxygen));
+            double oxygenTaken = share * oxygenInPairs;
+            return new OwnFuel(MethanePerOxygen * oxygenTaken, oxygenTaken);
+        }
+
+        /// <summary>
+        /// The premix one Burn cycle asks of a comet: a Cut cycle's share of the comet as it stands,
+        /// times the drill head's ice yield. What it gets is <see cref="BurnOwnFuel"/> of that.
+        /// </summary>
+        public virtual double BurnWanted(double cometMoles, double sharePerCycle, double headYield)
+        {
+            return Math.Max(0.0, cometMoles) * Math.Max(0.0, sharePerCycle) * Math.Max(0.0, headYield);
+        }
+
+        /// <summary>
+        /// A comet's gas after one Burn: its methane and oxygen fall by what <see cref="BurnOwnFuel"/>
+        /// burns, every other gas stays, and the fuel it gains is exactly the moles that left.
+        /// </summary>
+        public virtual double[] AfterBurn(double[] moles, int methane, int oxygen, double wanted, out double fuelGained)
+        {
+            double[] after = (double[])moles.Clone();
+            fuelGained = 0.0;
+            if (methane < 0 || oxygen < 0 || methane >= moles.Length || oxygen >= moles.Length || methane == oxygen)
+            {
+                return after;
+            }
+            OwnFuel burnt = BurnOwnFuel(moles[methane], moles[oxygen], wanted);
+            after[methane] = Math.Max(0.0, moles[methane] - burnt.Methane);
+            after[oxygen] = Math.Max(0.0, moles[oxygen] - burnt.Oxygen);
+            fuelGained = (moles[methane] - after[methane]) + (moles[oxygen] - after[oxygen]);
+            return after;
+        }
+
         // ---- the sky rule and the reserve ---------------------------------------------------------------
 
         /// <summary>The curvature the disc radius setting is stated for: Mars2's and Venus's.</summary>
@@ -204,6 +293,25 @@ namespace TerraformingReloaded.Comets
         public virtual double DiscRadius(double settingMetres, double curvature)
         {
             return curvature > 0.0 ? settingMetres * ReferenceCurvature / curvature : settingMetres;
+        }
+
+        /// <summary>The most a site on any shipped map holds: Europa's map's biggest, D8 R3 S7, 24 mol a unit, before the game rounds it.</summary>
+        public const double LargestShippedSiteMoles = 3048381.0;
+
+        /// <summary>
+        /// The disc in force on a planet of this size. The setting is stated at Standard size, where half
+        /// the disc is the biggest rocket comet's safe distance; on a bigger planet K makes the biggest
+        /// comet bigger, and the disc grows by twice what that adds to its safe distance, so a landing
+        /// tracked while the comet is in sight can still reach a safe distance. It never shrinks below the
+        /// setting. Then the curvature, as <see cref="DiscRadius"/>.
+        /// </summary>
+        public virtual double DiscRadiusAt(double settingMetres, double curvature, double standardMultiplier, double planetSize)
+        {
+            CometRules wave = CometRules.Shipped;
+            double inForce = SizeMultiplier(standardMultiplier, planetSize) * LargestShippedSiteMoles;
+            double atStandard = SizeMultiplier(standardMultiplier, StandardPlanetSize) * LargestShippedSiteMoles;
+            double grown = 2.0 * (wave.SafeDistance(wave.Scale(inForce)) - wave.SafeDistance(wave.Scale(atStandard)));
+            return DiscRadius(Math.Max(0.0, settingMetres) + Math.Max(0.0, grown), curvature);
         }
 
         /// <summary>
@@ -424,12 +532,27 @@ namespace TerraformingReloaded.Comets
         private const double MarsTimeScale = 4.494e-4;           // OrbitalSimulation.CalculateTimeScale on Mars2
         private const double PhobosPeriodDays = 0.3189;          // celestialbodies.xml
         private const double MostShippedLatitude = 58.4;         // Mimas (MimasHerschel.xml), the farthest from any equator
-        private const double LargestSiteMoles = 3048381.0;       // Europa's map, D8 R3 S7 x 24 mol, before the game rounds it
+        private const double LargestSiteMoles = LargestShippedSiteMoles;
         private const double LargestMarsOrMoonSiteMoles = 2785190.0;
         private const double ShippedCells = 5000000.0;           // 40 billion litres in 8,000 L cells
         private const double StandardCells = ShippedCells * StandardPlanetSize;
         private const double LeastBreathableNeedPerCell = 121.0; // the Moon, docs/BALANCE.md (Mars 125)
         private const double BasicHeadCycles = 1000.0;           // 100 quantity at a 0.1 chance of wear a cycle
+
+        // The fuel rocket and the comet CometMassScale is derived from (docs/COMET-ROCKETS.md, stage 4).
+        private const double HaulerDryKg = 1120.0;               // LU's tanker hull, by the game's part masses (engine mount 100, engine 500, doors 250, fuselage 250, battery 20)
+        private const double HaulerLitres = 8120.0;              // its 2 large, 1 medium and 2 small gas capsule tanks (3,000, 1,500, 250 L) and lines
+        private const double RefuelKPa = 30000.0;                // RocketCommand.Refuel: the game's own full rocket, 30 MPa
+        private const double RefuelKelvin = 215.0;               // at 215 K
+        private const double GasConstant = 8.3144;               // Chemistry.R
+        private const double LandingReserveMoles = 6250.0;       // the 100 kg the tanker keeps back to land on
+        private const double LostMoonSiteDeltaV = 2058.5;        // Mars Orbit to Lost Moon Fragments 1,858.5, and a site's 200
+        private const double LargestMarsSiteUnits = 100000.0;    // a D8 R3 S7 site's TotalOreAtLocation, as the game rounds it
+        private const double LargestMarsSiteDensity = 8.0;
+        private const double SilanolIceGramsPerUnit = 22.0 * 166.0 + 2.0 * 36.0; // LostMoonFragments05: silanol 22, hydrochloric acid 2 a unit
+        private const double IceMolesPerUnit = 24.0;             // every shipped ice site
+        private const double WaterGramsPerMole = 108.0;          // Mole.MolarMass(Water)
+        private const double TurboPumpLitresPerTick = 100.0;     // a Turbo Volume Pump at its Maximum
 
         private static readonly Lazy<string> ShippedVerdict = new Lazy<string>(() =>
         {
@@ -635,6 +758,13 @@ namespace TerraformingReloaded.Comets
                 return "a mineral comet does not take its mass times the air per kilogram, in moles of the planet's air, up to what the planet holds";
             }
 
+            // ---- the rocket actions at a site ----
+            string actions = CheckActions(rules);
+            if (actions != null)
+            {
+                return actions;
+            }
+
             // ---- the defaults, held to their derivation ----
             if (Math.Abs(tuning.CutSharePerCycle * BasicHeadCycles - 1.0) > 1e-9)
             {
@@ -686,7 +816,243 @@ namespace TerraformingReloaded.Comets
             {
                 return "a mineral comet does not take away what an ice comet of its weight brings";
             }
+            if (Math.Abs(tuning.MineralKgPerUnit - IceMolesPerUnit * WaterGramsPerMole / 1000.0) > 1e-12)
+            {
+                return "a unit of ore does not weigh what a unit of water ice does, 24 mol at 108 g/mol";
+            }
+            if (Math.Abs(tuning.FuelLitresPerSecond - TurboPumpLitresPerTick / FuelTickSeconds) > 1e-9)
+            {
+                return "the Fuel action does not move what a Turbo Volume Pump moves, 100 litres a half-second tick";
+            }
+            string scale = CheckMassScale(tuning);
+            if (scale != null)
+            {
+                return scale;
+            }
+            // The disc follows the planet's size where K makes the biggest comet bigger, and keeps its own
+            // derivation there: half the disc is the biggest rocket comet's safe distance, rounded up. Where
+            // K is no bigger than at Standard it stays the setting, so every landing stays as easy to see.
+            foreach (double size in new[] { 0.01, StandardPlanetSize, 0.25, 1.0 })
+            {
+                double disc = rules.DiscRadiusAt(tuning.DiscRadiusMetres, ReferenceCurvature, tuning.CometSizeMultiplier, size);
+                double biggest = rules.SizeMultiplier(tuning.CometSizeMultiplier, size) * LargestSiteMoles;
+                double safeThere = CometRules.Shipped.SafeDistance(CometRules.Shipped.Scale(biggest));
+                bool grows = rules.SizeMultiplier(tuning.CometSizeMultiplier, size) > rules.SizeMultiplier(tuning.CometSizeMultiplier, StandardPlanetSize);
+                if (grows ? disc / 2.0 < safeThere || disc / 2.0 > safeThere + 100.0 : Math.Abs(disc - tuning.DiscRadiusMetres) > 1e-9)
+                {
+                    return string.Format(c, "at planet size {0} the disc is {1:0} m: half of it is not the biggest rocket comet's safe distance there ({2:0} m) rounded up, or it is not the setting where K is no bigger than at Standard",
+                        size, disc, safeThere);
+                }
+            }
+            if (!(rules.DiscRadiusAt(tuning.DiscRadiusMetres, ReferenceCurvature, tuning.CometSizeMultiplier, 0.25) > tuning.DiscRadiusMetres + 300.0))
+            {
+                return "the disc does not grow on a Long planet, where K makes the biggest comet's safe distance pass half the setting";
+            }
+            if (Math.Abs(rules.DiscRadiusAt(tuning.DiscRadiusMetres, 0.45, tuning.CometSizeMultiplier, 0.25)
+                    - rules.DiscRadiusAt(tuning.DiscRadiusMetres, ReferenceCurvature, tuning.CometSizeMultiplier, 0.25) * ReferenceCurvature / 0.45) > 1e-9)
+            {
+                return "the disc that follows the planet's size does not then shrink with the world's curvature";
+            }
             return null;
+        }
+
+        /// <summary>
+        /// Cut, Fuel and Burn worked through on cases with known answers, and a comet's weight in flight.
+        /// </summary>
+        private static string CheckActions(CelestialRules rules)
+        {
+            CultureInfo c = CultureInfo.InvariantCulture;
+
+            // Cut: a cycle's share of K times the site, by the head's yield, never past K times the site.
+            if (Math.Abs(rules.CutAdds(2.4e6, 0.0, 0.001, 5.0, 1.0) - 12000.0) > 1e-6 || Math.Abs(rules.CutAdds(2.4e6, 0.0, 0.001, 5.0, 1.2) - 14400.0) > 1e-6
+                || rules.CutAdds(2.4e6, 0.0, 0.001, 5.0, 0.0) != 0.0 || Math.Abs(rules.CutAdds(2.4e6, 1.2e7 - 5000.0, 0.001, 5.0, 1.0) - 5000.0) > 1e-6
+                || rules.CutAdds(2.4e6, 1.2e7, 0.001, 5.0, 1.0) != 0.0 || rules.CutAdds(2.4e6, 2e7, 0.001, 5.0, 1.0) != 0.0)
+            {
+                return "a Cut cycle does not add its share of K times the site by the head's yield, stopping at K times the site";
+            }
+            foreach (var (yield, whole) in new[] { (1.0, 1000), (1.2, 834), (0.5, 2000) })
+            {
+                double comet = 0.0;
+                int cycles = 0;
+                while (cycles < 5000)
+                {
+                    double added = rules.CutAdds(2.4e6, comet, 0.001, 5.0, yield);
+                    if (!(added > 0.0))
+                    {
+                        break;
+                    }
+                    comet += added;
+                    cycles++;
+                    if (cycles == 500 && Math.Abs(comet - rules.CometMoles(2.4e6, 500.0 * yield, 0.001, 5.0)) > 1e-9 * comet)
+                    {
+                        return string.Format(c, "500 Cut cycles with a head of yield {0} give {1:R} mol, where the comet's whole rule gives {2:R}", yield, comet, rules.CometMoles(2.4e6, 500.0 * yield, 0.001, 5.0));
+                    }
+                }
+                if (cycles != whole || Math.Abs(comet - 1.2e7) > 1e-3)
+                {
+                    return string.Format(c, "a whole comet takes {0} Cut cycles with a head of yield {1} and holds {2:R} mol, expected {3} cycles and 12,000,000", cycles, yield, comet, whole);
+                }
+            }
+
+            // A comet weighs what was cut from its site, scaled; K's extra gas weighs nothing.
+            if (Math.Abs(rules.FlightKg(1000.0, 0.39, 1.0) - 390.0) > 1e-9 || Math.Abs(rules.FlightKg(25000.0, 0.39, 25.0) - rules.FlightKg(5000.0, 0.39, 5.0)) > 1e-9
+                || Math.Abs(rules.FlightKg(5000.0, 0.39, 5.0) - 390.0) > 1e-9 || Math.Abs(rules.FlightKg(1000.0, 0.39, 0.5) - 390.0) > 1e-9 || rules.FlightKg(1000.0, 0.0, 1.0) != 0.0)
+            {
+                return "a comet does not weigh what was cut from its site times the mass scale, the same on every planet size";
+            }
+
+            // What a route takes: carried exactly, the comet arrives on it; a thousandth less and it does not.
+            double needed = rules.FuelNeeded(18000.0, 2, 583.3, TestFuelKgPerMole);
+            Flight onNeeded = rules.Fly(18000.0, 2, needed * (1.0 + 1e-9), 583.3, TestFuelKgPerMole);
+            if (!onNeeded.Arrives || Math.Abs(onNeeded.FuelMoles - needed) > 1e-6 * needed || rules.Fly(18000.0, 2, 0.999 * needed, 583.3, TestFuelKgPerMole).Arrives
+                || rules.FuelNeeded(18000.0, 0, 583.3, TestFuelKgPerMole) != 0.0)
+            {
+                return string.Format(c, "the fuel an 18 t comet with two engines needs for 583.3 delta-v, {0:N1} mol, is not exactly what the rocket rule burns arriving", needed);
+            }
+
+            // Fuel: only what pairs two to one moves, the pump's share of all the stores' volume a second.
+            OwnFuel even = rules.PremixTransfer(2000.0, 1000.0, 1500.0, 200.0, 0.5);
+            OwnFuel rich = rules.PremixTransfer(3000.0, 1000.0, 1500.0, 200.0, 0.5);
+            OwnFuel lean = rules.PremixTransfer(1000.0, 5000.0, 1500.0, 200.0, 0.5);
+            OwnFuel all = rules.PremixTransfer(2000.0, 1000.0, 1500.0, 1e6, 0.5);
+            if (Math.Abs(even.Methane - 2000.0 / 15.0) > 1e-9 || Math.Abs(even.Oxygen - 1000.0 / 15.0) > 1e-9
+                || Math.Abs(rich.Methane - even.Methane) > 1e-9 || Math.Abs(rich.Oxygen - even.Oxygen) > 1e-9
+                || Math.Abs(lean.Methane - 1000.0 / 15.0) > 1e-9 || Math.Abs(lean.Oxygen - 500.0 / 15.0) > 1e-9
+                || Math.Abs(all.Methane - 2000.0) > 1e-9 || Math.Abs(all.Oxygen - 1000.0) > 1e-9)
+            {
+                return "the Fuel action does not move the pump's share of the stores' two to one premix, leaving what is not premix behind";
+            }
+            if (rules.PremixTransfer(2000.0, 0.0, 1500.0, 200.0, 0.5).Methane != 0.0 || rules.PremixTransfer(2000.0, 1000.0, 0.0, 200.0, 0.5).Oxygen != 0.0
+                || Math.Abs(rules.PremixTransfer(2000.0, 1000.0, 3000.0, 200.0, 0.5).Oxygen - 1000.0 / 30.0) > 1e-9)
+            {
+                return "the Fuel action moves methane with no oxygen, moves from no stores, or moves as much from twice the stores' volume";
+            }
+
+            // Burn: a Cut cycle's share of the comet, two of methane to one of oxygen, fuel exactly what left.
+            if (Math.Abs(rules.BurnWanted(1e6, 0.001, 1.2) - 1200.0) > 1e-9 || rules.BurnWanted(1e6, 0.001, 0.0) != 0.0)
+            {
+                return "a Burn cycle does not ask a Cut cycle's share of the comet by the head's ice yield";
+            }
+            double[] before = { 1000.0, 1000.0, 500.0 };
+            double[] plenty = rules.AfterBurn(before, 0, 1, 900.0, out double gained);
+            double[] scarce = rules.AfterBurn(new[] { 1000.0, 100.0, 500.0 }, 0, 1, 900.0, out double scarceGained);
+            double[] none = rules.AfterBurn(before, -1, 1, 900.0, out double noneGained);
+            if (Math.Abs(plenty[0] - 400.0) > 1e-9 || Math.Abs(plenty[1] - 700.0) > 1e-9 || plenty[2] != 500.0 || Math.Abs(gained - 900.0) > 1e-9
+                || Math.Abs(plenty[0] + plenty[1] + plenty[2] + gained - 2500.0) > 1e-9
+                || Math.Abs(scarce[0] - 800.0) > 1e-9 || Math.Abs(scarce[1]) > 1e-9 || Math.Abs(scarceGained - 300.0) > 1e-9
+                || noneGained != 0.0 || none[0] != 1000.0 || before[0] != 1000.0)
+            {
+                return "a Burn does not take its fuel two to one from the comet's own methane and oxygen, leave every other gas, and credit exactly the moles that left";
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// CometMassScale held to its derivation: the largest hundredth at which the heaviest comet a Mars
+        /// map can make, from its farthest site, takes no more time hauling its fuel than cutting it took.
+        /// </summary>
+        private static string CheckMassScale(CelestialTuning tuning)
+        {
+            CultureInfo c = CultureInfo.InvariantCulture;
+            HaulerTrip(LostMoonSiteDeltaV, tuning.FuelLitresPerSecond, out double handOver, out double tripSeconds);
+            if (Math.Abs(handOver - 100302.0) > 100.0 || Math.Abs(tripSeconds - 994.0) > 2.0)
+            {
+                return string.Format(c, "a fuel rocket filled the game's way hands over {0:N0} mol at a Lost Moon site in a {1:N0} s trip, where the derivation took 100,302 mol in 994 s", handOver, tripSeconds);
+            }
+            double cutSeconds = CycleSeconds(LargestMarsSiteDensity, 1.0) / tuning.CutSharePerCycle;
+            double exhaust = EngineThrustNewtons / (EngineMolesPerSecond * TestFuelKgPerMole);
+            double Hauling(double scale)
+            {
+                double dry = scale * LargestMarsSiteUnits * SilanolIceGramsPerUnit / 1000.0 + 2.0 * EngineMassKg;
+                double fuel = dry * (Math.Exp(LostMoonSiteDeltaV / exhaust) - 1.0) / TestFuelKgPerMole;
+                return fuel / handOver * tripSeconds;
+            }
+            if (Hauling(tuning.CometMassScale) > cutSeconds || Hauling(tuning.CometMassScale + 0.01) <= cutSeconds)
+            {
+                return string.Format(c, "at a comet weight of {0} the heaviest Mars comet takes {1:N0} s hauling its fuel against {2:N0} s cutting it, and the next hundredth up {3:N0} s: the default is not the largest that keeps hauling within cutting",
+                    tuning.CometMassScale, Hauling(tuning.CometMassScale), cutSeconds, Hauling(tuning.CometMassScale + 0.01));
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// One trip of the fuel rocket the mass scale is derived from: filled as the game fills a rocket,
+        /// up from Mars at full throttle against its gravity, out to a site by the rocket rule, the pump
+        /// emptying what it can spare into the comet, back to Mars Orbit with the landing reserve aboard,
+        /// and down from the game's re-entry height. Seconds exclude refilling on the ground.
+        /// </summary>
+        private static void HaulerTrip(double routeDeltaV, double litresPerSecond, out double handOver, out double seconds)
+        {
+            const double step = 0.02;
+            double kg = TestFuelKgPerMole;
+            double flowKg = EngineMolesPerSecond * kg;
+            double exhaust = EngineThrustNewtons / flowKg;
+            double full = HaulerLitres * RefuelKPa / (GasConstant * RefuelKelvin);
+            double mass = HaulerDryKg + full * kg;
+            double gained = 0.0;
+            double climb = 0.0;
+            while (gained < EntrySpeed && climb < 3600.0)
+            {
+                gained += (EngineThrustNewtons / mass - MarsGravity) * step;
+                mass -= flowKg * step;
+                climb += step;
+            }
+            double orbit = full - EngineMolesPerSecond * climb;
+            double outbound = (HaulerDryKg + orbit * kg) * (1.0 - Math.Exp(-routeDeltaV / exhaust)) / kg;
+            double atSite = orbit - outbound;
+            double landingKg = HaulerDryKg + LandingReserveMoles * kg;
+            double back = landingKg * (Math.Exp(routeDeltaV / exhaust) - 1.0) / kg;
+            handOver = atSite - back - LandingReserveMoles;
+            double transfer = HaulerLitres / litresPerSecond * Math.Log(atSite / (atSite - handOver));
+            seconds = climb + outbound / EngineMolesPerSecond + transfer + back / EngineMolesPerSecond + LandingSeconds(landingKg);
+        }
+
+        /// <summary>Seconds from re-entry to the ground: falling freely, then full throttle timed to stop at the ground.</summary>
+        private static double LandingSeconds(double massKg)
+        {
+            double low = 0.0;
+            double high = ReEntryMetres;
+            for (int i = 0; i < 60; i++)
+            {
+                double middle = 0.5 * (low + high);
+                if (Descent(massKg, middle, out _) > 0.0)
+                {
+                    high = middle;
+                }
+                else
+                {
+                    low = middle;
+                }
+            }
+            Descent(massKg, high, out double seconds);
+            return seconds;
+        }
+
+        /// <summary>A fall from re-entry with the engine lit below <paramref name="burnFrom"/> metres; the height it stops at, 0 or less if it reaches the ground still falling.</summary>
+        private static double Descent(double massKg, double burnFrom, out double seconds)
+        {
+            const double step = 0.02;
+            double height = ReEntryMetres;
+            double speed = -EntrySpeed;
+            double mass = massKg;
+            bool burning = false;
+            seconds = 0.0;
+            while (height > 0.0 && seconds < 3600.0)
+            {
+                burning |= height <= burnFrom;
+                speed += (-MarsGravity + (burning ? EngineThrustNewtons / mass : 0.0)) * step;
+                height += speed * step;
+                seconds += step;
+                if (burning)
+                {
+                    mass -= EngineMolesPerSecond * TestFuelKgPerMole * step;
+                    if (speed >= 0.0)
+                    {
+                        return height;
+                    }
+                }
+            }
+            return height;
         }
 
         /// <summary>

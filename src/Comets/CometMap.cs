@@ -33,6 +33,12 @@ namespace TerraformingReloaded.Comets
         /// <summary>The name of the comets entry inside a .save. No name the game uses (SaveLoadConstants).</summary>
         public const string SaveEntryName = "tr-comets.xml";
 
+        /// <summary>The comets entry this build writes; it reads this and every earlier one (MapComet.FromRecord).</summary>
+        public const int SaveVersion = 2;
+
+        /// <summary>The least real time between two sends of the list while an action keeps changing a comet.</summary>
+        private const double ChangeSendSeconds = 2.0;
+
         internal const double MaxMoles = 1e12;
         internal const int MaxEngines = 64;
         internal const double MaxFuel = 1e10;
@@ -56,6 +62,14 @@ namespace TerraformingReloaded.Comets
         /// </summary>
         private static Dictionary<long, SpaceMapNode> _savedNodes;
 
+        /// <summary>A comet changed by an action since the list was last sent.</summary>
+        private static volatile bool _changed;
+        private static DateTime _lastSent = DateTime.MinValue;
+
+        /// <summary>Rockets a loaded save had running a comet action, until each is back in it.</summary>
+        private static List<CometRocketRecord> _pendingModes = new List<CometRocketRecord>();
+        private static int _pendingFrames;
+
         private static readonly Lazy<XmlSerializer> Serializer = new Lazy<XmlSerializer>(() => new XmlSerializer(typeof(CometSaveFile)));
 
         /// <summary>Every comet now on the map, one consistent list.</summary>
@@ -77,6 +91,8 @@ namespace TerraformingReloaded.Comets
                 _saveBytes = null;
                 _savedNodes = null;
                 RebuiltSites.Clear();
+                _pendingModes = new List<CometRocketRecord>();
+                _changed = false;
             }
         }
 
@@ -134,6 +150,68 @@ namespace TerraformingReloaded.Comets
                 text.Append(i == 0 ? "" : " -> ").Append(Identity(RouteNode(comet, i)));
             }
             return text.ToString();
+        }
+
+        /// <summary>The planet being played as a share of the one the world ships, or 0 when there is none.</summary>
+        public static double PlanetSize()
+        {
+            GlobalGasMix tank = PlanetaryAtmosphereSimulation.GetGlobalGasMix();
+            double shipped = WorldSetting.Current?.Data?.GlobalAtmosphereData?.Volume?.Value ?? 0.0;
+            return tank != null && shipped > 0.0 ? tank.Volume.ToDouble() / shipped : 0.0;
+        }
+
+        /// <summary>K in force on the planet being played (CelestialRules.SizeMultiplier); Standard's when no planet is there.</summary>
+        internal static double SizeMultiplierNow(CelestialTuning tuning)
+        {
+            double size = PlanetSize();
+            return tuning.SizeMultiplierAt(size > 0.0 ? size : CelestialRules.StandardPlanetSize);
+        }
+
+        /// <summary>A comet's weight in flight from what it holds, by the settings in force.</summary>
+        internal static double FlightKg(CometKind kind, Chemistry.GasType[] gases, double[] moles, double oreUnits, CelestialTuning tuning)
+        {
+            double contents;
+            if (kind == CometKind.Mineral)
+            {
+                contents = Math.Max(0.0, oreUnits) * tuning.MineralKgPerUnit;
+            }
+            else
+            {
+                double[] grams = Array.ConvertAll(gases, g => Mole.MolarMass(g));
+                contents = CelestialRules.Shipped.MassKg(moles, grams);
+            }
+            return CelestialRules.Shipped.FlightKg(contents, tuning.CometMassScale, SizeMultiplierNow(tuning));
+        }
+
+        /// <summary>
+        /// Whether a comet belongs to this site. The one place the comet actions ask it, so the comet's
+        /// site is always named the way CometMap keeps it across a save and a load.
+        /// </summary>
+        internal static bool IsSite(MapComet comet, SpaceMapNode site) => comet != null && site != null && comet.SiteId == site.ReferenceId;
+
+        /// <summary>The comet waiting at a site, the first made there; null for none.</summary>
+        internal static MapComet WaitingAt(SpaceMapNode site)
+        {
+            MapComet found = null;
+            if (site == null)
+            {
+                return null;
+            }
+            foreach (MapComet comet in _comets)
+            {
+                if (comet.State == MapCometState.Waiting && IsSite(comet, site) && (found == null || comet.Id < found.Id))
+                {
+                    found = comet;
+                }
+            }
+            return found;
+        }
+
+        /// <summary>The comet waiting at this site as this machine sees it, for the rocket actions, the console and tools/LiveCheck.</summary>
+        public static CometView? WaitingView(SpaceMapNode site)
+        {
+            MapComet comet = WaitingAt(site);
+            return comet == null ? (CometView?)null : View(comet, Clock);
         }
 
         /// <summary>The sites a comet can be made at, in the order the console lists them: every discovered site on the map.</summary>
@@ -219,19 +297,11 @@ namespace TerraformingReloaded.Comets
             {
                 return "There are " + MaxComets + " comets on the map already.";
             }
-            double kg = 0.0;
-            for (int i = 0; i < gases.Length; i++)
-            {
-                kg += moles[i] * Mole.MolarMass(gases[i]) / 1000.0;
-            }
+            double kg = FlightKg(CometKind.Ice, gases, moles, 0.0, Effective.Celestial);
             lock (Changes)
             {
-                int id = 1;
-                foreach (MapComet comet in _comets)
-                {
-                    id = Math.Max(id, comet.Id + 1);
-                }
-                made = new MapComet(id, MapCometState.Waiting, gases, moles, kg, engines, fuel, PremixKgPerMole(), site.ReferenceId, null, null, double.NaN, 0.0);
+                made = new MapComet(NextId(), MapCometState.Waiting, CometKind.Ice, gases, moles, 0.0, 0, kg, engines, fuel, PremixKgPerMole(), site.ReferenceId,
+                    null, null, double.NaN, 0.0);
                 string wrong = made.Refusal();
                 if (wrong != null)
                 {
@@ -329,6 +399,290 @@ namespace TerraformingReloaded.Comets
             return null;
         }
 
+        /// <summary>The next comet's id. Under the changes lock.</summary>
+        private static int NextId()
+        {
+            int id = 1;
+            foreach (MapComet comet in _comets)
+            {
+                id = Math.Max(id, comet.Id + 1);
+            }
+            return id;
+        }
+
+        // ---- the rocket actions at a site (docs/COMET-ROCKETS.md, stage 4) ----------------------------
+
+        /// <summary>
+        /// What a site can make a comet of: its kind, and for ice the gases a unit of it holds (the ice the
+        /// game's miners cut there, FrozenGasses[0]), and the units the site holds as the game counts them
+        /// (TotalOreAtLocation). False for anything that is not a site with ice or ore.
+        /// </summary>
+        internal static bool SiteStock(SpaceMapNode site, out CometKind kind, out Chemistry.GasType[] gases, out double[] perUnit, out double units)
+        {
+            kind = CometKind.Ice;
+            gases = new Chemistry.GasType[0];
+            perUnit = new double[0];
+            units = 0.0;
+            Objects.Rockets.Mining.MineableDeposit deposit = site?.Deposit;
+            if (site == null || site.NodeType != NodeType.Generated || deposit?.DepositComposition == null)
+            {
+                return false;
+            }
+            units = deposit.TotalOreAtLocation;
+            Objects.Rockets.Mining.MineableDepositType type = deposit.DepositType;
+            // The game's mining picks among ores and reagent mixes first and never reaches ice beside them.
+            if ((type & (Objects.Rockets.Mining.MineableDepositType.Ore | Objects.Rockets.Mining.MineableDepositType.ReagentMix)) != 0)
+            {
+                kind = CometKind.Mineral;
+                return units > 0.0;
+            }
+            if ((type & Objects.Rockets.Mining.MineableDepositType.Ice) == 0 || deposit.DepositComposition.FrozenGasses.Count == 0)
+            {
+                return false;
+            }
+            List<Chemistry.GasType> types = new List<Chemistry.GasType>();
+            List<double> amounts = new List<double>();
+            foreach (Assets.Scripts.Objects.SpawnGas spawn in deposit.DepositComposition.FrozenGasses[0].SpawnGasses)
+            {
+                if (spawn == null || !spawn.IsValid)
+                {
+                    continue;
+                }
+                int at = types.IndexOf(spawn.Type);
+                if (at < 0)
+                {
+                    types.Add(spawn.Type);
+                    amounts.Add(spawn.Quantity);
+                }
+                else
+                {
+                    amounts[at] += spawn.Quantity;
+                }
+            }
+            gases = types.ToArray();
+            perUnit = amounts.ToArray();
+            return units > 0.0 && gases.Length > 0;
+        }
+
+        /// <summary>What a site holds in its own measure: moles of ice, or units of ore.</summary>
+        internal static double SiteAmount(CometKind kind, double[] perUnit, double units)
+        {
+            if (kind == CometKind.Mineral)
+            {
+                return units;
+            }
+            double total = 0.0;
+            foreach (double moles in perUnit)
+            {
+                total += moles;
+            }
+            return units * total;
+        }
+
+        /// <summary>
+        /// Host, main thread, one Cut cycle at a site (the miner's own cycle, CometActionPatches.MineDepositPrefix):
+        /// the site's comet grows by the rule, made on the first cycle. Null with why not when nothing was cut;
+        /// the site's own depletion is the game's and has already happened.
+        /// </summary>
+        internal static string CutCycle(SpaceMapNode site, double headYield, out MapComet comet)
+        {
+            comet = null;
+            if (!SiteStock(site, out CometKind kind, out Chemistry.GasType[] gases, out double[] perUnit, out double units))
+            {
+                return "no ice or ore to cut";
+            }
+            CelestialTuning tuning = Effective.Celestial;
+            double k = SizeMultiplierNow(tuning);
+            double siteAmount = SiteAmount(kind, perUnit, units);
+            double perUnitTotal = kind == CometKind.Ice ? siteAmount / units : 1.0;
+            bool made = false;
+            lock (Changes)
+            {
+                MapComet before = WaitingAt(site);
+                if (before != null && before.Kind != kind)
+                {
+                    comet = before;
+                    return "the comet here is not of this site's kind";
+                }
+                if (before == null && _comets.Length >= MaxComets)
+                {
+                    return "there are " + MaxComets + " comets on the map already";
+                }
+                double has = before == null ? 0.0 : kind == CometKind.Ice ? before.TotalMoles : before.OreUnits;
+                double added = CelestialRules.Shipped.CutAdds(siteAmount, has, tuning.CutSharePerCycle, k, headYield);
+                if (!(added > 0.0))
+                {
+                    comet = before;
+                    return headYield > 0.0 ? "the comet holds all this site can give" : "the drill head cuts nothing of this site's kind";
+                }
+                List<Chemistry.GasType> types = new List<Chemistry.GasType>(before?.Gases ?? new Chemistry.GasType[0]);
+                List<double> moles = new List<double>(before?.Moles ?? new double[0]);
+                double ore = before?.OreUnits ?? 0.0;
+                if (kind == CometKind.Ice)
+                {
+                    for (int i = 0; i < gases.Length; i++)
+                    {
+                        int at = types.IndexOf(gases[i]);
+                        double share = added * perUnit[i] / perUnitTotal;
+                        if (at < 0)
+                        {
+                            types.Add(gases[i]);
+                            moles.Add(share);
+                        }
+                        else
+                        {
+                            moles[at] += share;
+                        }
+                    }
+                }
+                else
+                {
+                    ore += added;
+                }
+                Chemistry.GasType[] newTypes = types.ToArray();
+                double[] newMoles = moles.ToArray();
+                double kg = FlightKg(kind, newTypes, newMoles, ore, tuning);
+                comet = before == null
+                    ? new MapComet(NextId(), MapCometState.Waiting, kind, newTypes, newMoles, ore, 1, kg, 0, 0.0, PremixKgPerMole(), site.ReferenceId, null, null, double.NaN, 0.0)
+                    : before.Contents(newTypes, newMoles, ore, before.Cycles + 1, kg, before.Fuel);
+                string wrong = comet.Refusal();
+                if (wrong != null)
+                {
+                    comet = before;
+                    return "the comet would have " + wrong;
+                }
+                Publish(before == null ? Append(_comets, comet) : Replace(_comets, comet));
+                made = before == null;
+            }
+            Changed();
+            if (made)
+            {
+                CometDirector.Install();
+            }
+            if (made || comet.Cycles % 100 == 0 || CelestialRules.Shipped.CutAdds(siteAmount, kind == CometKind.Ice ? comet.TotalMoles : comet.OreUnits, tuning.CutSharePerCycle, k, 1.0) <= 0.0)
+            {
+                Log.Info(string.Format(CultureInfo.InvariantCulture, "[TR comet actions] Cut at {0}: comet {1} {2}, {3} cycles, {4:R} {5} of the {6:R} this site can give (K {7:R})",
+                    site.DisplayName, comet.Id, made ? "made" : "grown", comet.Cycles, kind == CometKind.Ice ? comet.TotalMoles : comet.OreUnits,
+                    kind == CometKind.Ice ? "mol" : "units of ore", k * siteAmount, k));
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Host, main thread, one Burn cycle: the site's ice comet turns its own methane and oxygen into fuel
+        /// by the rule. Null with why not when nothing was burnt.
+        /// </summary>
+        internal static string BurnCycle(SpaceMapNode site, double headYield, out double fuelGained)
+        {
+            fuelGained = 0.0;
+            CelestialTuning tuning = Effective.Celestial;
+            MapComet after;
+            lock (Changes)
+            {
+                MapComet comet = WaitingAt(site);
+                if (comet == null || comet.Kind != CometKind.Ice)
+                {
+                    return "there is no ice comet here";
+                }
+                int methane = Array.IndexOf(comet.Gases, Chemistry.GasType.Methane);
+                int oxygen = Array.IndexOf(comet.Gases, Chemistry.GasType.Oxygen);
+                double wanted = CelestialRules.Shipped.BurnWanted(comet.TotalMoles, tuning.CutSharePerCycle, headYield);
+                double[] moles = CelestialRules.Shipped.AfterBurn(comet.Moles, methane, oxygen, wanted, out fuelGained);
+                if (!(fuelGained > 0.0))
+                {
+                    return "the comet has no methane and oxygen left to burn";
+                }
+                after = comet.Contents(comet.Gases, moles, 0.0, comet.Cycles, FlightKg(CometKind.Ice, comet.Gases, moles, 0.0, tuning), comet.Fuel + fuelGained);
+                string wrong = after.Refusal();
+                if (wrong != null)
+                {
+                    fuelGained = 0.0;
+                    return "the comet would have " + wrong;
+                }
+                Publish(Replace(_comets, after));
+            }
+            Changed();
+            return null;
+        }
+
+        /// <summary>Host, main thread (Rig): engines added to a comet waiting at its site, up to the most a comet takes.</summary>
+        internal static string AddEngines(int id, int engines, out MapComet rigged)
+        {
+            lock (Changes)
+            {
+                rigged = Find(id);
+                if (rigged == null || rigged.State != MapCometState.Waiting)
+                {
+                    return "the comet is no longer waiting here";
+                }
+                if (rigged.Engines + engines > MaxEngines)
+                {
+                    return "a comet takes " + MaxEngines + " engines at most";
+                }
+                rigged = rigged.WithEngines(rigged.Engines + engines);
+                Publish(Replace(_comets, rigged));
+            }
+            Changed();
+            return null;
+        }
+
+        /// <summary>Host, any thread (Fuel, from the rocket's atmospherics step): premix added to a waiting comet.</summary>
+        internal static bool AddFuel(int id, double moles)
+        {
+            if (!(moles > 0.0))
+            {
+                return false;
+            }
+            lock (Changes)
+            {
+                MapComet comet = Find(id);
+                if (comet == null || comet.State != MapCometState.Waiting || comet.Fuel + moles > MaxFuel)
+                {
+                    return false;
+                }
+                Publish(Replace(_comets, comet.WithFuel(comet.Fuel + moles)));
+            }
+            Changed();
+            return true;
+        }
+
+        private static void Changed() => _changed = true;
+
+        /// <summary>
+        /// Main thread, every frame: every rocket a loaded save had running a comet action goes back into it
+        /// once the game is running and the rocket is there, which the game then checks as any mode it is
+        /// given (Rocket.OnRocketModeUpdated). One the world never brings back is let go of, by name.
+        /// </summary>
+        private static void RestoreRocketModes()
+        {
+            List<CometRocketRecord> pending = _pendingModes;
+            if (pending.Count == 0 || NetworkManager.IsClient)
+            {
+                return;
+            }
+            List<CometRocketRecord> left = new List<CometRocketRecord>();
+            foreach (CometRocketRecord record in pending)
+            {
+                Rocket rocket = Referencable.Find<Rocket>(record.Id);
+                if (rocket == null || !CometModes.TryParse(record.Action, out RocketMode mode))
+                {
+                    left.Add(record);
+                    continue;
+                }
+                rocket.RocketMode = mode;
+                Log.Info("[TR comet actions] rocket " + record.Id + " is back to " + record.Action + " after the load" + (rocket.RocketMode == mode ? "" : ", which the game refused (" + rocket.RocketMode + ")"));
+            }
+            if (left.Count > 0 && ++_pendingFrames > 600)
+            {
+                foreach (CometRocketRecord record in left)
+                {
+                    Log.Warn("[TR comet actions] Rocket " + record.Id + " was running " + record.Action + " at the save and is not in this world; it was let go of.");
+                }
+                left.Clear();
+            }
+            _pendingModes = left;
+        }
+
         // ---- every frame -----------------------------------------------------------------------------
 
         /// <summary>
@@ -339,8 +693,21 @@ namespace TerraformingReloaded.Comets
         /// </summary>
         internal static void Step()
         {
+            if (SpaceMap.Current == null || GameManager.GameState != GameState.Running)
+            {
+                return;
+            }
+            // The comets' sites first, so a rocket put back to its comet action finds its comet there.
+            Relink();
+            RestoreRocketModes();
+            if (_changed && !NetworkManager.IsClient && (DateTime.UtcNow - _lastSent).TotalSeconds >= ChangeSendSeconds)
+            {
+                _changed = false;
+                _lastSent = DateTime.UtcNow;
+                CometNet.BroadcastMap();
+            }
             MapComet[] comets = _comets;
-            if (comets.Length == 0 || SpaceMap.Current == null || GameManager.GameState != GameState.Running)
+            if (comets.Length == 0)
             {
                 return;
             }
@@ -447,7 +814,7 @@ namespace TerraformingReloaded.Comets
             if (comet.State == MapCometState.Waiting)
             {
                 return new CometView(comet.Id, comet.State, comet.SiteId, 0, 0, comet.SiteId, comet.SiteId, 0.0, 0.0, 0.0, 0.0, double.NaN, false,
-                    comet.Fuel, comet.TotalMoles, comet.CometKg, comet.Engines, double.NaN);
+                    comet.Fuel, comet.TotalMoles, comet.CometKg, comet.Engines, double.NaN, comet);
             }
             RoutePosition position = comet.At(now);
             int hop = Math.Max(0, Math.Min(comet.Hops.Length - 1, position.Stop.Hop));
@@ -458,7 +825,7 @@ namespace TerraformingReloaded.Comets
             Flight whole = comet.WholeFlight;
             return new CometView(comet.Id, comet.State, atNode, hop, comet.Hops.Length, from, to, position.Stop.Progress,
                 route > 0.0 ? position.DeltaV / route : 0.0, route, position.BurnSeconds, whole.Seconds, whole.Arrives, position.FuelLeft,
-                comet.TotalMoles, comet.CometKg, comet.Engines, comet.StartClock);
+                comet.TotalMoles, comet.CometKg, comet.Engines, comet.StartClock, comet);
         }
 
         internal static string RouteText(MapComet comet)
@@ -473,7 +840,8 @@ namespace TerraformingReloaded.Comets
 
         // ---- the network --------------------------------------------------------------------------------
 
-        private const byte WireLayout = 1;
+        /// <summary>1: 0.18.0. 2: each comet's kind, ore and Cut cycles after its state (0.19.0 on).</summary>
+        private const byte WireLayout = 2;
 
         /// <summary>The whole list, for the instant message and the planet sync.</summary>
         internal static void Write(RocketBinaryWriter writer, MapComet[] comets)
@@ -530,12 +898,26 @@ namespace TerraformingReloaded.Comets
         {
             _saveBytes = null;
             MapComet[] comets = _comets;
-            if (comets.Length == 0 || NetworkManager.IsClient)
+            if (NetworkManager.IsClient)
+            {
+                return;
+            }
+            CometSaveFile file = new CometSaveFile();
+            // The game's own entry for each of these rockets was written None (CometActionPatches.RocketSaveDataPostfix).
+            foreach (Rocket rocket in Rocket.AllRockets)
+            {
+                string action = rocket == null ? null : CometModes.Name(rocket.RocketMode);
+                if (action != null)
+                {
+                    file.Rockets.Add(new CometRocketRecord { Id = rocket.ReferenceId, Action = action });
+                    Log.Info("[TR comet actions] saved rocket " + rocket.ReferenceId + " running " + action);
+                }
+            }
+            if (comets.Length == 0 && file.Rockets.Count == 0)
             {
                 return;
             }
             double now = Clock;
-            CometSaveFile file = new CometSaveFile();
             foreach (MapComet comet in comets)
             {
                 file.Comets.Add(comet.ToRecord(now));
@@ -581,6 +963,7 @@ namespace TerraformingReloaded.Comets
             List<MapComet> loaded = new List<MapComet>();
             Dictionary<long, SpaceMapNode> saved = SavedNodes(map);
             RebuiltSites.Clear();
+            List<CometRocketRecord> modes = new List<CometRocketRecord>();
             try
             {
                 string folder = XmlSaveLoad.Instance?.CurrentWorldSave?.RootDir?.FullName;
@@ -594,7 +977,7 @@ namespace TerraformingReloaded.Comets
                 {
                     file = Serializer.Value.Deserialize(stream) as CometSaveFile;
                 }
-                if (file == null || file.Version != 1)
+                if (file == null || file.Version < 1 || file.Version > SaveVersion)
                 {
                     Log.Warn("[TR comet map] This save's comets are in a form this build does not read; none were loaded.");
                     return;
@@ -620,11 +1003,20 @@ namespace TerraformingReloaded.Comets
                     }
                     loaded.Add(comet);
                 }
+                foreach (CometRocketRecord record in file.Rockets ?? new List<CometRocketRecord>())
+                {
+                    if (record != null && CometModes.TryParse(record.Action, out _))
+                    {
+                        modes.Add(record);
+                        Log.Info("[TR comet actions] loaded rocket " + record.Id + " running " + record.Action);
+                    }
+                }
             }
             catch (Exception e)
             {
                 Log.Warn("[TR comet map] This save's comets could not be read; none were loaded. " + e.Message);
                 loaded.Clear();
+                modes.Clear();
             }
             finally
             {
@@ -632,6 +1024,8 @@ namespace TerraformingReloaded.Comets
                 {
                     Publish(loaded.ToArray());
                     _savedNodes = loaded.Count > 0 ? saved : null;
+                    _pendingModes = modes;
+                    _pendingFrames = 0;
                 }
             }
             if (loaded.Count > 0)
@@ -815,14 +1209,15 @@ namespace TerraformingReloaded.Comets
             CultureInfo c = CultureInfo.InvariantCulture;
             if (comet.State == MapCometState.Waiting)
             {
-                return string.Format(c, "comet {0} {1} | site {2} | fuel {3:R} | mol {4:R} | kg {5:R} | engines {6}",
-                    comet.Id, comet.State, Identity(SpaceMapNode.Get(comet.SiteId)), comet.Fuel, comet.TotalMoles, comet.CometKg, comet.Engines);
+                return string.Format(c, "comet {0} {1} | site {2} | fuel {3:R} | mol {4:R} | kg {5:R} | engines {6} | kind {7} | ore {8:R} | cycles {9}",
+                    comet.Id, comet.State, Identity(SpaceMapNode.Get(comet.SiteId)), comet.Fuel, comet.TotalMoles, comet.CometKg, comet.Engines, comet.Kind, comet.OreUnits, comet.Cycles);
             }
             RoutePosition position = comet.At(now);
-            return string.Format(c, "comet {0} {1} | flown {2:R} | hop {3} | progress {4:R} | fuel {5:R} | mol {6:R} | kg {7:R} | engines {8} | node {9}",
+            return string.Format(c, "comet {0} {1} | flown {2:R} | hop {3} | progress {4:R} | fuel {5:R} | mol {6:R} | kg {7:R} | engines {8} | node {9} | kind {10} | ore {11:R} | cycles {12}",
                 comet.Id, comet.State, comet.State == MapCometState.Flying ? comet.FlownAt(now) : position.BurnSeconds, position.Stop.Hop, position.Stop.Progress,
                 position.FuelLeft, comet.TotalMoles, comet.CometKg, comet.Engines,
-                Identity(position.Arrived ? SpaceMap.Current?.EntryNode : RouteNode(comet, position.Stop.Hop)));
+                Identity(position.Arrived ? SpaceMap.Current?.EntryNode : RouteNode(comet, position.Stop.Hop)),
+                comet.Kind, comet.OreUnits, comet.Cycles);
         }
 
         /// <summary>
@@ -839,16 +1234,18 @@ namespace TerraformingReloaded.Comets
             double[] hops = { 200.00000298023224, 80.599998474121094, 302.70001220703125 };
             const double start = 1000.123;
             const double saved = start + 57.891;
-            MapComet waiting = new MapComet(1, MapCometState.Waiting, gases, moles, 5433.3332, 2, 8790.1234567, 0.016, 42L, null, null, double.NaN, 0.0);
-            MapComet flying = new MapComet(2, MapCometState.Flying, gases, moles, 18765.4321, 2, 30000.0 / 7.0, 0.016, 42L, route, hops, start, 0.0);
-            MapComet stranded = new MapComet(3, MapCometState.Flying, gases, moles, 5433.3332, 2, 1234.5678, 0.016, 42L, route, hops, start, 0.0);
+            MapComet waiting = new MapComet(1, MapCometState.Waiting, CometKind.Ice, gases, moles, 0.0, 17, 5433.3332, 2, 8790.1234567, 0.016, 42L, null, null, double.NaN, 0.0);
+            MapComet flying = new MapComet(2, MapCometState.Flying, CometKind.Ice, gases, moles, 0.0, 0, 18765.4321, 2, 30000.0 / 7.0, 0.016, 42L, route, hops, start, 0.0);
+            MapComet stranded = new MapComet(3, MapCometState.Flying, CometKind.Ice, gases, moles, 0.0, 3, 5433.3332, 2, 1234.5678, 0.016, 42L, route, hops, start, 0.0);
             stranded = stranded.Settled(stranded.At(1e9).Arrived);
-            MapComet[] before = { waiting, flying, stranded };
+            MapComet mineral = new MapComet(4, MapCometState.Waiting, CometKind.Mineral, null, null, 1234.5 / 7.0, 999, 2.592 / 3.0, 1, 0.1 + 0.7, 0.016, 42L, null, null, double.NaN, 0.0);
+            MapComet[] before = { waiting, flying, stranded, mineral };
             CometSaveFile file = new CometSaveFile();
             foreach (MapComet comet in before)
             {
                 file.Comets.Add(comet.ToRecord(saved));
             }
+            file.Rockets.Add(new CometRocketRecord { Id = 9876543210L, Action = CometModes.Name(CometModes.Fuel) });
             CometSaveFile read;
             using (MemoryStream bytes = new MemoryStream())
             {
@@ -860,6 +1257,11 @@ namespace TerraformingReloaded.Comets
             {
                 return "the comets entry does not read back as the comets written";
             }
+            if (read.Version != SaveVersion || read.Rockets == null || read.Rockets.Count != 1 || read.Rockets[0].Id != 9876543210L
+                || !CometModes.TryParse(read.Rockets[0].Action, out RocketMode mode) || mode != CometModes.Fuel)
+            {
+                return "a rocket running Fuel does not read back from the save as it was written";
+            }
             for (int i = 0; i < before.Length; i++)
             {
                 MapComet was = before[i];
@@ -868,7 +1270,9 @@ namespace TerraformingReloaded.Comets
                 {
                     return "comet " + was.Id + " written by the save is refused by the load: it has " + refused;
                 }
-                bool same = back.Id == was.Id && back.State == was.State && back.SiteId == was.SiteId && back.Engines == was.Engines
+                bool same = back.Id == was.Id && back.State == was.State && back.Kind == was.Kind && back.Cycles == was.Cycles
+                    && BitConverter.DoubleToInt64Bits(back.OreUnits) == BitConverter.DoubleToInt64Bits(was.OreUnits)
+                    && back.SiteId == was.SiteId && back.Engines == was.Engines
                     && back.CometKg == was.CometKg && back.Fuel == was.Fuel && back.FuelKgPerMole == was.FuelKgPerMole
                     && Same(back.Moles, was.Moles) && Same(back.Hops, was.Hops) && back.Route.Length == was.Route.Length
                     && Array.TrueForAll(back.Gases, g => Array.IndexOf(was.Gases, g) == Array.IndexOf(back.Gases, g));
@@ -921,13 +1325,28 @@ namespace TerraformingReloaded.Comets
                 }
             }
             Dictionary<long, long> gone = new Dictionary<long, long> { { 42L, 43L }, { 5L, 6L }, { 3L, 1L } };
-            if (Renumbered(flying, gone, out _) != null || Renumbered(new MapComet(4, MapCometState.Waiting, gases, moles, 1.0, 1, 1.0, 0.016, 99L, null, null, double.NaN, 0.0), moved, out _) != null)
+            if (Renumbered(flying, gone, out _) != null || Renumbered(new MapComet(5, MapCometState.Waiting, CometKind.Ice, gases, moles, 0.0, 0, 1.0, 1, 1.0, 0.016, 99L, null, null, double.NaN, 0.0), moved, out _) != null)
             {
                 return "a comet whose route or site is no longer on the map after a load is kept";
             }
             if (Renumbered(flying.Settled(true), gone, out _) == null)
             {
                 return "a comet parked at Entry is dropped because a node it no longer needs is gone";
+            }
+
+            // A save made by 0.18.0, before comets had a kind, ore or cycles, still loads its ice comet.
+            const string firstVersion = "<?xml version=\"1.0\"?><TerraformingReloadedComets Version=\"1\"><Comet Id=\"5\" State=\"Waiting\"><Site>42</Site>"
+                + "<CometKg>1000</CometKg><Engines>1</Engines><Fuel>10</Fuel><FuelKgPerMole>0.016</FuelKgPerMole><Flown>0</Flown>"
+                + "<Gases><Gas Type=\"Water\" Moles=\"100\" /></Gases><Route /><Hops /></Comet></TerraformingReloadedComets>";
+            CometSaveFile old;
+            using (StringReader text = new StringReader(firstVersion))
+            {
+                old = Serializer.Value.Deserialize(text) as CometSaveFile;
+            }
+            MapComet oldComet = old?.Comets?.Count == 1 ? MapComet.FromRecord(old.Comets[0], out _) : null;
+            if (old?.Version != 1 || oldComet == null || oldComet.Kind != CometKind.Ice || oldComet.OreUnits != 0.0 || oldComet.Cycles != 0 || oldComet.TotalMoles != 100.0)
+            {
+                return "a comet saved by 0.18.0 does not load as the ice comet it was";
             }
             return null;
         }
