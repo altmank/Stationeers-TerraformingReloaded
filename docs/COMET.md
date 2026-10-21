@@ -486,13 +486,53 @@ root of the gravity, so on the Moon they fly 1.5 times as long as on Mars.
   that climb with the cloud inside `TR Comet/Drawn/Impact`, so they move with the drawn ground as everything
   else there does.
 
+### The look
+
+The physical sizes above stay; what changed is how a near view of them reads. Seen from its safe distance a
+1e7 comet's fireball is wider than the view and its cloud is overhead, so the 0.16 drawing (many soft, evenly
+grey puffs, a base surge whose puffs grew to kilometres) read as a flat grey wall. `src/Comets/CometLook.cs`
+holds each layer as a share of the size it draws, so every comet keeps the same proportions, with fixed counts:
+a bigger comet is drawn with bigger puffs, not more of them. `CometArt` makes two new textures for it.
+
+| Layer | Drawn as | Size | Count |
+|---|---|---|---|
+| Fireball | one camera-facing face, `FireballSheet`: a disc darker and redder toward its limb, broken into bright boiling cells with dark lanes, stepped through 16 frames a cycle (1.5 s, or half its growth time if longer) and turning slowly; white-hot while it grows, then orange, the comet's colours, dull red, fading as the cloud closes over it | radius from 0.2 R to R, 90 % grown by the end of the thermal pulse | 1 |
+| Boils | bulges off the face's edge, the same texture, coloured as the face is now | 0.3 to 0.55 R | 40 |
+| Stem | `BillowSheet` puffs born at the root and climbing to the cap over their 60 s life, each grown evenly to the column's width where it is: 0.35 R at the root widening as the plume law gives | 0.7 to 1.05 of the column's diameter where they are | 260 |
+| Cap top | a ring of cloud (donut, middle at 0.5 and tube 0.32 of the cap's radius, lifted 0.1), sunlit: lighter shades of the gas bands | 0.3 to 0.48 of the cap's radius | 200 |
+| Cap underside | the same ring 0.14 lower, darker shades, its tint warm while the fireball glows below it and cooling with it | as the top | 150 |
+| Base surge | `BillowSheet` puffs rolling out along the ground at the speed of sound to the dust's reach | 0.2 to 0.38 R, growing to twice that, so never higher than the fireball; at most 0.45 of the screen each | 220 |
+
+- **Lit puffs.** `BillowSheet` is a cluster of round billows each lit from above as a ball is: a bright top, a
+  shadowed underside, dark seams where billows meet, wispy edges. Systems using it turn their puffs at most a
+  quarter radian, so the light stays on top. Every cloud layer picks each puff's colour from the gas bands split
+  into shades (darker and more opaque, lighter and thinner), so the cloud is in masses rather than one alpha.
+- **The cap grows as one.** Its two rings are drawn at a radius of one in a frame the cap's radius scales each
+  frame, so a puff made when the cap was the fireball's width grows with it to the full cap.
+- **Screen share.** Each layer's puffs are held to a share of the screen's height (0.8 for the stem and cap, 0.45
+  for the surge), so a puff passing the eye never covers the view and the sky shows at the sides.
+- **The flash.** The overlay peaks at 0.9 x how squarely the eye faces it (0.35 to 1) x (0.4 + 0.6 x the thermal
+  irradiance saturated, I / (1 + I)), up in 0.03 s and down with a 0.08 s fall; the thermal pulse after it is warm
+  and held to 0.3. The flash core's glow and the flash light fall over 0.15 s. `CometLook.Check` holds, for
+  comets from 1e3 to 1e9 mol seen from 100 m to 20 km, that the overlay is 0.6 or more, the core 1 or more and the
+  light 6 or more for at most 0.3 s each, and that the thermal pulse never reaches 0.6: the ground reads through
+  everything after the first few tenths of a second. These thresholds are the look's own, not measured.
+- **Particles.** The cloud's layers hold 1,030 between them (0.16: 2,560), the head's 1,800 and the rest at their
+  largest 1,050, so the cap of 6,000 never has to shrink a system.
+- **Logged.** Each event logs its layers at full size (count, puff sizes, reach, screen share) and every system's
+  particle limit, and at 0.5 s, the fireball's growth time, 5, 30, 120 and 300 s after the impact: the
+  fireball's radius, height and heat, the stem's length and widths and how fast its puffs climb, the cap's height,
+  width and underside warmth, the flash, the light, the sky's dimming and the live particle count.
+
 ### Cost
 
 - **Per frame:** the same systems as 0.16, plus a handful of shape lengths, radii and start sizes set each
   frame for the stem and the cap, and the far clip. No per-tick work and nothing that grows with the size.
-- **Particles:** the cap of 6,000 across the show is unchanged, and so is each system's own count.
-- **Overdraw:** every puff in an element is sized to that element, and the counts are as in 0.16, so a pixel
-  the cloud covers is covered by as many layers as in 0.16. What a bigger show adds is the share of the
+- **Particles:** the cap of 6,000 across the show is unchanged; the cloud is drawn with 1,030 puffs where 0.16
+  used 2,560 (see "The look"), and the dry ice, toxic and ionised layers with 200, 160 and 200.
+- **Overdraw:** every puff in an element is sized to that element, with fewer and larger puffs than 0.16, so a
+  pixel the cloud covers is covered by fewer layers, and no puff of the stem, the cap or the surge covers more
+  than its share of the screen however near it passes. What a bigger show adds is the share of the
   screen it covers, at most all of it, and no puff draws past the screen's edges, so none costs more than one
   screen. Puffs hundreds of metres across turn more slowly, and fade into the ground over a tenth of their
   size rather than the art's 30 m. The show logs its frame time, mean and worst, at its end, and the rig's log
@@ -511,6 +551,22 @@ root of the gravity, so on the Moon they fly 1.5 times as long as on Mars.
 - Every machine logs, per event, `[TR comet] event N drawn from its yield: yield W (kt), fireball R m (law,
   zone) full grown at t, flash peak, cloud top, cap across, dust, rocks, show s after the impact, head scale;
   the show ends s after first sight`; the show's own line adds the far clip it set.
+- `CometLook.Check` runs at load beside the yield's, chained into the same verdict, and in `tools/PatchCheck`,
+  which hands it five wrong looks it must catch: a flash fading over a second, a thermal pulse that holds the
+  view white, stem puffs half as wide again as the stem, a surge whose puffs may fill the screen, cap puffs
+  drawn from the fireball rather than the cap. PatchCheck prints the layers at 1e5, 1e7 and 1e9 mol.
+- `tools/CometShot` makes the scene's camera controller the game's instance before it puts a sun in. Without it
+  the sky's per-frame rebuild (`AtmosphericScattering.ManagerUpdate`, which reads the main camera's height
+  through `CameraController.Instance`, set only off batch mode) threw every frame from the rig's sun on, before
+  it set anything, so the rig's sky was never rebuilt and the darker sky never drawn in its frames. A played
+  game, a client or a dedicated server cannot meet it: off batch mode the instance is set when the game
+  starts, and a dedicated server never has a sun, so the rebuild returns before that line.
+- `tools/CometShot` waits for the terrain its camera asked for: every block the game's own rule
+  (`LodManager.CalculateLods`) gives its requester at every level in the requester's requested set, no request,
+  mesh or collider work left, the mesh counts unchanged for a second, and ground under the camera. The game's
+  busy flag alone is false while a request is still being worked out, so a dozen finest-level meshes another
+  requester had built at the start location passed for ready at 0.0 s. A camera outside the voxel world asks for
+  terrain around the nearest point of it.
 - `tools/CometShot` takes `-Times` items of the form `every=<s> until=<s>` with an optional `from=<s>` (for
   example `2,8,14,every=0.5 from=15 until=20,every=5 until=345`), and its timeout grows to the last shot;
   `-Fov` sets the camera's vertical field of view and `-Back` stands it that many metres further back along
