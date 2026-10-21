@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.2 (prototype)
+
+- **A falling rock that lands on a structure now always damages it.** It takes the rock's whole 200, however the
+  structure is shaped; before, a rock that came down on something open, such as a frame's bare beams, could pass
+  through it and do nothing. Anything else within a metre still takes less the further it is, and each thing a
+  rock reaches is damaged once, where before something made of many parts could take the rock several times over.
+
 ## 0.22.1 (prototype)
 
 - **On a dedicated server, `terraform comet` comes down in front of a player.** It is aimed from the player who
