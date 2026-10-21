@@ -10,12 +10,13 @@ using Objects.Rockets;
 namespace TerraformingReloaded.Comets
 {
     /// <summary>
-    /// Debug verbs for the comets on the space map, until Cut, Rig and Fuel make them in play
-    /// (docs/COMET-ROCKETS.md, stage 4):
+    /// Debug verbs for the comets on the space map (docs/COMET-ROCKETS.md, stage 3, and "Staging a
+    /// situation in a game"):
     ///   terraform comet make [&lt;site&gt; &lt;mol&gt; &lt;gas&gt;[:&lt;share&gt;] ... engines=&lt;n&gt; fuel=&lt;mol&gt;]
     ///   terraform comet send &lt;id&gt;
     ///   terraform comet list
-    /// make and send are host only; list answers anywhere, from that machine's own copy of the comets.
+    ///   terraform comet discover / rocket / arrive (CometStaging)
+    /// list answers anywhere, from that machine's own copy of the comets; the rest are host only.
     /// </summary>
     internal static class CometMapVerb
     {
@@ -24,7 +25,8 @@ namespace TerraformingReloaded.Comets
             + "terraform comet make <site> <units> Ore engines=<n> fuel=<mol> puts a mineral comet of that many units of ore there; "
             + "terraform comet make alone lists the sites, and <site> is a number from that list or a site's name. "
             + "terraform comet send <id> sends it to the planet's orbit by the game's rocket travel rule. "
-            + "terraform comet list shows every comet, where it is and when it arrives. make and send are host only.";
+            + "terraform comet list shows every comet, where it is and when it arrives. make and send are host only. "
+            + CometStaging.Usage;
 
         public static bool Handles(string verb)
         {
@@ -33,6 +35,9 @@ namespace TerraformingReloaded.Comets
                 case "make":
                 case "send":
                 case "list":
+                case "discover":
+                case "rocket":
+                case "arrive":
                     return true;
                 default:
                     return false;
@@ -63,7 +68,19 @@ namespace TerraformingReloaded.Comets
             {
                 return "Comets on the space map are off for this game build: they could not be saved with the world, so one would be lost at the next load. See the log.";
             }
-            return verb == "make" ? Make(args, gasNamed, gasNames) : Send(args);
+            switch (verb)
+            {
+                case "make":
+                    return Make(args, gasNamed, gasNames);
+                case "send":
+                    return Send(args);
+                case "discover":
+                    return CometStaging.Discover(args);
+                case "rocket":
+                    return CometStaging.RocketVerb(args);
+                default:
+                    return CometStaging.Arrive(args);
+            }
         }
 
         private static string Make(string[] args, Func<string, Chemistry.GasType?> gasNamed, Func<string> gasNames)
@@ -253,7 +270,7 @@ namespace TerraformingReloaded.Comets
             return text.ToString();
         }
 
-        private static string SiteList(List<SpaceMapNode> sites)
+        internal static string SiteList(List<SpaceMapNode> sites)
         {
             if (sites.Count == 0)
             {
@@ -268,7 +285,7 @@ namespace TerraformingReloaded.Comets
         }
 
         /// <summary>A site by its number in the list, its name or its template id. Null with why not.</summary>
-        private static SpaceMapNode SiteNamed(List<SpaceMapNode> sites, string typed, out string notFound)
+        internal static SpaceMapNode SiteNamed(List<SpaceMapNode> sites, string typed, out string notFound)
         {
             notFound = null;
             if (int.TryParse(typed, NumberStyles.Integer, CultureInfo.InvariantCulture, out int number))
@@ -300,16 +317,16 @@ namespace TerraformingReloaded.Comets
             return found;
         }
 
-        private static string Name(SpaceMapNode site)
+        internal static string Name(SpaceMapNode site)
         {
             string parent = site.ParentConnection?.Parent?.DisplayName;
             return site.DisplayName + (string.IsNullOrEmpty(parent) ? "" : " (by " + parent + ")");
         }
 
-        private static string NodeName(long referenceId) => SpaceMapNode.Get(referenceId)?.DisplayName ?? "?";
+        internal static string NodeName(long referenceId) => SpaceMapNode.Get(referenceId)?.DisplayName ?? "?";
 
         /// <summary>The route's Δv from a site to Entry as the game's pathfinder gives it, for the answer to make.</summary>
-        private static bool RouteDeltaV(SpaceMapNode site, out double deltaV)
+        internal static bool RouteDeltaV(SpaceMapNode site, out double deltaV)
         {
             deltaV = 0.0;
             SpaceMapNode entry = SpaceMap.Current?.EntryNode;

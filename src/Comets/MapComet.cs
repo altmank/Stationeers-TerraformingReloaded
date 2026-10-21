@@ -178,6 +178,10 @@ namespace TerraformingReloaded.Comets
         public MapComet BackOnClock(double clock) =>
             new MapComet(Id, State, Kind, Gases, Moles, OreUnits, Cycles, CometKg, Engines, Fuel, FuelKgPerMole, SiteId, Route, Hops, clock, MarkFlown);
 
+        /// <summary>The same flight, as if it had set off <paramref name="seconds"/> before <paramref name="clock"/>.</summary>
+        public MapComet FlownFor(double seconds, double clock) =>
+            new MapComet(Id, State, Kind, Gases, Moles, OreUnits, Cycles, CometKg, Engines, Fuel, FuelKgPerMole, SiteId, Route, Hops, clock, seconds);
+
         /// <summary>The same comet with its site and route given as other node ids, after a load renumbered them.</summary>
         public MapComet WithNodes(long siteId, long[] route) =>
             new MapComet(Id, State, Kind, Gases, Moles, OreUnits, Cycles, CometKg, Engines, Fuel, FuelKgPerMole, siteId, route, Hops, MarkClock, MarkFlown);

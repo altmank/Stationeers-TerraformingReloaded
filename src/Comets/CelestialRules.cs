@@ -607,8 +607,8 @@ namespace TerraformingReloaded.Comets
         // The fuel rocket and the comet CometMassScale is derived from (docs/COMET-ROCKETS.md, stage 4).
         private const double HaulerDryKg = 1120.0;               // LU's tanker hull, by the game's part masses (engine mount 100, engine 500, doors 250, fuselage 250, battery 20)
         private const double HaulerLitres = 8120.0;              // its 2 large, 1 medium and 2 small gas capsule tanks (3,000, 1,500, 250 L) and lines
-        private const double RefuelKPa = 30000.0;                // RocketCommand.Refuel: the game's own full rocket, 30 MPa
-        private const double RefuelKelvin = 215.0;               // at 215 K
+        internal const double RefuelKPa = 30000.0;               // RocketCommand.Refuel: the game's own full rocket, 30 MPa
+        internal const double RefuelKelvin = 215.0;              // at 215 K
         private const double GasConstant = 8.3144;               // Chemistry.R
         private const double LandingReserveMoles = 6250.0;       // the 100 kg the tanker keeps back to land on
         private const double LostMoonSiteDeltaV = 2058.5;        // Mars Orbit to Lost Moon Fragments 1,858.5, and a site's 200

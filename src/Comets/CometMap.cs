@@ -401,6 +401,33 @@ namespace TerraformingReloaded.Comets
             return null;
         }
 
+        /// <summary>
+        /// Host, main thread (terraform comet arrive): a flight on the clock is moved to the end the rule gives
+        /// it, as if it had set off the whole flight's seconds ago, and settled at once by <see cref="Step"/>,
+        /// as every flight is: parked at Entry with the fuel it did not burn, or stopped where its fuel runs
+        /// out. Every player gets the moved flight and settles it by the same rule. Null on success, else why not.
+        /// </summary>
+        internal static string FlyToEnd(int id, out MapComet flown)
+        {
+            flown = null;
+            double now = Clock;
+            lock (Changes)
+            {
+                MapComet comet = Find(id);
+                if (comet == null || comet.State != MapCometState.Flying || !comet.OnClock)
+                {
+                    return "Comet " + id + " is not in flight on the clock.";
+                }
+                flown = comet.FlownFor(comet.WholeFlight.Seconds, now);
+                Publish(Replace(_comets, flown));
+            }
+            Log.Info(string.Format(CultureInfo.InvariantCulture, "[TR comet map] comet {0} flown to the end of its flight by the console at clock {1:R}: {2:R} s, as if sent at clock {3:R}",
+                id, now, flown.MarkFlown, flown.StartClock));
+            CometNet.BroadcastMap();
+            Step();
+            return null;
+        }
+
         internal static MapComet Find(int id)
         {
             foreach (MapComet comet in _comets)
