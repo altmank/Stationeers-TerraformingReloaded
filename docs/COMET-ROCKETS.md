@@ -479,8 +479,9 @@ above happen only through the console command.
   `MaxDamagingRocks` have come down (`CometZones.Rocks`). The chance is 1 at the falling rocks' inner edge, past
   the fireball, and thins as an ejecta blanket does, as the inverse cube of the distance (McGetchin, Settle and
   Head 1973). A rock is the game's own smallest explosion that damages anything, a suit bursting
-  (`Explosion.Explode(200, position, 2.3)`): it damages what lies within 1 m of where it lands by 200 Brute, so a
-  rock on a structure takes 200 from it. It lands on the place's structure or player, when a 45 degree throw that
+  (`Explosion.Explode(200, position, 2.3)`): it damages what lies within 1 m of where it lands by 200 Brute, once
+  for each of a thing's colliders there (the game's own explosion counts colliders, not things), so a rock on a
+  structure takes 200 or a whole multiple of it. It lands on the place's structure or player, when a 45 degree throw that
   lands there comes down, `sqrt(2 d / g)` under the world's gravity, never before the wave: 18 to 27 s after the
   impact across a 1e6 comet's falling rocks on Mars, as the show draws its rain from 4 to 35 s. Rocks over open
   ground are only drawn.

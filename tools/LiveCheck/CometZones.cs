@@ -428,7 +428,14 @@ namespace TerraformingReloaded.LiveCheck
                 }
                 else
                 {
-                    bool overHealth = heat + rockDamage >= p.Health;
+                    // The game's explosion damages a thing once for each of its colliders inside the sphere, so a rock
+                    // takes 200 a collider its 1 m reaches: at least one, a whole number of them.
+                    double colliders = rock && !float.IsNaN(gotBrute) ? Math.Round(gotBrute / CometZones.RockForce) : 0.0;
+                    if (rock && colliders >= 1.0 && Math.Abs(gotBrute - colliders * CometZones.RockForce) <= 1e-3 * gotBrute)
+                    {
+                        rockDamage = colliders * CometZones.RockForce;
+                    }
+                    bool overHealth = !rock && heat >= p.Health;
                     bool reportOk = (heat > 0.0 || breaks || creaks) == (entry != null)
                         && (entry == null || (entry.Value.Zone == zone && entry.Value.Breaks == breaks && entry.Value.Creaks == creaks && Math.Abs(entry.Value.Burn - heat) <= 1e-9 * Math.Max(1.0, heat)));
                     bool rockOk = !rock || zone == CometZone.Debris;
@@ -437,10 +444,16 @@ namespace TerraformingReloaded.LiveCheck
                         expected = string.Format(C, "{0}{1}{2}", breaks ? "broken by the wave" : "broken by its damage", heat > 0.0 ? ", burned " + heat.ToString("0.###", C) : "", rock ? ", a rock" : "");
                         pass = (gone || broken) && reportOk && rockOk;
                     }
+                    else if (rock && (gone || broken))
+                    {
+                        expected = string.Format(C, "a rock, burn {0:0.###}: broken by the rock", heat);
+                        pass = reportOk && rockOk;
+                    }
                     else
                     {
-                        expected = string.Format(C, "standing, burn {0:0.###}, brute {1:0.###}{2}", heat, rockDamage, creaks ? ", creaked" : "");
-                        pass = !gone && !broken && Math.Abs(gotBurn - heat) <= 1e-3 * Math.Max(1.0, heat) && Math.Abs(gotBrute - rockDamage) <= 1e-3 * Math.Max(1.0, rockDamage) && reportOk && rockOk;
+                        expected = string.Format(C, "standing, burn {0:0.###}, brute {1}{2}", heat, rock ? "200 for each collider the rock reached" : "0", creaks ? ", creaked" : "");
+                        pass = !gone && !broken && Math.Abs(gotBurn - heat) <= 1e-3 * Math.Max(1.0, heat) && (rock ? rockDamage >= CometZones.RockForce && Math.Abs(gotBrute - rockDamage) <= 1e-3 * rockDamage : gotBrute == 0f)
+                            && reportOk && rockOk;
                     }
                 }
                 if (!pass)
