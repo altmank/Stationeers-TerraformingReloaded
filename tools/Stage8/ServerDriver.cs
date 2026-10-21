@@ -749,8 +749,7 @@ namespace TerraformingReloaded.Stage8
             for (int i = 0; i < groups.Count; i++)
             {
                 double side = (i % 2 == 0 ? -1.0 : 1.0) * 6.0;
-                Vector3 at = impact + dir * (float)groups[i].Distance + across * (float)side + Vector3.up;
-                at = new Vector3(Mathf.Round(at.x / 2f) * 2f, Mathf.Round(at.y / 2f) * 2f + 1f, Mathf.Round(at.z / 2f) * 2f);
+                Vector3 at = OnGrid(groups[i].Prefab, impact + dir * (float)groups[i].Distance + across * (float)side + Vector3.up);
                 Structure s = Spawn<Structure>(groups[i].Prefab, at);
                 if (s == null)
                 {
@@ -1133,6 +1132,36 @@ namespace TerraformingReloaded.Stage8
         }
 
         // ---- helpers -----------------------------------------------------------------------------------------
+
+        private static float Odd(float v) => 2f * Mathf.Floor(v / 2f) + 1f;
+
+        /// <summary>
+        /// Where near <paramref name="near"/> a structure of this prefab stands as the game places one: a cell's centre
+        /// (every coordinate odd) for one snapped to the grid, else the first face of that cell its grid can be taken
+        /// out of again. The game registers a wall on the edge between four cells (two coordinates even) in the cell's
+        /// list alone, and its removal then clears the cell's lookup at that grid and throws (StructuralArray.Clear).
+        /// </summary>
+        private static Vector3 OnGrid(string prefabName, Vector3 near)
+        {
+            Vector3 centre = new Vector3(Odd(near.x), Odd(near.y), Odd(near.z));
+            if (!(Prefab.Find(prefabName) is Structure prefab) || prefab.PlacementType == PlacementSnap.Grid)
+            {
+                return centre;
+            }
+            Vector3[] steps = prefab.PlacementType == PlacementSnap.FaceMount
+                ? new[] { Vector3.down, Vector3.up, Vector3.forward, Vector3.back, Vector3.right, Vector3.left }
+                : new[] { Vector3.forward, Vector3.back, Vector3.right, Vector3.left, Vector3.up, Vector3.down };
+            foreach (Vector3 step in steps)
+            {
+                Vector3 at = centre + step;
+                Grid3 grid = new Grid3(at);
+                if (StructuralArray.Get(grid - grid.GridCenter(at + prefab.Bounds.center)) != StructureElement.Invalid)
+                {
+                    return at;
+                }
+            }
+            return centre;
+        }
 
         private static T Spawn<T>(string prefabName, Vector3 position) where T : Thing
         {
