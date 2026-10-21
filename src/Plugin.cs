@@ -324,8 +324,12 @@ namespace TerraformingReloaded
                 "Off by default. The game deletes any gas an outdoor cell holds less than 0.00001 mol of, so a gas the planet's air holds so little of that one outdoor cell's draw of it falls under that is drawn and deleted every tick by every outdoor cell beside open ground, until it is gone. On, the planet keeps such a gas instead of handing it out: nothing is deleted, and none of it reaches the outdoor air. A world saved without this setting takes the config's.",
                 v => Settings.PlanetKeepsTraceGas = v, null, "The planet keeps gas too thin for outdoor air", 63, world: true);
 
-            // Celestial terraforming. One section for every tuning number of comets made and brought
-            // down by rocket, each declared once with its default and range (Comets.CelestialSettings).
+            // Celestial terraforming. The switch for comets, then one entry for every tuning number of
+            // comets made and brought down by rocket, each declared once with its default and range
+            // (Comets.CelestialSettings).
+            Bind(Comets.CelestialSettings.Section, "CometsEnabled", Settings.CometsEnabled,
+                "EXPERIMENTAL, off by default. Enable at your own risk. Comets: cut from ice and mineral sites on the space map by rocket, flown to the planet's orbit, seen in the sky and brought down where you aim them, bringing gas or blasting air away, with an impact that can wreck a base, yours included. Also the console comet and the comet debug commands. Turned off in a world that has comets, they stay as they are, stopped where they were, and carry on when it is turned on again. In multiplayer the host's world setting applies to everyone. A world saved without this setting takes the config's.",
+                v => Settings.CometsEnabled = v, null, "Comets (experimental)", Comets.CelestialSettings.FirstOrder - 1, world: true);
             foreach (Comets.CelestialSetting setting in Comets.CelestialSettings.All)
             {
                 Comets.CelestialSetting one = setting;

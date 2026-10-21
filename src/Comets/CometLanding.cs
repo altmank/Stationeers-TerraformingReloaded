@@ -107,6 +107,10 @@ namespace TerraformingReloaded.Comets
             }
         }
 
+        /// <summary>The same fall taken off the clock where it stands at <paramref name="clock"/>, as a save takes one off.</summary>
+        public CometLanding OffClock(double clock) =>
+            new CometLanding(CometId, Kind, Gases, Moles, MineralKg, AirKgPerKg, ShowMoles, ImpactX, ImpactY, ImpactZ, TravelX, TravelY, TravelZ, Seed, FallSeconds, double.NaN, FallenAt(clock), Aim);
+
         /// <summary>A fall read from a save put back on the clock: from now it falls on from what it had fallen then.</summary>
         public CometLanding BackOnClock(double clock) =>
             new CometLanding(CometId, Kind, Gases, Moles, MineralKg, AirKgPerKg, ShowMoles, ImpactX, ImpactY, ImpactZ, TravelX, TravelY, TravelZ, Seed, FallSeconds, clock, MarkFallen, Aim);

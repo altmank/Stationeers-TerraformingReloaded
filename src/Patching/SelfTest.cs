@@ -93,6 +93,7 @@ namespace TerraformingReloaded.Patching
                     PlanetAirBurns = false,
                     PlanetHoldsBackWhileIgnitable = true,
                     PlanetKeepsTraceGas = false,
+                    CometsEnabled = true,
                     PlanetFireHeatJoules = -2.5e11,
                     Celestial = new System.Collections.Generic.List<CelestialEntry>
                     {
@@ -157,6 +158,10 @@ namespace TerraformingReloaded.Patching
                 {
                     return "a world's armed hold-back or trace hold did not survive the round trip";
                 }
+                if (read.CometsEnabled != true)
+                {
+                    return "a world that turned comets on did not stay on across the round trip";
+                }
                 if (read.Celestial == null || read.Celestial.Count != 1 || read.Celestial[0].Key != "GasArrivingShare"
                     || read.Celestial[0].Value != 0.25.ToString("R", CultureInfo.InvariantCulture))
                 {
@@ -177,7 +182,7 @@ namespace TerraformingReloaded.Patching
                     || partial.SpaceDeletesGas.HasValue || partial.GasLostToSpaceMoles.HasValue
                     || partial.RocketsBurnCompletely.HasValue
                     || partial.PlanetAirBurns.HasValue || partial.PlanetFireHeatJoules.HasValue
-                    || partial.PlanetHoldsBackWhileIgnitable.HasValue || partial.PlanetKeepsTraceGas.HasValue
+                    || partial.PlanetHoldsBackWhileIgnitable.HasValue || partial.PlanetKeepsTraceGas.HasValue || partial.CometsEnabled.HasValue
                     || (partial.Celestial != null && partial.Celestial.Count != 0))
                 {
                     return "a file holding one setting invented values for the rest";

@@ -276,7 +276,7 @@ namespace TerraformingReloaded.Comets
         /// </summary>
         internal static void Step()
         {
-            if (GameManager.GameState != GameState.Running)
+            if (GameManager.GameState != GameState.Running || !Gate.CometsEnabled())
             {
                 return;
             }

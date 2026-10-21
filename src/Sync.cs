@@ -44,9 +44,12 @@ namespace TerraformingReloaded
     /// game works out a comet's orbit, the sky rule's disc and anything else it shows of a comet from
     /// the host's numbers (docs/COMET-ROCKETS.md, "Configuration: Celestial terraforming").
     ///
-    /// Last come the comets on the space map, each as the state it is in or set off with, so a joining
+    /// Then come the comets on the space map, each as the state it is in or set off with, so a joining
     /// player's game places every flight by the same rule on the clock it shares with the host. The
     /// host also sends the list the moment it changes, as its own message.
+    ///
+    /// Last comes whether comets are on for the host's world (CometsEnabled), which decides on every
+    /// player's game whether comets are shown and offered at all.
     ///
     /// The leading byte says what follows. LaunchPadBooster refuses a join between different
     /// versions of the mod, so both ends normally write and read the same layout; the byte still lets
@@ -64,6 +67,7 @@ namespace TerraformingReloaded
         private const byte PlanetSettingsSpaceStormBoundsAndComet = 5;
         private const byte PlanetSettingsSpaceStormBoundsCometAndCelestial = 6;
         private const byte PlanetSettingsSpaceStormBoundsCometCelestialAndMap = 7;
+        private const byte PlanetSettingsSpaceStormBoundsCometCelestialMapAndSwitch = 8;
 
         private static readonly FieldInfo[] MixFields = typeof(GlobalGasMixSaveData)
             .GetFields(BindingFlags.Public | BindingFlags.Instance)
@@ -135,7 +139,7 @@ namespace TerraformingReloaded
                 writer.WriteByte(Nothing);
                 return;
             }
-            writer.WriteByte(PlanetSettingsSpaceStormBoundsCometCelestialAndMap);
+            writer.WriteByte(PlanetSettingsSpaceStormBoundsCometCelestialMapAndSwitch);
             writer.WriteInt32(MixFields.Length);
             WriteMix(writer, data.GlobalGasMix);
             WriteMix(writer, data.LiquidClouds);
@@ -163,6 +167,7 @@ namespace TerraformingReloaded
                 writer.WriteDouble(value);
             }
             Comets.CometMap.Write(writer, Comets.CometMap.All);
+            writer.WriteBoolean(Effective.CometsEnabled);
         }
 
         private static double[] ReadCelestial(RocketBinaryReader reader)
@@ -233,7 +238,7 @@ namespace TerraformingReloaded
             try
             {
                 byte kind = reader.ReadByte();
-                if (kind < PlanetOnly || kind > PlanetSettingsSpaceStormBoundsCometCelestialAndMap)
+                if (kind < PlanetOnly || kind > PlanetSettingsSpaceStormBoundsCometCelestialMapAndSwitch)
                 {
                     return;
                 }
@@ -265,6 +270,8 @@ namespace TerraformingReloaded
                 Comets.CometAim.Target[] targets = null;
                 Comets.CometLanding[] landings = null;
                 Comets.MapComet[] map = kind >= PlanetSettingsSpaceStormBoundsCometCelestialAndMap ? Comets.CometMap.Read(reader, out targets, out landings) : null;
+                // A host from before the switch had comets on; one that sends it decides it.
+                bool comets = kind < PlanetSettingsSpaceStormBoundsCometCelestialMapAndSwitch || reader.ReadBoolean();
                 if (!NetworkManager.IsClient || PlanetaryAtmosphereSimulation.GetGlobalGasMix() == null)
                 {
                     return;
@@ -302,6 +309,7 @@ namespace TerraformingReloaded
                 {
                     Apply(celestial);
                 }
+                Effective.CometsEnabled = comets;
                 Gate.SetHostPlanet(true);
             }
             catch (Exception e)

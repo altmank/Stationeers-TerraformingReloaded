@@ -10,6 +10,7 @@ using Assets.Scripts.GridSystem;
 using Assets.Scripts.Networking;
 using Assets.Scripts.Serialization;
 using Objects.Rockets;
+using TerraformingReloaded.Patching;
 
 namespace TerraformingReloaded.Comets
 {
@@ -762,7 +763,8 @@ namespace TerraformingReloaded.Comets
                     continue;
                 }
                 rocket.RocketMode = mode;
-                Log.Info("[TR comet actions] rocket " + record.Id + " is back to " + record.Action + " after the load" + (rocket.RocketMode == mode ? "" : ", which the game refused (" + rocket.RocketMode + ")"));
+                Log.Info("[TR comet actions] rocket " + record.Id + " is back to " + record.Action + (record.StoppedByTheSwitch ? " now comets are on again" : " after the load")
+                    + (rocket.RocketMode == mode ? "" : ", which the game refused (" + rocket.RocketMode + ")"));
             }
             if (left.Count > 0 && ++_pendingFrames > 600)
             {
@@ -773,6 +775,78 @@ namespace TerraformingReloaded.Comets
                 left.Clear();
             }
             _pendingModes = left;
+        }
+
+        /// <summary>
+        /// Host, main thread, every frame while comets are off for this world (Gate.CometsEnabled): time stops for
+        /// them, and nothing of them acts. Every flight and fall on the clock is taken off it where it stands, as a
+        /// save takes one off, so it goes back on from the same second when comets are on again (ClockRestored);
+        /// the impact event in force is called off, as terraform comet stop calls one off, and a fall's is made
+        /// again when its fall goes back on the clock; every rocket running a comet action goes idle, the game's
+        /// own idle, with its action kept, saved with the world, and taken up again when comets are on.
+        /// </summary>
+        private static void StandDown()
+        {
+            double now = Clock;
+            bool stopped = false;
+            lock (Changes)
+            {
+                MapComet[] list = _comets;
+                foreach (MapComet comet in list)
+                {
+                    if (comet.State == MapCometState.Flying && comet.OnClock)
+                    {
+                        MapComet off = comet.OffClock(now);
+                        list = Replace(list, off);
+                        stopped = true;
+                        Log.Info(string.Format(CultureInfo.InvariantCulture, "[TR comet map] comet {0} stops at clock {1:R}, {2:R} s into its flight: comets are off for this world", off.Id, now, off.MarkFlown));
+                    }
+                }
+                CometLanding[] landings = (CometLanding[])_landings.Clone();
+                for (int i = 0; i < landings.Length; i++)
+                {
+                    if (landings[i].OnClock)
+                    {
+                        landings[i] = landings[i].OffClock(now);
+                        stopped = true;
+                        Log.Info(string.Format(CultureInfo.InvariantCulture, "[TR comet land] comet {0} stops at clock {1:R}, {2:R} s into its fall: comets are off for this world", landings[i].CometId, now, landings[i].MarkFallen));
+                    }
+                }
+                if (stopped)
+                {
+                    Publish(list);
+                    _landings = landings;
+                }
+            }
+            if (CometDirector.Current != null && CometDirector.CallOff())
+            {
+                Log.Info("[TR comet] the comet event in force was called off: comets are off for this world");
+            }
+            List<CometRocketRecord> pending = null;
+            foreach (Rocket rocket in Rocket.AllRockets)
+            {
+                if (rocket == null || !CometModes.IsComet(rocket.RocketMode))
+                {
+                    continue;
+                }
+                string action = rocket.RocketMode == CometModes.Deorbit ? null : CometModes.Name(rocket.RocketMode);
+                if (action != null && !_pendingModes.Exists(r => r.Id == rocket.ReferenceId))
+                {
+                    pending = pending ?? new List<CometRocketRecord>(_pendingModes);
+                    pending.Add(new CometRocketRecord { Id = rocket.ReferenceId, Action = action, StoppedByTheSwitch = true });
+                }
+                rocket.RocketMode = RocketMode.None;
+                Log.Info("[TR comet actions] rocket " + rocket.ReferenceId + " stopped " + (action ?? "Deorbit") + ": comets are off for this world" + (action == null ? "" : "; it goes back to it when they are on"));
+            }
+            if (pending != null)
+            {
+                _pendingModes = pending;
+                _pendingFrames = 0;
+            }
+            if (stopped)
+            {
+                CometNet.BroadcastMap();
+            }
         }
 
         // ---- every frame -----------------------------------------------------------------------------
@@ -791,13 +865,21 @@ namespace TerraformingReloaded.Comets
             }
             // The comets' sites first, so a rocket put back to its comet action finds its comet there.
             Relink();
-            RestoreRocketModes();
             if (_changed && !NetworkManager.IsClient && (DateTime.UtcNow - _lastSent).TotalSeconds >= ChangeSendSeconds)
             {
                 _changed = false;
                 _lastSent = DateTime.UtcNow;
                 CometNet.BroadcastMap();
             }
+            if (!Gate.CometsEnabled())
+            {
+                if (!NetworkManager.IsClient)
+                {
+                    StandDown();
+                }
+                return;
+            }
+            RestoreRocketModes();
             MapComet[] comets = _comets;
             if (comets.Length == 0)
             {
@@ -868,7 +950,7 @@ namespace TerraformingReloaded.Comets
             {
                 waiting |= !landing.OnClock;
             }
-            if (!waiting || NetworkManager.IsClient || GameManager.GameState != GameState.Running)
+            if (!waiting || NetworkManager.IsClient || GameManager.GameState != GameState.Running || !Gate.CometsEnabled())
             {
                 return;
             }
@@ -1082,6 +1164,15 @@ namespace TerraformingReloaded.Comets
                 {
                     file.Rockets.Add(new CometRocketRecord { Id = rocket.ReferenceId, Action = action });
                     Log.Info("[TR comet actions] saved rocket " + rocket.ReferenceId + " running " + action);
+                }
+            }
+            // A rocket not yet back in its comet action, after a load or while comets are off, keeps it in the save.
+            foreach (CometRocketRecord record in _pendingModes)
+            {
+                if (!file.Rockets.Exists(r => r.Id == record.Id))
+                {
+                    file.Rockets.Add(new CometRocketRecord { Id = record.Id, Action = record.Action });
+                    Log.Info("[TR comet actions] saved rocket " + record.Id + " running " + record.Action + " (idle until it goes back to it)");
                 }
             }
             CometLanding[] landings = _landings;

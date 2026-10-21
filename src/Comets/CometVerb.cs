@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text;
 using Assets.Scripts.Atmospherics;
 using Assets.Scripts.Networking;
+using TerraformingReloaded.Patching;
 
 namespace TerraformingReloaded.Comets
 {
@@ -62,8 +63,25 @@ namespace TerraformingReloaded.Comets
             return null;
         }
 
+        /// <summary>Why no comet verb runs now, or null when comets are on for this world.</summary>
+        internal static string Off()
+        {
+            if (Effective.CometsEnabled)
+            {
+                return Gate.CometsEnabled() ? null : "Comets are off while Terraforming Reloaded is off for this world (" + Gate.Describe() + ").";
+            }
+            return NetworkManager.IsClient
+                ? "Comets are experimental and off for this world. The host turns them on with: terraform set CometsEnabled true"
+                : "Comets are experimental and off for this world. Turn them on, at your own risk, with: terraform set CometsEnabled true";
+        }
+
         public static string Run(string[] args, Func<string, Chemistry.GasType?> gasNamed, Func<string> gasNames)
         {
+            string off = Off();
+            if (off != null)
+            {
+                return off;
+            }
             if (args.Length > 1 && CometMapVerb.Handles(args[1]))
             {
                 return CometMapVerb.Run(args, gasNamed, gasNames);

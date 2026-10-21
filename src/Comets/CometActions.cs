@@ -124,7 +124,7 @@ namespace TerraformingReloaded.Comets
         /// <summary>Why <paramref name="mode"/> cannot run at <paramref name="node"/>, or None when it can.</summary>
         public static CometRefusal Refusal(SpaceMapNode node, RocketMode mode)
         {
-            if (!_installed || CelestialRules.Verdict != null || (!NetworkManager.IsClient && !CometMap.SaveInstalled))
+            if (!_installed || !Patching.Gate.CometsEnabled() || CelestialRules.Verdict != null || (!NetworkManager.IsClient && !CometMap.SaveInstalled))
             {
                 return CometRefusal.Off;
             }

@@ -133,6 +133,13 @@ namespace TerraformingReloaded
         /// once, in <see cref="Comets.CelestialSettings"/>.
         /// </summary>
         public static Comets.CelestialTuning Celestial = Comets.CelestialTuning.Defaults;
+
+        /// <summary>
+        /// Experimental, off by default: comets made and brought down by rocket, the console comet and
+        /// every debug verb for them (docs/COMET-ROCKETS.md). Off, comets already in a world are kept as
+        /// they are and come back when it is turned on.
+        /// </summary>
+        public static bool CometsEnabled = false;
     }
 
     /// <summary>
@@ -398,6 +405,9 @@ namespace TerraformingReloaded
         public static bool PlanetAirBurns = false;
         public static bool PlanetHoldsBackWhileIgnitable = false;
         public static bool PlanetKeepsTraceGas = false;
+
+        /// <summary>Whether comets are on for the world being played; on a client, the host's once its planet has arrived.</summary>
+        public static volatile bool CometsEnabled = false;
 
         private static volatile Comets.CelestialTuning _celestial = Comets.CelestialTuning.Defaults;
 

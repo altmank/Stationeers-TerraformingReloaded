@@ -16,7 +16,7 @@ namespace TerraformingReloaded
     /// <summary>Console command: what the planet holds and what the mod is doing about it.</summary>
     public sealed class TerraformCommand : CommandBase
     {
-        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'set' lists the settings the world you are playing keeps for itself, and 'set <key> <value>' changes one for this world only; the config only decides what a new world starts with (host only). 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships and sets the gas lost to space back to 0, keeping this world's settings, which is also how to remove the mod cleanly (host only). 'gas add <gas> <mol> [<K>]' and 'gas remove <gas> <mol|all> confirm' put a gas into the planet or take it out, for testing (host only). 'comet <mol> <gas>[:<share>] ...' calls a comet down in the distance where you are looking; its gas goes into the planet when it lands, and its pressure wave can break windows facing outside and throw players who are outdoors; 'comet' alone explains the rest (host only). 'comet make', 'comet send <id>' and 'comet list' are for testing comets on the space map: make puts one at a discovered site, send flies it to the planet's orbit by the game's rocket travel rule, list shows where each is (make and send host only). 'comet discover [ice|mineral]', 'comet rocket [<n> [<site>|entry] [fill]]' and 'comet arrive <id> [strand]' are for staging a comet situation by hand: discover finds a site as a Discover scan does, rocket lists the rockets and ends one's trip in space at a site or Entry now, fill fills its tanks with 2:1 methane and oxygen, arrive brings a comet in flight to orbit now (host only). 'curves export' and 'curves reload' are for tuning the temperature response.";
+        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'set' lists the settings the world you are playing keeps for itself, and 'set <key> <value>' changes one for this world only; the config only decides what a new world starts with (host only). 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships and sets the gas lost to space back to 0, keeping this world's settings, which is also how to remove the mod cleanly (host only). 'gas add <gas> <mol> [<K>]' and 'gas remove <gas> <mol|all> confirm' put a gas into the planet or take it out, for testing (host only). 'comet <mol> <gas>[:<share>] ...' (comets are experimental and off in a world until 'set CometsEnabled true', at your own risk) calls a comet down in the distance where you are looking; its gas goes into the planet when it lands, and its pressure wave can break windows facing outside and throw players who are outdoors; 'comet' alone explains the rest (host only). 'comet make', 'comet send <id>' and 'comet list' are for testing comets on the space map: make puts one at a discovered site, send flies it to the planet's orbit by the game's rocket travel rule, list shows where each is (make and send host only). 'comet discover [ice|mineral]', 'comet rocket [<n> [<site>|entry] [fill]]' and 'comet arrive <id> [strand]' are for staging a comet situation by hand: discover finds a site as a Discover scan does, rocket lists the rockets and ends one's trip in space at a site or Entry now, fill fills its tanks with 2:1 methane and oxygen, arrive brings a comet in flight to orbit now (host only). 'curves export' and 'curves reload' are for tuning the temperature response.";
 
         public override string[] Arguments => new[] { "[status | set [<key> [<value> [confirm]]] | size <share> confirm | reset confirm | gas add <gas> <mol> [<K>] | gas remove <gas> <mol|all> confirm | comet <mol> <gas>[:<share>] ... [turn=<deg>] [range=<m>] [K=<kelvin>] [preview] | comet stop | comet make [<site> <mol> <gas>[:<share>] ... engines=<n> fuel=<mol>] | comet send <id> | comet list | comet discover [ice|mineral] | comet rocket [<n> [<site>|entry] [fill]] | comet arrive <id> [strand] | curves export | curves reload]" };
 
@@ -327,6 +327,8 @@ namespace TerraformingReloaded
                 () => Effective.PlanetHoldsBackWhileIgnitable, () => Settings.PlanetHoldsBackWhileIgnitable, v => Effective.PlanetHoldsBackWhileIgnitable = v),
             Switch("PlanetKeepsTraceGas", "The planet keeps gas too thin for outdoor air",
                 () => Effective.PlanetKeepsTraceGas, () => Settings.PlanetKeepsTraceGas, v => Effective.PlanetKeepsTraceGas = v),
+            Switch("CometsEnabled", "Comets (experimental)",
+                () => Effective.CometsEnabled, () => Settings.CometsEnabled, v => Effective.CometsEnabled = v),
         });
 
         /// <summary>The keys above, then every Celestial terraforming setting, from its one declaration.</summary>
@@ -452,6 +454,12 @@ namespace TerraformingReloaded
                 text.AppendLine((bool)asked
                     ? "  From the next planet tick, the planet keeps any gas too thin for an outdoor cell to keep, instead of handing it out to be deleted."
                     : "  From the next planet tick, a gas too thin for an outdoor cell to keep is handed out and deleted, as the game ships.");
+            }
+            if (key.Name == "CometsEnabled")
+            {
+                text.AppendLine((bool)asked
+                    ? "  Comets are on for this world, an experimental part of the mod. Any comets it already had carry on from where they stopped; terraform comet explains the commands."
+                    : "  Comets are off for this world. Its comets are kept as they are: one in flight or coming down stops where it is, a rocket running a comet action goes idle and takes it up again, and all of it carries on when comets are turned on again.");
             }
             if (key.Name == "RocketsBurnCompletely" && !(bool)asked)
             {
@@ -1139,6 +1147,7 @@ namespace TerraformingReloaded
                 + (NetworkManager.IsClient ? "" : Effective.PlanetKeepsTraceGas
                     ? ", it keeps gas too thin for outdoor air (trace hold)"
                     : ", gas too thin for outdoor air is handed out and deleted, as shipped")
+                + (Effective.CometsEnabled ? ", comets on (experimental)" : ", comets off (experimental)")
                 + "; the storm settings are under storms below; all of them with terraform set");
         }
 

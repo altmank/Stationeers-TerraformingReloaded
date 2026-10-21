@@ -69,7 +69,7 @@ namespace TerraformingReloaded.Comets
         {
             try
             {
-                Rebuild(__instance, CometMap.Views());
+                Rebuild(__instance, Shown());
             }
             catch (Exception e)
             {
@@ -81,7 +81,7 @@ namespace TerraformingReloaded.Comets
         {
             try
             {
-                CometView[] comets = CometMap.Views();
+                CometView[] comets = Shown();
                 if (!Matches(__instance, comets))
                 {
                     Rebuild(__instance, comets);
@@ -93,6 +93,9 @@ namespace TerraformingReloaded.Comets
                 Fault(e);
             }
         }
+
+        /// <summary>The comets the map shows: every one, or none while comets are off for this world.</summary>
+        private static CometView[] Shown() => Patching.Gate.CometsEnabled() ? CometMap.Views() : new CometView[0];
 
         /// <summary>The icons this map shows are one per comet, in the same order, none destroyed by the game.</summary>
         private static bool Matches(MapView view, CometView[] comets)

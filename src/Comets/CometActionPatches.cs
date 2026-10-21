@@ -228,6 +228,11 @@ namespace TerraformingReloaded.Comets
             }
             prefab = miner.LastMinedPrefab;
             __result = 0;
+            if (!Gate.CometsEnabled())
+            {
+                // The rocket goes idle this frame (CometMap.StandDown); until then a cycle makes nothing.
+                return false;
+            }
             try
             {
                 SpaceMapNode site = __instance.Parent;
@@ -276,7 +281,7 @@ namespace TerraformingReloaded.Comets
         /// </summary>
         private static bool OnDeployPrefix(DeliveryPayload __instance)
         {
-            if (NetworkManager.IsClient || !CometActions.Installed)
+            if (NetworkManager.IsClient || !CometActions.Installed || !Gate.CometsEnabled())
             {
                 return true;
             }
@@ -398,7 +403,7 @@ namespace TerraformingReloaded.Comets
         /// </summary>
         private static void RocketAtmosphericsPostfix()
         {
-            if (!CometActions.Installed || NetworkManager.IsClient)
+            if (!CometActions.Installed || NetworkManager.IsClient || !Gate.CometsEnabled())
             {
                 return;
             }
@@ -516,7 +521,7 @@ namespace TerraformingReloaded.Comets
                 RocketMode mode = __instance.RocketMode;
                 SpaceMapNode site = __instance.CurrentNode;
                 // Deorbit fires once and has no comet waiting at a site to show a line for.
-                if (__result == null || site == null || mode == CometModes.Deorbit || (!CometModes.IsComet(mode) && mode != RocketMode.Deploy))
+                if (__result == null || site == null || !Gate.CometsEnabled() || mode == CometModes.Deorbit || (!CometModes.IsComet(mode) && mode != RocketMode.Deploy))
                 {
                     return;
                 }
@@ -597,9 +602,18 @@ namespace TerraformingReloaded.Comets
                 Rocket rocket = avionics != null ? avionics.Rocket : null;
                 SpaceMapNode node = avionics != null ? avionics.GetCurrentNode() : null;
                 bool still = rocket != null && node != null && rocket.Progress == 0f && rocket.RocketState == RocketState.InSpace;
+                bool on = Gate.CometsEnabled();
                 for (int i = 0; i < made.Length; i++)
                 {
                     if (made[i] == null)
+                    {
+                        continue;
+                    }
+                    if (made[i].gameObject.activeSelf != on)
+                    {
+                        made[i].gameObject.SetActive(on);
+                    }
+                    if (!on)
                     {
                         continue;
                     }

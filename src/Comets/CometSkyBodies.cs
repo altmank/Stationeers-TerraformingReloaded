@@ -281,8 +281,9 @@ namespace TerraformingReloaded.Comets
                     standing.Add(one);
                 }
             }
+            // Off for this world, no comet is in the sky; the list goes back as it was when they are on.
             List<int> parked = new List<int>();
-            foreach (MapComet comet in CometMap.All)
+            foreach (MapComet comet in Patching.Gate.CometsEnabled() ? CometMap.All : new MapComet[0])
             {
                 if (comet.State == MapCometState.Arrived)
                 {

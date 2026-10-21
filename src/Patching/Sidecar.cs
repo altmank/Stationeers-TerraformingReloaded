@@ -100,6 +100,12 @@ namespace TerraformingReloaded.Patching
         public bool? PlanetKeepsTraceGas;
 
         /// <summary>
+        /// Not recorded is the config's, like every setting that only changes behaviour, and the
+        /// config's default is off: comets are experimental. Off keeps a world's comets as they are.
+        /// </summary>
+        public bool? CometsEnabled;
+
+        /// <summary>
         /// Not a setting: the part of the planet's added heat that its own fire booked, in joules,
         /// which the added heat limit does not apply to. Written with every save that changed it.
         /// Not recorded is none, so the limit applies to all of the added heat a save carries.
@@ -582,6 +588,7 @@ namespace TerraformingReloaded.Patching
             Effective.PlanetAirBurns = file.PlanetAirBurns ?? Settings.PlanetAirBurns;
             Effective.PlanetHoldsBackWhileIgnitable = file.PlanetHoldsBackWhileIgnitable ?? Settings.PlanetHoldsBackWhileIgnitable;
             Effective.PlanetKeepsTraceGas = file.PlanetKeepsTraceGas ?? Settings.PlanetKeepsTraceGas;
+            Effective.CometsEnabled = file.CometsEnabled ?? Settings.CometsEnabled;
 
             // Deletes gas, so not recorded is off and never the config's (the ceiling's rule).
             Effective.SpaceDeletionFromWorldFile(file.SpaceDeletesGas);
@@ -729,6 +736,8 @@ namespace TerraformingReloaded.Patching
             Effective.PlanetAirBurns = Settings.PlanetAirBurns;
             Effective.PlanetHoldsBackWhileIgnitable = Settings.PlanetHoldsBackWhileIgnitable;
             Effective.PlanetKeepsTraceGas = Settings.PlanetKeepsTraceGas;
+            // A client's own config never shows it comets: on a client only the host's switch counts.
+            Effective.CometsEnabled = Settings.CometsEnabled && !NetworkManager.IsClient;
             Effective.Celestial = Settings.Celestial;
         }
 
@@ -921,6 +930,7 @@ namespace TerraformingReloaded.Patching
                     PlanetAirBurns = Effective.PlanetAirBurns,
                     PlanetHoldsBackWhileIgnitable = Effective.PlanetHoldsBackWhileIgnitable,
                     PlanetKeepsTraceGas = Effective.PlanetKeepsTraceGas,
+                    CometsEnabled = Effective.CometsEnabled,
                     PlanetFireHeatJoules = fireHeat,
                     Celestial = CelestialEntries(Effective.Celestial),
                 };

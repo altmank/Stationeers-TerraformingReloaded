@@ -198,7 +198,8 @@ namespace TerraformingReloaded.Comets
             {
                 return;
             }
-            CometSkyBodies.Shown shown = Parked(out MapComet comet);
+            MapComet comet = null;
+            CometSkyBodies.Shown shown = Patching.Gate.CometsEnabled() ? Parked(out comet) : null;
             if (!NetworkManager.IsClient)
             {
                 // Nothing is aimed while no comet is parked, so nothing is sent for it either.
@@ -448,7 +449,7 @@ namespace TerraformingReloaded.Comets
 
         private static void CanLogicReadPostfix(LogicType logicType, ref bool __result)
         {
-            if (IsReadout(logicType))
+            if (IsReadout(logicType) && Patching.Gate.CometsEnabled())
             {
                 __result = true;
             }
@@ -456,7 +457,7 @@ namespace TerraformingReloaded.Comets
 
         private static void GetLogicValuePostfix(RocketPayloadBay __instance, LogicType logicType, ref double __result)
         {
-            if (!IsReadout(logicType))
+            if (!IsReadout(logicType) || !Patching.Gate.CometsEnabled())
             {
                 return;
             }

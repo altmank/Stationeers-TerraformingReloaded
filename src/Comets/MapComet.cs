@@ -178,6 +178,13 @@ namespace TerraformingReloaded.Comets
         public MapComet BackOnClock(double clock) =>
             new MapComet(Id, State, Kind, Gases, Moles, OreUnits, Cycles, CometKg, Engines, Fuel, FuelKgPerMole, SiteId, Route, Hops, clock, MarkFlown);
 
+        /// <summary>
+        /// The same flight taken off the clock at <paramref name="clock"/>, where it stands then, as a save takes one
+        /// off: it stays there until it is put back on (BackOnClock), and flies on from the same second.
+        /// </summary>
+        public MapComet OffClock(double clock) =>
+            new MapComet(Id, State, Kind, Gases, Moles, OreUnits, Cycles, CometKg, Engines, Fuel, FuelKgPerMole, SiteId, Route, Hops, double.NaN, FlownAt(clock));
+
         /// <summary>The same flight, as if it had set off <paramref name="seconds"/> before <paramref name="clock"/>.</summary>
         public MapComet FlownFor(double seconds, double clock) =>
             new MapComet(Id, State, Kind, Gases, Moles, OreUnits, Cycles, CometKg, Engines, Fuel, FuelKgPerMole, SiteId, Route, Hops, clock, seconds);
@@ -460,6 +467,10 @@ namespace TerraformingReloaded.Comets
 
         [XmlAttribute]
         public string Action;
+
+        /// <summary>Not saved: the rocket was stopped because comets were turned off, not by a load.</summary>
+        [XmlIgnore]
+        public bool StoppedByTheSwitch;
     }
 
     /// <summary>
