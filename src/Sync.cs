@@ -40,9 +40,13 @@ namespace TerraformingReloaded
     /// joins in the middle of it or whose message was lost, and who picks the show up at the time it
     /// has reached.
     ///
-    /// Last come the host's Celestial terraforming settings, every one of them, so a joining player's
+    /// Then come the host's Celestial terraforming settings, every one of them, so a joining player's
     /// game works out a comet's orbit, the sky rule's disc and anything else it shows of a comet from
     /// the host's numbers (docs/COMET-ROCKETS.md, "Configuration: Celestial terraforming").
+    ///
+    /// Last come the comets on the space map, each as the state it is in or set off with, so a joining
+    /// player's game places every flight by the same rule on the clock it shares with the host. The
+    /// host also sends the list the moment it changes, as its own message.
     ///
     /// The leading byte says what follows. LaunchPadBooster refuses a join between different
     /// versions of the mod, so both ends normally write and read the same layout; the byte still lets
@@ -59,6 +63,7 @@ namespace TerraformingReloaded
         private const byte PlanetSettingsSpaceAndStormBounds = 4;
         private const byte PlanetSettingsSpaceStormBoundsAndComet = 5;
         private const byte PlanetSettingsSpaceStormBoundsCometAndCelestial = 6;
+        private const byte PlanetSettingsSpaceStormBoundsCometCelestialAndMap = 7;
 
         private static readonly FieldInfo[] MixFields = typeof(GlobalGasMixSaveData)
             .GetFields(BindingFlags.Public | BindingFlags.Instance)
@@ -130,7 +135,7 @@ namespace TerraformingReloaded
                 writer.WriteByte(Nothing);
                 return;
             }
-            writer.WriteByte(PlanetSettingsSpaceStormBoundsCometAndCelestial);
+            writer.WriteByte(PlanetSettingsSpaceStormBoundsCometCelestialAndMap);
             writer.WriteInt32(MixFields.Length);
             WriteMix(writer, data.GlobalGasMix);
             WriteMix(writer, data.LiquidClouds);
@@ -157,6 +162,7 @@ namespace TerraformingReloaded
             {
                 writer.WriteDouble(value);
             }
+            Comets.CometMap.Write(writer, Comets.CometMap.All);
         }
 
         private static double[] ReadCelestial(RocketBinaryReader reader)
@@ -227,7 +233,7 @@ namespace TerraformingReloaded
             try
             {
                 byte kind = reader.ReadByte();
-                if (kind < PlanetOnly || kind > PlanetSettingsSpaceStormBoundsCometAndCelestial)
+                if (kind < PlanetOnly || kind > PlanetSettingsSpaceStormBoundsCometCelestialAndMap)
                 {
                     return;
                 }
@@ -256,6 +262,7 @@ namespace TerraformingReloaded
                     ? Comets.CometEvent.Read(reader)
                     : null;
                 double[] celestial = kind >= PlanetSettingsSpaceStormBoundsCometAndCelestial ? ReadCelestial(reader) : null;
+                Comets.MapComet[] map = kind >= PlanetSettingsSpaceStormBoundsCometCelestialAndMap ? Comets.CometMap.Read(reader) : null;
                 if (!NetworkManager.IsClient || PlanetaryAtmosphereSimulation.GetGlobalGasMix() == null)
                 {
                     return;
@@ -263,6 +270,10 @@ namespace TerraformingReloaded
                 if (comet != null)
                 {
                     Comets.CometDirector.FromHost(comet);
+                }
+                if (map != null)
+                {
+                    Comets.CometMap.FromHost(map);
                 }
                 // Every take and clone divides by the tank volume.
                 if (data.GlobalGasMix.Volume.Value <= 0.0 || data.LiquidClouds.Volume.Value <= 0.0

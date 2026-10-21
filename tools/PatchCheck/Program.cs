@@ -257,6 +257,7 @@ internal static class Program
         failures += CheckPlanetFire();
         failures += CheckComets();
         failures += CheckCelestial();
+        failures += CheckCometMap();
 
         Console.WriteLine(failures == 0 ? "OK" : failures + " problem(s)");
         return failures == 0 ? 0 : 1;
@@ -800,6 +801,41 @@ internal static class Program
         {
             Console.WriteLine("FAILED:  comet sky: " + e.Message);
             failures++;
+        }
+        return failures;
+    }
+
+    /// <summary>
+    /// The comets on the space map: the save, the map icon and the site guard go in, or bind where
+    /// compiling the patched method needs Unity. Their rules are CheckCelestial's.
+    /// </summary>
+    private static int CheckCometMap()
+    {
+        int failures = 0;
+        string save = TerraformingReloaded.Comets.CometMap.CheckSave();
+        failures += Judge(save == null, "comet map save: " + (save ?? "comets waiting, in flight and stranded read back from the save to the last bit, and a flight stands where it was saved whenever its load puts it back on the clock"));
+        var parts = new (string Name, Action<HarmonyLib.Harmony> Apply)[]
+        {
+            ("comet map save", TerraformingReloaded.Comets.CometMapPatches.ApplySave),
+            ("comet map icon", TerraformingReloaded.Comets.CometMapIcons.Apply),
+            ("comet site guard", TerraformingReloaded.Comets.CometMapPatches.ApplyGuard),
+        };
+        foreach (var part in parts)
+        {
+            try
+            {
+                part.Apply(new HarmonyLib.Harmony("patchcheck." + part.Name.Replace(' ', '.')));
+                Console.WriteLine("applied: " + part.Name);
+            }
+            catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+            {
+                Console.WriteLine("bound:   " + part.Name + " (targets found, patch bodies fit; compiling one needs Unity)");
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("FAILED:  " + part.Name + ": " + e.Message);
+                failures++;
+            }
         }
         return failures;
     }

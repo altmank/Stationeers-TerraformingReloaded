@@ -167,6 +167,15 @@ namespace TerraformingReloaded.Comets
 
         private void Update()
         {
+            // The comets on the space map, apart from the impact event: a fault in one costs only itself.
+            try
+            {
+                CometMap.Step();
+            }
+            catch (Exception e)
+            {
+                CometMap.Fault("the comets on the space map stopped being stepped this frame: " + e.Message);
+            }
             try
             {
                 Step();

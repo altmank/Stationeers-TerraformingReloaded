@@ -25,6 +25,7 @@ namespace TerraformingReloaded.Comets
         public static void Register(Mod mod)
         {
             mod.Networking.RegisterMessage<CometMessage>();
+            mod.Networking.RegisterMessage<CometMapMessage>();
             _registered = true;
         }
 
@@ -52,6 +53,57 @@ namespace TerraformingReloaded.Comets
         private static void Send(CometEvent comet)
         {
             new CometMessage { Event = comet }.SendAll(-1L);
+        }
+
+        /// <summary>
+        /// Host only: the comets on the space map as they stand, after any change. Best effort, as the
+        /// event is: the planet sync carries the same list within its interval.
+        /// </summary>
+        public static void BroadcastMap()
+        {
+            if (!_registered || NetworkManager.IsClient || !NetworkManager.IsServer)
+            {
+                return;
+            }
+            try
+            {
+                SendMap(CometMap.All);
+            }
+            catch (Exception e)
+            {
+                if (++_faults <= 3)
+                {
+                    Log.Warn("Could not send the comets on the space map to joined players at once; they get them with the next planet sync. " + e.Message);
+                }
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void SendMap(MapComet[] comets)
+        {
+            new CometMapMessage { Comets = comets }.SendAll(-1L);
+        }
+    }
+
+    /// <summary>
+    /// The comets on the space map, host to clients, sent whole after every change: made, sent, arrived,
+    /// stranded, or a flight back on the clock after a load. A flight is the state it set off with, so
+    /// nothing more is sent while it flies (docs/COMET-ROCKETS.md, stage 3).
+    /// </summary>
+    internal sealed class CometMapMessage : INetworkMessage
+    {
+        public MapComet[] Comets;
+
+        public void Serialize(RocketBinaryWriter writer) => CometMap.Write(writer, Comets ?? new MapComet[0]);
+
+        public void Deserialize(RocketBinaryReader reader) => Comets = CometMap.Read(reader);
+
+        public void Process(long clientId)
+        {
+            if (Comets != null && NetworkManager.IsClient)
+            {
+                CometMap.FromHost(Comets);
+            }
         }
     }
 

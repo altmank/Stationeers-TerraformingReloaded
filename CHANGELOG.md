@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.18.0 (prototype)
+
+- **Comets on the space map.** A comet is now an object on the rocket map screen, with an icon of its own: an
+  icy blue asteroid, told apart from rockets by its colour and its name when you hover over it. Sent from the
+  site it waits at, it flies the whole way to the planet's orbit along the route a rocket would take, moving
+  as a rocket with its mass, engines and fuel would, and parks there. If its fuel runs out on the way it stops
+  where it is, for good. Its icon moves along the route as a rocket's does.
+- **Saved with the world.** A save made while a comet is flying loads with it exactly where it was, and it
+  carries on to arrive when it would have. The comets are stored inside the save file itself, so loading an
+  older save brings back that save's comets. A save that holds comets still loads in the game without the mod,
+  which ignores them.
+- **Every player sees the same comets**, sent by the host when they change and to anyone who joins.
+- **A site a comet is at, or flying from, cannot be removed from the map.**
+- **Debug commands, for testing until comets are made by rocket:** `terraform comet make` lists the
+  discovered sites, and `terraform comet make <site> <mol> <gas>[:<share>] ... engines=<n> fuel=<mol>` puts a
+  comet at one; `terraform comet send <id>` sends it to the planet's orbit; `terraform comet list` shows every
+  comet, where it is, its fuel, and when it arrives or runs dry. The host runs make and send.
+- **Comet size follows the planet's size.** The `CometSizeMultiplier` setting is now the size on a
+  Standard-size planet; the size in force grows and shrinks with the planet: five times larger on a Long
+  planet, a fifth on a Short one, but never under 1. So one site never brings more than a third of the air a
+  planet needs, whatever its size. `terraform comet list` shows the size in force.
+
+Nothing in an existing config or save needs changing. A world that recorded `CometSizeMultiplier` keeps its
+value, now read as the size at Standard planet size; nothing uses it in play yet.
+
 ## 0.17.0 (prototype)
 
 - **New config section, Celestial terraforming.** Thirteen settings for comets made and brought down by

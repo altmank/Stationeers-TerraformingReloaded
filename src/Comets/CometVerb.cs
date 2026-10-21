@@ -14,7 +14,7 @@ namespace TerraformingReloaded.Comets
     /// </summary>
     internal static class CometVerb
     {
-        public const string Usage = "terraform comet <mol> <gas>[:<share>] [<gas>[:<share>] ...] [turn=<deg>] [range=<m>] [K=<kelvin>] [preview] | terraform comet stop. "
+        public const string Usage = "terraform comet <mol> <gas>[:<share>] [<gas>[:<share>] ...] [turn=<deg>] [range=<m>] [K=<kelvin>] [preview] | terraform comet stop | terraform comet make/send/list (debug: comets on the space map). "
             + "<mol> is everything the comet brings, for the whole planet; each gas takes its share of it (equal shares if none are given). "
             + "It comes down where you are looking, turn=<deg> to the right of it (negative for left), range=<m> away; never nearer to any structure or player than is safe for its size, which is also where it lands if range is left out. "
             + "K=<kelvin> is the temperature its gas arrives at; left out, the planet's own. preview shows it and changes nothing. Host only. "
@@ -22,8 +22,52 @@ namespace TerraformingReloaded.Comets
 
         private const double MaxMoles = 1e12;
 
+        /// <summary>
+        /// One <c>&lt;gas&gt;[:&lt;share&gt;]</c> argument, added to the gases and shares so far; a gas named
+        /// twice adds up. Null when it was one, else why not.
+        /// </summary>
+        internal static string AddGas(string arg, Func<string, Chemistry.GasType?> gasNamed, Func<string> gasNames, List<Chemistry.GasType> types, List<double> shares)
+        {
+            string name = arg;
+            double share = 1.0;
+            int colon = arg.IndexOf(':');
+            if (colon >= 0)
+            {
+                name = arg.Substring(0, colon);
+                string typed = arg.Substring(colon + 1);
+                if (!double.TryParse(typed, NumberStyles.Float, CultureInfo.InvariantCulture, out share) || double.IsNaN(share) || double.IsInfinity(share) || !(share > 0.0))
+                {
+                    return "'" + arg + "': the share after the colon has to be a number more than 0.";
+                }
+            }
+            if (string.Equals(name, "Volatiles", StringComparison.OrdinalIgnoreCase))
+            {
+                name = "Methane";
+            }
+            Chemistry.GasType? type = gasNamed(name);
+            if (type == null)
+            {
+                return "'" + name + "' is not a gas the planet can hold. Gases: " + gasNames() + ".";
+            }
+            int already = types.IndexOf(type.Value);
+            if (already >= 0)
+            {
+                shares[already] += share;
+            }
+            else
+            {
+                types.Add(type.Value);
+                shares.Add(share);
+            }
+            return null;
+        }
+
         public static string Run(string[] args, Func<string, Chemistry.GasType?> gasNamed, Func<string> gasNames)
         {
+            if (args.Length > 1 && CometMapVerb.Handles(args[1]))
+            {
+                return CometMapVerb.Run(args, gasNamed, gasNames);
+            }
             if (NetworkManager.IsClient)
             {
                 return "Can only be run on the server";
@@ -96,36 +140,10 @@ namespace TerraformingReloaded.Comets
                     }
                     continue;
                 }
-                string name = arg;
-                double share = 1.0;
-                int colon = arg.IndexOf(':');
-                if (colon >= 0)
+                string wrongGas = AddGas(arg, gasNamed, gasNames, types, shares);
+                if (wrongGas != null)
                 {
-                    name = arg.Substring(0, colon);
-                    string typed = arg.Substring(colon + 1);
-                    if (!double.TryParse(typed, NumberStyles.Float, c, out share) || double.IsNaN(share) || double.IsInfinity(share) || !(share > 0.0))
-                    {
-                        return "'" + arg + "': the share after the colon has to be a number more than 0.";
-                    }
-                }
-                if (string.Equals(name, "Volatiles", StringComparison.OrdinalIgnoreCase))
-                {
-                    name = "Methane";
-                }
-                Chemistry.GasType? type = gasNamed(name);
-                if (type == null)
-                {
-                    return "'" + name + "' is not a gas the planet can hold. Gases: " + gasNames() + ".";
-                }
-                int already = types.IndexOf(type.Value);
-                if (already >= 0)
-                {
-                    shares[already] += share;
-                }
-                else
-                {
-                    types.Add(type.Value);
-                    shares.Add(share);
+                    return wrongGas;
                 }
             }
             if (types.Count == 0)

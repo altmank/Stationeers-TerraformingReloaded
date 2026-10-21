@@ -402,6 +402,15 @@ namespace TerraformingReloaded.Patching
             // the sky and the sun every frame, and every value they scale, are still there.
             Extra(report, "comet sky", () => CometSky.Apply(harmony));
 
+            // Comets on the space map (docs/COMET-ROCKETS.md, stage 3). Saved inside the .save, an entry of
+            // their own written after the terrain and read back once the map's sites are rebuilt; without
+            // this part no comet is made, since one that could not be saved would vanish at the next load.
+            Extra(report, "comet map save", () => Comets.CometMapPatches.ApplySave(harmony));
+            // Their icons on the rocket map screen, made from the game's rocket icon.
+            Extra(report, "comet map icon", () => Comets.CometMapIcons.Apply(harmony));
+            // A site a comet holds stays on the map: the host's two ways of removing one skip it.
+            Extra(report, "comet site guard", () => Comets.CometMapPatches.ApplyGuard(harmony));
+
             return report;
         }
 
@@ -440,6 +449,7 @@ namespace TerraformingReloaded.Patching
                 Storms.Invalidate();
                 TraceGases.Reset();
                 PlanetCombustion.WorldStart();
+                Comets.CometMap.WorldStart();
                 SelfTest.Arm();
                 Planet.NoteShippedReservoirs();
             }
