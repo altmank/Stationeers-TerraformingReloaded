@@ -77,6 +77,12 @@ if ($Out -and (Test-Path (Join-Path $Out 'cookie-aside\manifest.txt')) -and -not
 }
 
 if (Test-Path $lock) { Remove-Item $lock -Force }
-& schtasks /Query /TN $TaskName 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) { & schtasks /Delete /TN $TaskName /F | Out-Null; Write-Host "removed the scheduled task $TaskName" }
+# schtasks writes to stderr when the task is absent; under Windows PowerShell 5.1 with Stop that is a
+# terminating NativeCommandError, so the query runs with Continue and only its exit code is read.
+$saved = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& schtasks /Query /TN $TaskName 2>&1 | Out-Null
+$queried = $LASTEXITCODE
+$ErrorActionPreference = $saved
+if ($queried -eq 0) { & schtasks /Delete /TN $TaskName /F | Out-Null; Write-Host "removed the scheduled task $TaskName" }
 Write-Host 'stopped'

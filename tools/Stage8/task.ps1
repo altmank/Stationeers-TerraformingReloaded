@@ -32,8 +32,14 @@ $out = Join-Path $Root ('runs\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $go = Join-Path $Root 'task-go.ps1'
 
-& schtasks /Query /TN $TaskName 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) { throw "A scheduled task $TaskName already exists. If no run is going, remove it: schtasks /Delete /TN $TaskName /F" }
+# schtasks writes to stderr when the task is absent; under Windows PowerShell 5.1 with Stop that is a
+# terminating NativeCommandError, so the query runs with Continue and only its exit code is read.
+$saved = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& schtasks /Query /TN $TaskName 2>&1 | Out-Null
+$queried = $LASTEXITCODE
+$ErrorActionPreference = $saved
+if ($queried -eq 0) { throw "A scheduled task $TaskName already exists. If no run is going, remove it: schtasks /Delete /TN $TaskName /F" }
 
 Set-Content -Path $go -Encoding UTF8 -Value @(
     '$ErrorActionPreference = ''Stop''',
