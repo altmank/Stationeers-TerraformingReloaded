@@ -182,7 +182,7 @@ namespace TerraformingReloaded.Comets
                         {
                             if (Kill(who))
                             {
-                                Debug.Log("[TR comet] " + who.DisplayName + " was at ground zero");
+                                Log.Info("[TR comet] " + who.DisplayName + " was at ground zero");
                             }
                         }));
                     }
@@ -193,7 +193,7 @@ namespace TerraformingReloaded.Comets
                         {
                             if (BurnPlayer(who, burn))
                             {
-                                Debug.Log(string.Format(CultureInfo.InvariantCulture, "[TR comet] the fireball burned {0} by {1:0.#}", who.DisplayName, burn));
+                                Log.Info(string.Format(CultureInfo.InvariantCulture, "[TR comet] the fireball burned {0} by {1:0.#}", who.DisplayName, burn));
                             }
                         }));
                     }

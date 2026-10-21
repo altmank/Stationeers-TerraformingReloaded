@@ -101,7 +101,7 @@ namespace TerraformingReloaded.Comets
             CometNet.Broadcast(comet);
             _instance.Play(comet);
             CultureInfo c = CultureInfo.InvariantCulture;
-            Debug.Log(string.Format(c, "[TR comet] event {0}: {1:N0} mol, scale {2:0.00}, seed {3}, starts at clock {4:0.00}, impact {5} (clock {6:0.00}), start {7}, reactions {8}. {9}",
+            Log.Info(string.Format(c, "[TR comet] event {0}: {1:N0} mol, scale {2:0.00}, seed {3}, starts at clock {4:0.00}, impact {5} (clock {6:0.00}), start {7}, reactions {8}. {9}",
                 comet.Sequence, plan.Moles, plan.Scale, seed, comet.StartClock, comet.Impact, comet.ImpactClock, comet.Start, comet.Reactions, site.Log));
             return null;
         }
@@ -144,7 +144,7 @@ namespace TerraformingReloaded.Comets
             Current = comet;
             CometNet.Broadcast(comet);
             _instance.Play(comet);
-            Debug.Log(string.Format(CultureInfo.InvariantCulture, "[TR comet] event {0}: comet {1} brought down by rocket, {2:N0} mol, scale {3:0.00}, seed {4}, starts at clock {5:R}, impact {6} (clock {7:R}), reactions {8}",
+            Log.Info(string.Format(CultureInfo.InvariantCulture, "[TR comet] event {0}: comet {1} brought down by rocket, {2:N0} mol, scale {3:0.00}, seed {4}, starts at clock {5:R}, impact {6} (clock {7:R}), reactions {8}",
                 comet.Sequence, landing.CometId, plan.Moles, plan.Scale, comet.Seed, comet.StartClock, comet.Impact, comet.ImpactClock, comet.Reactions));
             return comet;
         }
@@ -248,7 +248,7 @@ namespace TerraformingReloaded.Comets
             }
             catch (Exception e)
             {
-                Debug.LogError("[TR comet] director: " + e);
+                Log.Error("[TR comet] director: " + e);
                 Current = null;
                 CometSky.Dim = 0f;
                 EndShow();
@@ -287,7 +287,7 @@ namespace TerraformingReloaded.Comets
                 else if (!arrived.SameAs(Current) && !arrived.SameAs(_calledOff) && now < arrived.OverClock && now > arrived.StartClock - 60.0)
                 {
                     Current = arrived;
-                    Debug.Log(string.Format(CultureInfo.InvariantCulture, "[TR comet] event {0} from the host, {1:0.0} s after it began", arrived.Sequence, now - arrived.StartClock));
+                    Log.Info(string.Format(CultureInfo.InvariantCulture, "[TR comet] event {0} from the host, {1:0.0} s after it began", arrived.Sequence, now - arrived.StartClock));
                     if (now < arrived.StartClock + CometEvent.EndSeconds)
                     {
                         Play(arrived);

@@ -212,14 +212,14 @@ namespace TerraformingReloaded.Comets
             _t = (float)(CometEvent.Clock - comet.StartClock);
             _joinedAt = _t;
 
-            Debug.Log(string.Format(CultureInfo.InvariantCulture, "[TR comet] event {0} drawn from its yield: {1}; the show ends {2:0} s after first sight",
+            Log.Info(string.Format(CultureInfo.InvariantCulture, "[TR comet] event {0} drawn from its yield: {1}; the show ends {2:0} s after first sight",
                 comet.Sequence, _sizes, EndSeconds));
 
             _camera = CameraController.CurrentCamera ? CameraController.CurrentCamera : Camera.main;
             _render = _camera != null && SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null;
             if (!_render)
             {
-                Debug.Log(string.Format(CultureInfo.InvariantCulture, "[TR comet] event {0}: nothing to draw on this machine; the timeline runs without a show", comet.Sequence));
+                Log.Info(string.Format(CultureInfo.InvariantCulture, "[TR comet] event {0}: nothing to draw on this machine; the timeline runs without a show", comet.Sequence));
                 return;
             }
 
@@ -229,7 +229,7 @@ namespace TerraformingReloaded.Comets
             }
             catch (Exception e)
             {
-                Debug.LogError("[TR comet] the show could not be drawn here; the impact still happens. " + e);
+                Log.Error("[TR comet] the show could not be drawn here; the impact still happens. " + e);
                 StopDrawing();
             }
         }
@@ -260,7 +260,7 @@ namespace TerraformingReloaded.Comets
             {
                 BuildHead();
             }
-            Debug.Log(string.Format(CultureInfo.InvariantCulture,
+            Log.Info(string.Format(CultureInfo.InvariantCulture,
                 "[TR comet] show of event {0}: {1:N0} mol, yield {2:0.###E+0} kt, impact {3} at {4:N0} m, drawn {5:0.0} m lower for this camera, start {6}, joined at t={7:0.0} s, far clip {8:N0} -> {9:N0}, shaders {10}, sound {11}",
                 comet.Sequence, _plan.Moles, _sizes.Kilotons, _impact, Vector3.Distance(eye, _impact), _drop, _start, _joinedAt, _originalFar, _camera.farClipPlane, CometArt.ShaderReport, _sound.Report));
         }
@@ -777,7 +777,7 @@ namespace TerraformingReloaded.Comets
             {
                 log.Append(string.Format(CultureInfo.InvariantCulture, " {0} {1}", system.name, system.main.maxParticles));
             }
-            Debug.Log(log.ToString());
+            Log.Info(log.ToString());
             foreach (float moment in new[] { 0.5f, grow, 5f, 30f, 120f, 300f })
             {
                 if (!_milestones.Contains(moment))
@@ -882,7 +882,7 @@ namespace TerraformingReloaded.Comets
             }
             catch (Exception e)
             {
-                Debug.LogError("[TR comet] stopped: " + e);
+                Log.Error("[TR comet] stopped: " + e);
                 Destroy(gameObject);
             }
         }
@@ -913,7 +913,7 @@ namespace TerraformingReloaded.Comets
             }
             catch (Exception e)
             {
-                Debug.LogError("[TR comet] drawing stopped; the impact still happens. " + e);
+                Log.Error("[TR comet] drawing stopped; the impact still happens. " + e);
                 StopDrawing();
             }
         }
@@ -972,7 +972,7 @@ namespace TerraformingReloaded.Comets
                     }
                     catch (Exception e)
                     {
-                        Debug.LogWarning("[TR comet] a moment of the impact failed and was skipped: " + e.Message);
+                        Log.Warn("[TR comet] a moment of the impact failed and was skipped: " + e.Message);
                     }
                 }
             }
@@ -1089,7 +1089,7 @@ namespace TerraformingReloaded.Comets
                 }
                 catch (Exception e)
                 {
-                    Debug.LogError("[TR comet] the comet's gas could not be added: " + e);
+                    Log.Error("[TR comet] the comet's gas could not be added: " + e);
                 }
             }
             Drawn(() =>
@@ -1165,7 +1165,7 @@ namespace TerraformingReloaded.Comets
                             {
                                 if (CometWave.Hurt(who, _impact, _rules.PushFor(_rules.PeakKPa(moles, Vector3.Distance(who.transform.position, _impact)))))
                                 {
-                                    Debug.Log("[TR comet] the wave damaged the suit of " + who.DisplayName);
+                                    Log.Info("[TR comet] the wave damaged the suit of " + who.DisplayName);
                                 }
                             });
                         }
@@ -1188,7 +1188,7 @@ namespace TerraformingReloaded.Comets
                     double felt = _rules.PeakKPa(moles, Vector3.Distance(here, _impact));
                     if (!_plan.Preview && CometWave.Shove(_impact, _rules.PushFor(felt)))
                     {
-                        Debug.Log(string.Format(CultureInfo.InvariantCulture, "[TR comet] the wave threw this player at {0:0.#} kPa", felt));
+                        Log.Info(string.Format(CultureInfo.InvariantCulture, "[TR comet] the wave threw this player at {0:0.#} kPa", felt));
                     }
                     CameraController.SetCameraShake((float)_rules.Shake(felt));
                     _shakeFrom = _t;
@@ -1227,7 +1227,7 @@ namespace TerraformingReloaded.Comets
             {
                 _nextCue++;
             }
-            Debug.Log(log.ToString());
+            Log.Info(log.ToString());
         }
 
         private float _shakeFrom = -1f;
@@ -1400,7 +1400,7 @@ namespace TerraformingReloaded.Comets
             if (_milestones.Count > 0 && s >= _milestones[0])
             {
                 _milestones.RemoveAt(0);
-                Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                Log.Info(string.Format(CultureInfo.InvariantCulture,
                     "[TR comet] event {0} at {1:0.0} s: fireball {2:N0} m at {3:N0} m up, heat {4:0.00}; stem {5:N0} m long, {6:N0} m wide at the root and {7:N0} m at the cap, puffs climbing {8:N0} m/s; cap {9:N0} m up, {10:N0} m across, underside warmth {11:0.00}; flash {12:0.00}, light {13:0.0}; sky {14:0.00} dimmer; live particles {15:N0}",
                     _event.Sequence, s, ballRadius, ballHeight, heat, stemLength, 2.0 * CometLook.StemRadius(_sizes, 0.0), 2.0 * CometLook.StemRadius(_sizes, stemLength), stemLength / stemLife,
                     capHeight, 2f * capRadius, warmth, overlay, _flashLight.intensity, CometSky.Dim, LiveParticles()));
@@ -1496,14 +1496,14 @@ namespace TerraformingReloaded.Comets
 
         private static void Say(string text)
         {
-            Debug.Log("[TR comet] " + text);
+            Log.Info("[TR comet] " + text);
             try
             {
                 ConsoleWindow.Print(text);
             }
             catch (Exception e)
             {
-                Debug.LogWarning("[TR comet] console print failed: " + e.Message);
+                Log.Warn("[TR comet] console print failed: " + e.Message);
             }
         }
 
@@ -1521,7 +1521,7 @@ namespace TerraformingReloaded.Comets
             }
             if (_render)
             {
-                Debug.Log(string.Format(CultureInfo.InvariantCulture, "[TR comet] frame time, ms mean / worst: approach {0}, first 10 s after impact {1}, after {2}; particle cap {3}",
+                Log.Info(string.Format(CultureInfo.InvariantCulture, "[TR comet] frame time, ms mean / worst: approach {0}, first 10 s after impact {1}, after {2}; particle cap {3}",
                     _approachFrames, _impactFrames, _afterFrames, MaxParticles));
             }
         }

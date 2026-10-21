@@ -368,7 +368,11 @@ removes what it created. It refuses to start if any of that already exists or th
   `mods`, `saves`, `scripts`, `thumbnails`, `modconfig.xml`, `modrepos.xml`, `setting.xml` there. Real
   saves and the real mod list are never touched. `BepInEx\config` **is** shared with normal play.
 - LaunchPad lists `<game>\mods` before the game creates that folder, so it must exist beforehand.
-- With `-logFile`, plugin output goes to `BepInEx\LogOutput.log`, not the Unity log.
+- With `-logFile`, plugin output goes to `BepInEx\LogOutput.log`, not the Unity log: in batch mode BepInEx
+  writes nothing of its own to Unity's log (its Chainloader adds the Unity log listener only off batch mode),
+  and a line written with UnityEngine's `Debug.Log` reaches only the Unity log (`[Logging.Disk] WriteUnityLog`
+  is false by default). The mod writes every line through BepInEx's logger, and `check_repo.py` fails a
+  `Debug.Log` under `src/`: the comet's lines were once written with it and no judge could see them.
 - A headless new world pauses itself (`World.NewAsync` calls `SetGamePause(true)`) and nothing
   unpauses it until a player acts. `GameTickCount` stays 0. The driver calls `SetGamePause(false)`.
 - `-settings X Y` launch arguments are overwritten when the settings file loads later.

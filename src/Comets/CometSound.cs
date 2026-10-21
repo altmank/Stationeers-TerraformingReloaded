@@ -94,7 +94,7 @@ namespace TerraformingReloaded.Comets
             }
             catch (Exception e)
             {
-                Debug.LogWarning("[TR comet] a game sound would not play: " + e.Message);
+                Log.Warn("[TR comet] a game sound would not play: " + e.Message);
                 return null;
             }
         }
@@ -185,7 +185,7 @@ namespace TerraformingReloaded.Comets
                         break;
                     }
                 }
-                Debug.Log("[TR comet] " + LandFarClip + (_landFar != null ? " found" : " is not loaded, so the tail is the rumble alone"));
+                Log.Info("[TR comet] " + LandFarClip + (_landFar != null ? " found" : " is not loaded, so the tail is the rumble alone"));
             }
             return _landFar;
         }
@@ -251,7 +251,7 @@ namespace TerraformingReloaded.Comets
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning("[TR comet] a sound would not stop: " + e.Message);
+                    Log.Warn("[TR comet] a sound would not stop: " + e.Message);
                 }
             }
             _loops.Clear();

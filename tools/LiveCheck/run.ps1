@@ -222,7 +222,8 @@
 
   Things learned the hard way, all checked here rather than assumed:
     - LaunchPad lists <game>\mods before the game creates that folder, so it must exist first.
-    - With -logFile, plugin output goes to BepInEx\LogOutput.log, not the Unity log.
+    - With -logFile, plugin output goes to BepInEx\LogOutput.log, not the Unity log, and a line
+      written with UnityEngine's Debug.Log only to the Unity log.
     - A headless world pauses itself until a player acts; the driver unpauses it.
     - Launch arguments that change settings are overwritten when the settings file loads.
     - The instance opens a LAN host on port 27016 for as long as it runs.

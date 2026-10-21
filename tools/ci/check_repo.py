@@ -157,6 +157,12 @@ need(upkeep is not None and 0 <= upkeep.group(1).find('PlanetCombustion.Upkeep('
 need(reset_body is not None and 'PlanetCombustion.ForgetFire();' in reset_body.group(1),
      'the reset puts the planet fire out and zeroes its heat under the tank lock')
 need('Limits.PlanetFireHeatJoules' in read('src/Patching/Sidecar.cs'), 'the recorded fire heat is checked against Limits')
+# The mod writes its log through Log, which the plugin points at BepInEx's logger. BepInEx keeps
+# Unity's own log out of LogOutput.log by default ([Logging.Disk] WriteUnityLog = false) and, in batch
+# mode, keeps its own lines out of Unity's log, so a line written with UnityEngine.Debug is missing
+# from the log players send and from the one the harnesses read.
+unity_logged = sorted(os.path.normpath(p).replace('\\', '/') for p in SOURCES if re.search(r'\bDebug\.Log\w*\(', read(p)))
+need(not unity_logged, 'the mod logs only through Log, never UnityEngine.Debug %s' % (unity_logged or ''))
 
 # The config editor's bounds and the settings-file check are the same declaration.
 plugin = read('src/Plugin.cs')
