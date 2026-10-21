@@ -93,7 +93,7 @@ namespace TerraformingReloaded
             string celestial = Comets.CelestialRules.Verdict;
             if (celestial == null)
             {
-                Logger.LogInfo("Celestial terraforming rules checked: flight by the rocket rule, what Cut makes, the sky rule and its reach, the orbit, the impact zones, the losses, and the defaults' derivations.");
+                Logger.LogInfo("Celestial terraforming rules checked: flight by the rocket rule, a comet's place along its route over time, the size multiplier against the planet's size, what Cut makes, the sky rule and its reach, the orbit, the impact zones, the losses, and the defaults' derivations.");
             }
             else
             {

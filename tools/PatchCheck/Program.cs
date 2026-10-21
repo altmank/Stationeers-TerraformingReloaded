@@ -930,7 +930,7 @@ internal static class Program
         string table = TerraformingReloaded.Comets.CelestialSettings.CheckTable();
         failures += Judge(table == null, "celestial settings: " + (table ?? "each at its place, every key once, every default in its own range"));
         string rules = TerraformingReloaded.Comets.CelestialRules.Check(TerraformingReloaded.Comets.CelestialRules.Shipped);
-        failures += Judge(rules == null, "celestial rules: " + (rules ?? "flight against the game's ticks, Cut, the sky rule, the reserve, the orbit, the zones, the losses, and every default's derivation"));
+        failures += Judge(rules == null, "celestial rules: " + (rules ?? "flight against the game's ticks, a comet's place along a route over time and where it runs dry, the size multiplier against the planet's size, Cut, the sky rule, the reserve, the orbit, the zones, the losses, and every default's derivation"));
         var wrongRules = new (string What, TerraformingReloaded.Comets.CelestialRules Rules)[]
         {
             ("a flight that keeps the mass it started with", new ConstantMassFlight()),
@@ -952,6 +952,12 @@ internal static class Program
             ("zones judged outermost first", new OutermostZone()),
             ("own fuel burnt one to one", new OneToOneFuel()),
             ("a mineral comet that takes more than the planet has", new UnclampedMineral()),
+            ("a flight along a route whose mass does not fall as it burns", new ConstantMassProgress()),
+            ("a comet that goes on gaining speed once its fuel is gone", new BurnsPastItsFuel()),
+            ("progress through a hop counted over the whole route", new WholeRouteProgress()),
+            ("a comet that runs dry and is still put at the end of its route", new StrandedAtTheEnd()),
+            ("a size multiplier that ignores the planet's size", new FixedSizeMultiplier()),
+            ("a size multiplier that falls under 1 on a small planet", new UnflooredSizeMultiplier()),
         };
         foreach (var wrong in wrongRules)
         {
@@ -1133,6 +1139,72 @@ internal static class Program
     {
         public override double MineralRemovedMoles(double cometKg, double airKgPerKg, double planetMoles, double planetGramsPerMole) =>
             base.MineralRemovedMoles(cometKg, airKgPerKg, double.MaxValue, planetGramsPerMole);
+    }
+
+    private sealed class ConstantMassProgress : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double DeltaVAfter(double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            if (engines <= 0 || !(fuelMoles > 0.0) || !(seconds > 0.0))
+            {
+                return 0.0;
+            }
+            double mass = cometKg + EngineMassKg * engines + fuelMoles * fuelKgPerMole;
+            return engines * EngineThrustNewtons / mass * Math.Min(seconds, fuelMoles / (engines * EngineMolesPerSecond));
+        }
+    }
+
+    private sealed class BurnsPastItsFuel : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double DeltaVAfter(double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            double burnout = engines > 0 ? fuelMoles / (engines * EngineMolesPerSecond) : 0.0;
+            double gained = base.DeltaVAfter(cometKg, engines, fuelMoles, seconds, fuelKgPerMole);
+            return seconds > burnout && engines > 0 ? gained + engines * EngineThrustNewtons / (cometKg + EngineMassKg * engines) * (seconds - burnout) : gained;
+        }
+
+        public override TerraformingReloaded.Comets.RoutePosition PositionAt(double[] hopDeltaVs, double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.RoutePosition real = base.PositionAt(hopDeltaVs, cometKg, engines, fuelMoles, seconds, fuelKgPerMole);
+            if (real.Arrived || !real.Settled)
+            {
+                return real;
+            }
+            double route = hopDeltaVs.Sum();
+            double gained = Math.Min(route, DeltaVAfter(cometKg, engines, fuelMoles, seconds, fuelKgPerMole));
+            return new TerraformingReloaded.Comets.RoutePosition(StopAt(hopDeltaVs, gained), gained, gained >= route, gained >= route, seconds, 0.0);
+        }
+    }
+
+    private sealed class WholeRouteProgress : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.RoutePosition PositionAt(double[] hopDeltaVs, double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.RoutePosition real = base.PositionAt(hopDeltaVs, cometKg, engines, fuelMoles, seconds, fuelKgPerMole);
+            TerraformingReloaded.Comets.Stop stop = new TerraformingReloaded.Comets.Stop(real.Stop.Hop, Math.Min(1.0, real.DeltaV / hopDeltaVs.Sum()));
+            return new TerraformingReloaded.Comets.RoutePosition(stop, real.DeltaV, real.Arrived, real.Settled, real.BurnSeconds, real.FuelLeft);
+        }
+    }
+
+    private sealed class StrandedAtTheEnd : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.RoutePosition PositionAt(double[] hopDeltaVs, double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.RoutePosition real = base.PositionAt(hopDeltaVs, cometKg, engines, fuelMoles, seconds, fuelKgPerMole);
+            return real.Settled && !real.Arrived
+                ? new TerraformingReloaded.Comets.RoutePosition(new TerraformingReloaded.Comets.Stop(hopDeltaVs.Length - 1, 1.0), hopDeltaVs.Sum(), true, true, real.BurnSeconds, real.FuelLeft)
+                : real;
+        }
+    }
+
+    private sealed class FixedSizeMultiplier : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double SizeMultiplier(double standardMultiplier, double planetSize) => standardMultiplier;
+    }
+
+    private sealed class UnflooredSizeMultiplier : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double SizeMultiplier(double standardMultiplier, double planetSize) => standardMultiplier * planetSize / StandardPlanetSize;
     }
 
     private static int Judge(bool passed, string what)

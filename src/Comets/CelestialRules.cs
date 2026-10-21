@@ -83,6 +83,66 @@ namespace TerraformingReloaded.Comets
         }
 
         /// <summary>
+        /// The Δv a comet has gained once its engines have burnt for <paramref name="seconds"/> at full
+        /// throttle, by the rocket equation, and no more once the fuel is gone: Δv = (thrust / fuel flow)
+        /// x ln(mass at the start / mass now).
+        /// </summary>
+        public virtual double DeltaVAfter(double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            if (engines <= 0 || !(fuelMoles > 0.0) || !(fuelKgPerMole > 0.0) || !(seconds > 0.0))
+            {
+                return 0.0;
+            }
+            double dry = Math.Max(0.0, cometKg) + EngineMassKg * engines;
+            double fuelKg = fuelMoles * fuelKgPerMole;
+            double flow = engines * EngineMolesPerSecond * fuelKgPerMole;
+            double exhaust = engines * EngineThrustNewtons / flow;
+            double start = dry + fuelKg;
+            return exhaust * Math.Log(start / (start - Math.Min(fuelKg, flow * seconds)));
+        }
+
+        /// <summary>
+        /// Where a comet flying a route of these hops stands <paramref name="seconds"/> after it set off,
+        /// as the game's rocket travel rule puts it: its Δv so far, counted through the hops in order,
+        /// with the mass falling as the fuel burns. It moves only while it burns, so once the route is
+        /// flown it stands at the end, and once the fuel is gone it stands where that left it, for good.
+        /// A pure function of the time flown, so a save, a load and every client agree on it.
+        /// </summary>
+        public virtual RoutePosition PositionAt(double[] hopDeltaVs, double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            double route = 0.0;
+            foreach (double hop in hopDeltaVs)
+            {
+                route += Math.Max(0.0, hop);
+            }
+            Flight whole = Fly(cometKg, engines, fuelMoles, route, fuelKgPerMole);
+            double flown = Math.Max(0.0, seconds);
+            if (flown >= whole.Seconds)
+            {
+                // Arrived is the end of the last hop exactly, whatever the rounding in summing the hops.
+                Stop end = whole.Arrives ? new Stop(hopDeltaVs.Length - 1, 1.0) : StopAt(hopDeltaVs, whole.DeltaV);
+                return new RoutePosition(end, whole.DeltaV, whole.Arrives, true, whole.Seconds, Math.Max(0.0, fuelMoles - whole.FuelMoles));
+            }
+            double gained = Math.Min(route, DeltaVAfter(cometKg, engines, fuelMoles, flown, fuelKgPerMole));
+            return new RoutePosition(StopAt(hopDeltaVs, gained), gained, false, false, flown,
+                Math.Max(0.0, fuelMoles - engines * EngineMolesPerSecond * flown));
+        }
+
+        /// <summary>Planet size the size multiplier setting is stated for: Standard, 1/20 of the shipped planet.</summary>
+        public const double StandardPlanetSize = 0.05;
+
+        /// <summary>
+        /// The size multiplier K in force on a planet of this size, as a share of the shipped planet: the
+        /// setting at Standard size, times the planet's size over Standard, never under 1. What a planet
+        /// needs grows with its size, so a third of it does too, and one site keeps to that third on every
+        /// size.
+        /// </summary>
+        public virtual double SizeMultiplier(double standardMultiplier, double planetSize)
+        {
+            return Math.Max(1.0, Math.Max(0.0, standardMultiplier) * Math.Max(0.0, planetSize) / StandardPlanetSize);
+        }
+
+        /// <summary>
         /// Where along a route of these hops a comet stops that has gained <paramref name="reachedDeltaV"/>:
         /// the hop it is in and how far through it, as the game's Progress. One that has the whole route
         /// stands at the end of the last hop.
@@ -366,7 +426,8 @@ namespace TerraformingReloaded.Comets
         private const double MostShippedLatitude = 58.4;         // Mimas (MimasHerschel.xml), the farthest from any equator
         private const double LargestSiteMoles = 3048381.0;       // Europa's map, D8 R3 S7 x 24 mol, before the game rounds it
         private const double LargestMarsOrMoonSiteMoles = 2785190.0;
-        private const double StandardCells = 250000.0;           // 1/20 of the shipped 5,000,000 outdoor cells
+        private const double ShippedCells = 5000000.0;           // 40 billion litres in 8,000 L cells
+        private const double StandardCells = ShippedCells * StandardPlanetSize;
         private const double LeastBreathableNeedPerCell = 121.0; // the Moon, docs/BALANCE.md (Mars 125)
         private const double BasicHeadCycles = 1000.0;           // 100 quantity at a 0.1 chance of wear a cycle
 
@@ -438,6 +499,11 @@ namespace TerraformingReloaded.Comets
             if (stop.Hop != 1 || Math.Abs(stop.Progress - 47.3 / 80.6) > 1e-9 || StopAt(new[] { 302.7, 80.6 }, 500.0).Progress != 1.0)
             {
                 return "a comet does not stop in the hop where its delta-v runs out";
+            }
+            string flight = CheckRoute(rules);
+            if (flight != null)
+            {
+                return flight;
             }
 
             // ---- what Cut makes ----
@@ -579,6 +645,17 @@ namespace TerraformingReloaded.Comets
             {
                 return "the size multiplier is not the largest whole one that keeps the biggest site's comet under a third of what a Standard Moon or Mars needs";
             }
+            // Following the planet's size, it keeps to the third on Short and Long too.
+            foreach (double size in new[] { 0.01, StandardPlanetSize, 0.25 })
+            {
+                double k = rules.SizeMultiplier(tuning.CometSizeMultiplier, size);
+                double third = LeastBreathableNeedPerCell * ShippedCells * size / 3.0;
+                if (k * tuning.GasArrivingShare * LargestMarsOrMoonSiteMoles >= third)
+                {
+                    return string.Format(c, "at planet size {0} the biggest site's comet brings {1:N0} mol at K = {2}, a third of what the Moon needs there is {3:N0}",
+                        size, k * tuning.GasArrivingShare * LargestMarsOrMoonSiteMoles, k, third);
+                }
+            }
             double safe = CometRules.Shipped.SafeDistance(CometRules.Shipped.Scale(tuning.CometSizeMultiplier * LargestSiteMoles));
             if (tuning.DiscRadiusMetres / 2.0 < safe || tuning.DiscRadiusMetres / 2.0 > safe + 100.0)
             {
@@ -608,6 +685,104 @@ namespace TerraformingReloaded.Comets
             if (tuning.MineralRemovalPerKg != tuning.GasArrivingShare)
             {
                 return "a mineral comet does not take away what an ice comet of its weight brings";
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// A comet's place on a route over the time it flies: a site under Frozen Vapors back to Mars
+        /// Orbit (the site's 200, Frozen Vapors to Phobos 80.6, Phobos to the orbit 302.7), held to a
+        /// flight stepped as the game steps one, through every hop, to the end, and short of fuel to where
+        /// it runs dry and no further. Then the size multiplier against the planet's size.
+        /// </summary>
+        private static string CheckRoute(CelestialRules rules)
+        {
+            CultureInfo c = CultureInfo.InvariantCulture;
+            const double kg = TestFuelKgPerMole;
+            double[] hops = { 200.0, 80.6, 302.7 };
+            double route = hops[0] + hops[1] + hops[2];
+            const double comet = 18000.0;
+            const int engines = 2;
+            const double plenty = 30000.0;
+
+            // The rocket equation itself: a light comet whose mass falls from 2,500 to 1,500 kg as it burns.
+            double exhaust = EngineThrustNewtons / (EngineMolesPerSecond * kg);
+            double burnout = 62500.0 / EngineMolesPerSecond;
+            double half = rules.DeltaVAfter(1000.0, 1, 62500.0, burnout / 2.0, kg);
+            double full = rules.DeltaVAfter(1000.0, 1, 62500.0, burnout, kg);
+            if (Math.Abs(half - exhaust * Math.Log(2500.0 / 2000.0)) > 1e-6 * half || Math.Abs(full - exhaust * Math.Log(2500.0 / 1500.0)) > 1e-6 * full)
+            {
+                return string.Format(c, "a comet of 1,000 kg, one engine and 1,000 kg of fuel gains {0:0.0} and {1:0.0} m/s at half and all of its burn, expected {2:0.0} and {3:0.0} as its mass falls",
+                    half, full, exhaust * Math.Log(2500.0 / 2000.0), exhaust * Math.Log(2500.0 / 1500.0));
+            }
+            if (Math.Abs(rules.DeltaVAfter(1000.0, 1, 62500.0, 2.0 * burnout, kg) - full) > 1e-9 || rules.DeltaVAfter(1000.0, 1, 62500.0, 0.0, kg) != 0.0
+                || rules.DeltaVAfter(1000.0, 0, 62500.0, burnout, kg) != 0.0)
+            {
+                return "a comet gains speed after its fuel is gone, before it burns, or without engines";
+            }
+
+            RoutePosition start = rules.PositionAt(hops, comet, engines, plenty, 0.0, kg);
+            if (start.Settled || start.Stop.Hop != 0 || start.Stop.Progress != 0.0 || start.FuelLeft != plenty)
+            {
+                return "a comet that has not flown yet is not at the start of its route with all its fuel";
+            }
+            // Through each hop, at the moments a flight stepped as the game steps one reaches those points.
+            foreach (double at in new[] { 150.0, 240.0, 500.0 })
+            {
+                Flight ticked = Ticked(comet, engines, plenty, at, kg);
+                RoutePosition p = rules.PositionAt(hops, comet, engines, plenty, ticked.Seconds, kg);
+                Stop expected = StopAt(hops, at);
+                Stop own = StopAt(hops, p.DeltaV);
+                if (p.Settled || p.Stop.Hop != expected.Hop || p.Stop.Hop != own.Hop || Math.Abs(p.Stop.Progress - own.Progress) > 1e-12
+                    || Math.Abs(p.DeltaV - at) > 0.002 * at + 0.05)
+                {
+                    return string.Format(c, "{0:0.0} s into a flight the game's ticks take to {1} delta-v, the rule has the comet at {2:0.0} delta-v, hop {3} at {4:0.0000}, expected hop {5} at {6:0.0000}",
+                        ticked.Seconds, at, p.DeltaV, p.Stop.Hop, p.Stop.Progress, expected.Hop, expected.Progress);
+                }
+            }
+            Flight whole = rules.Fly(comet, engines, plenty, route, kg);
+            RoutePosition nearly = rules.PositionAt(hops, comet, engines, plenty, whole.Seconds - 0.5, kg);
+            RoutePosition there = rules.PositionAt(hops, comet, engines, plenty, whole.Seconds, kg);
+            RoutePosition after = rules.PositionAt(hops, comet, engines, plenty, whole.Seconds + 1e6, kg);
+            if (nearly.Settled || nearly.Stop.Hop != 2 || !(nearly.Stop.Progress < 1.0)
+                || !there.Arrived || !there.Settled || there.Stop.Hop != 2 || there.Stop.Progress != 1.0 || Math.Abs(there.FuelLeft - (plenty - whole.FuelMoles)) > 1e-6
+                || !after.Arrived || after.Stop.Hop != 2 || after.Stop.Progress != 1.0 || after.FuelLeft != there.FuelLeft || Math.Abs(after.BurnSeconds - whole.Seconds) > 1e-9)
+            {
+                return string.Format(c, "a comet does not reach the end of its route at the rule's {0:0.0} s with the fuel it did not burn, and stay there", whole.Seconds);
+            }
+            double previous = -1.0;
+            for (int i = 0; i <= 100; i++)
+            {
+                double gained = rules.PositionAt(hops, comet, engines, plenty, whole.Seconds * i / 100.0, kg).DeltaV;
+                if (gained < previous)
+                {
+                    return "a comet goes backwards along its route";
+                }
+                previous = gained;
+            }
+            double scarce = 0.6 * whole.FuelMoles;
+            Flight dry = rules.Fly(comet, engines, scarce, route, kg);
+            RoutePosition stranded = rules.PositionAt(hops, comet, engines, scarce, 1e7, kg);
+            RoutePosition runningDry = rules.PositionAt(hops, comet, engines, scarce, dry.Seconds, kg);
+            RoutePosition halfway = rules.PositionAt(hops, comet, engines, scarce, dry.Seconds / 2.0, kg);
+            Stop where = StopAt(hops, dry.DeltaV);
+            if (dry.Arrives || !stranded.Settled || stranded.Arrived || Math.Abs(stranded.DeltaV - dry.DeltaV) > 1e-9 || stranded.Stop.Hop != where.Hop
+                || Math.Abs(stranded.Stop.Progress - where.Progress) > 1e-12 || stranded.FuelLeft > 1e-9 || Math.Abs(stranded.BurnSeconds - dry.Seconds) > 1e-9
+                || !runningDry.Settled || runningDry.DeltaV != stranded.DeltaV
+                || halfway.Settled || !(halfway.DeltaV < dry.DeltaV) || Math.Abs(halfway.FuelLeft - (scarce - engines * EngineMolesPerSecond * dry.Seconds / 2.0)) > 1e-6)
+            {
+                return string.Format(c, "a comet with 60 % of the fuel its route needs does not stop for good where its delta-v runs out ({0:0.0} of {1}, hop {2} at {3:0.0000}), with none left",
+                    dry.DeltaV, route, where.Hop, where.Progress);
+            }
+
+            // The size multiplier follows the planet's size, and never falls under 1.
+            foreach (var (size, expected) in new[] { (0.05, 5.0), (0.01, 1.0), (0.25, 25.0), (1.0, 100.0), (0.002, 1.0) })
+            {
+                double k = rules.SizeMultiplier(5.0, size);
+                if (Math.Abs(k - expected) > 1e-9)
+                {
+                    return string.Format(c, "the size multiplier at planet size {0} is {1}, expected {2}: 5 at Standard, times the size over 1/20, never under 1", size, k, expected);
+                }
             }
             return null;
         }
@@ -722,6 +897,38 @@ namespace TerraformingReloaded.Comets
         {
             Hop = hop;
             Progress = progress;
+        }
+    }
+
+    /// <summary>Where a comet on its route stands at a moment of its flight, by <see cref="CelestialRules.PositionAt"/>.</summary>
+    public readonly struct RoutePosition
+    {
+        /// <summary>The hop it is in and the game's Progress through it.</summary>
+        public readonly Stop Stop;
+
+        /// <summary>The Δv gained so far, which is how far along the route it is.</summary>
+        public readonly double DeltaV;
+
+        /// <summary>It has flown the whole route.</summary>
+        public readonly bool Arrived;
+
+        /// <summary>It will not move again: arrived, or out of fuel short of the end.</summary>
+        public readonly bool Settled;
+
+        /// <summary>Seconds its engines have burnt: the time flown, up to when it arrived or ran dry.</summary>
+        public readonly double BurnSeconds;
+
+        /// <summary>Moles of fuel still aboard.</summary>
+        public readonly double FuelLeft;
+
+        public RoutePosition(Stop stop, double deltaV, bool arrived, bool settled, double burnSeconds, double fuelLeft)
+        {
+            Stop = stop;
+            DeltaV = deltaV;
+            Arrived = arrived;
+            Settled = settled;
+            BurnSeconds = burnSeconds;
+            FuelLeft = fuelLeft;
         }
     }
 

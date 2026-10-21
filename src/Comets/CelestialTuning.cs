@@ -60,8 +60,8 @@ namespace TerraformingReloaded.Comets
             "Share of its site a comet grows by with each drill cycle of Cut. At 0.001 a whole comet is 1,000 drill cycles: about two and a half hours at a typical site with one drill, and on average the working life of one basic drill head or half that of an ice drill head.");
 
         public static readonly CelestialSetting CometSizeMultiplier = new CelestialSetting(1,
-            "CometSizeMultiplier", "Comet size (x its site)", "x", 5.0, new Range(0.1, 100.0), "%.1f",
-            "How many times the gas of the site it is cut from a comet holds once the whole site is cut. At 5, one comet from the biggest ice site brings less than a third of the air a Standard-size Mars or Moon needs before you can breathe outside without a suit.");
+            "CometSizeMultiplier", "Comet size at Standard planet size (x its site)", "x", 5.0, new Range(0.1, 100.0), "%.1f",
+            "How many times the gas of the site it is cut from a comet holds once the whole site is cut, on a Standard-size planet. It follows the planet's size: five times larger on a Long planet, a fifth on a Short one, but never under 1. At 5, one comet from the biggest ice site brings less than a third of the air a Mars or Moon needs before you can breathe outside without a suit, on every planet size.");
 
         public static readonly CelestialSetting OrbitSeconds = new CelestialSetting(2,
             "OrbitSeconds", "Comet orbit (s)", "s", 372.0, new Range(30.0, 7200.0), "%.0f",
@@ -184,7 +184,11 @@ namespace TerraformingReloaded.Comets
         public double[] ToArray() => (double[])_values.Clone();
 
         public double CutSharePerCycle => this[CelestialSettings.CutSharePerCycle];
+        /// <summary>The size multiplier setting: K on a Standard-size planet. See <see cref="SizeMultiplierAt"/>.</summary>
         public double CometSizeMultiplier => this[CelestialSettings.CometSizeMultiplier];
+
+        /// <summary>K in force on a planet of this size, a share of the shipped planet (CelestialRules.SizeMultiplier).</summary>
+        public double SizeMultiplierAt(double planetSize) => CelestialRules.Shipped.SizeMultiplier(CometSizeMultiplier, planetSize);
         public double OrbitSeconds => this[CelestialSettings.OrbitSeconds];
         public double OrbitInclinationDegrees => this[CelestialSettings.OrbitInclinationDegrees];
         public double DiscRadiusMetres => this[CelestialSettings.DiscRadiusMetres];
