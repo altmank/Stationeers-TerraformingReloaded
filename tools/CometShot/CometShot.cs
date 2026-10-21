@@ -169,6 +169,12 @@ namespace TerraformingReloaded.CometShot
 
         private void Update()
         {
+            // Test instances run on a machine people use, and its sound reaches them (bt plays into the owner's
+            // RDP session). Silent unless TR_SOUND=1; the sound routing is judged from the logs, not by ear.
+            if (Environment.GetEnvironmentVariable("TR_SOUND") != "1")
+            {
+                AudioListener.volume = 0f;
+            }
             try
             {
                 if (WorldManager.IsGamePaused && (_stage > 0 || WorldSetting.Current != null))
