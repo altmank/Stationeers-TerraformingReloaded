@@ -222,12 +222,13 @@ namespace TerraformingReloaded.Comets
                 {
                     Spot spot = spots[i];
                     float when = (float)zones.RockSeconds(spot.Distance, gravity);
-                    report.Rocks.Add(new CometZoneReport.Rock(spot.Structure != null ? spot.Structure.ReferenceId : 0L, spot.Human != null ? spot.Human.DisplayName : null,
-                        spot.At.x, spot.At.y, spot.At.z, spot.Distance, when));
+                    CometZoneReport.Rock rock = new CometZoneReport.Rock(spot.Structure != null ? spot.Structure.ReferenceId : 0L, spot.Human != null ? spot.Human.DisplayName : null,
+                        spot.At.x, spot.At.y, spot.At.z, spot.Distance, when);
+                    report.Rocks.Add(rock);
                     timed.Add(new Timed(when, () =>
                     {
-                        Vector3 down = spot.Structure != null && spot.Structure ? spot.Structure.Position : spot.Human != null && spot.Human ? spot.Human.transform.position : spot.At;
-                        global::Explosion.Explode((float)CometZones.RockForce, down, (float)CometZones.RockRadiusMetres);
+                        Thing target = spot.Structure != null && spot.Structure ? spot.Structure : spot.Human != null && spot.Human ? (Thing)spot.Human : null;
+                        Land(rock, target, target != null ? target.Position : spot.At);
                         report.RocksLanded++;
                     }));
                 }
@@ -246,6 +247,79 @@ namespace TerraformingReloaded.Comets
             log = string.Format(c, "zones in one pass over {0} structures and {1} players in {2:0.###} ms: {3}; {4} destroyed at ground zero, {5} burned {6:0.#} each in the fireball, {7} break and {8} creak in the wave, {9} rocks of at most {10} on {11} places in the falling rocks; the last {12:0.0} s after the impact",
                 seen, people, report.Milliseconds, reach, destroyed, burned, burn, breaks, creaks, report.Rocks.Count, report.RockCap, spots.Count, report.LastSeconds);
             return timed;
+        }
+
+        private static readonly Collider[] Near = new Collider[256];
+
+        /// <summary>
+        /// A rock coming down on the thing it was given: the game's own explosion of a suit bursting, as
+        /// Explosion.Explode makes it (its flash here, its event to every player, Explosion.DamageThing on what it
+        /// reaches), with two differences. The thing it lands on takes the whole force wherever its colliders are:
+        /// the game's sphere of 1 m from a structure's middle finds nothing on a hollow one, a frame's beams or a
+        /// lattice, and the rock would land on it and do nothing. And each thing it reaches is damaged once, not once
+        /// for each of its colliders. Everything else within the reach takes the force falling to nothing at the
+        /// explosion's radius, by its distance, as the game's does; what is broken is left alone, as the game's
+        /// leaves it. What it did is kept on the rock for the report.
+        /// </summary>
+        private static void Land(CometZoneReport.Rock rock, Thing target, Vector3 at)
+        {
+            float force = (float)CometZones.RockForce;
+            float radius = (float)CometZones.RockRadiusMetres;
+            float reach = (float)CometZones.RockReachMetres;
+            rock.LandX = at.x;
+            rock.LandY = at.y;
+            rock.LandZ = at.z;
+            if (target != null)
+            {
+                Vector3 centre = target.CenterPosition;
+                rock.FromCentre = Vector3.Distance(at, centre);
+                double nearest = double.PositiveInfinity;
+                int enabled = 0;
+                foreach (Collider collider in target.GetComponentsInChildren<Collider>(includeInactive: false))
+                {
+                    if (collider == null || !collider.enabled || collider.isTrigger)
+                    {
+                        continue;
+                    }
+                    enabled++;
+                    nearest = Math.Min(nearest, Vector3.Distance(collider.ClosestPoint(at), at));
+                }
+                rock.TargetColliders = enabled;
+                rock.NearestColliderMetres = nearest;
+            }
+            global::EffectManager.CreateExplosionEffect(at, radius);
+            if (Assets.Scripts.Networking.NetworkManager.IsServer && NetworkServer.HasClients())
+            {
+                global::ExplosionEvent.NewEvents.Add(new global::ExplosionEvent(at, radius));
+            }
+            HashSet<Thing> hit = new HashSet<Thing>();
+            if (target != null && !(target is Structure { IsBroken: true }) && target.DamageState != null)
+            {
+                float before = target.DamageState.Brute;
+                global::Explosion.DamageThing(target, at, force);
+                rock.TargetDamage = target.DamageState.Brute - before;
+                hit.Add(target);
+            }
+            int found = Physics.OverlapSphereNonAlloc(at, reach, Near);
+            for (int i = 0; i < found; i++)
+            {
+                Thing thing = Thing.Find(Near[i]);
+                if (thing == null)
+                {
+                    continue;
+                }
+                if (thing == target)
+                {
+                    rock.TargetCollidersFound++;
+                    continue;
+                }
+                if (thing is Structure { IsBroken: true } || thing.DamageState == null || !hit.Add(thing))
+                {
+                    continue;
+                }
+                global::Explosion.DamageThing(thing, at, Mathf.Lerp(force, 0f, Vector3.Distance(thing.Position, at) / radius));
+                rock.Others++;
+            }
         }
 
         private static long SquareKey(Vector3 at, double square)
@@ -444,8 +518,13 @@ namespace TerraformingReloaded.Comets
             }
         }
 
-        /// <summary>A rock that comes down on something: the structure it lands on (0 for a player), where, how far out and when.</summary>
-        public readonly struct Rock
+        /// <summary>
+        /// A rock that comes down on something: the structure it lands on (0 for a player), where the pass found it,
+        /// how far out and when; and once it has come down, where it landed, how far that is from the thing's middle
+        /// and from the nearest of its colliders, how many colliders it has and how many of them the game's 1 m
+        /// sphere found, the Brute it took, and how many other things the rock reached.
+        /// </summary>
+        public sealed class Rock
         {
             public readonly long Structure;
             public readonly string Player;
@@ -454,6 +533,16 @@ namespace TerraformingReloaded.Comets
             public readonly double Z;
             public readonly double Distance;
             public readonly double Seconds;
+
+            public double LandX = double.NaN;
+            public double LandY = double.NaN;
+            public double LandZ = double.NaN;
+            public double FromCentre = double.NaN;
+            public double NearestColliderMetres = double.NaN;
+            public int TargetColliders;
+            public int TargetCollidersFound;
+            public double TargetDamage = double.NaN;
+            public int Others;
 
             public Rock(long structure, string player, double x, double y, double z, double distance, double seconds)
             {
@@ -464,6 +553,13 @@ namespace TerraformingReloaded.Comets
                 Z = z;
                 Distance = distance;
                 Seconds = seconds;
+            }
+
+            public override string ToString()
+            {
+                return string.Format(CultureInfo.InvariantCulture,
+                    "landed at ({0:0.##}, {1:0.##}, {2:0.##}), {3:0.###} m from its middle, {4:0.###} m from the nearest of its {5} colliders, {6} of them inside the game's 1 m sphere; took {7:0.###} Brute; {8} other things reached",
+                    LandX, LandY, LandZ, FromCentre, NearestColliderMetres, TargetColliders, TargetCollidersFound, TargetDamage, Others);
             }
         }
     }
