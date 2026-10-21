@@ -712,6 +712,8 @@ Fuel, Burn) sends the list to every player at most every 2 s.
 | A comet's id is never given again in the same session | the sky body's hash, the warnings and the landings are by id | The lowest free id: a comet made during a fall would share its id |
 | `terraform comet stop` ends a rocket comet's show and not its fall | LU's "no rescue": it is a debug verb for the show | Calling the fall off too: a comet brought down could be taken back |
 | The impact comes in along the comet's bearing from the pad, at the console comet's 24 degrees | it comes from the side of the sky it was in | A random side: unrelated to where the comet was |
+| The falls ride the comet list (layout 4), sent at once and with the planet sync, and only what a player's game shows and warns with: the comet, its kind, size, impact and fall on the clock | 5, one list for every comet; a player who joins mid-fall is warned too | A message of their own: a second route to keep in step, and none for a player who joins later |
+| The impact's height is read from the voxels as the console comet's is; with none to read, the launch pad's height | 4, the console comet's own ground rule | The host's own height: a dedicated server has none |
 
 ## Proof as it is built
 
