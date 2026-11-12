@@ -17,8 +17,7 @@
   or mod list is read or written; what it creates there is removed after, and a settings file
   already there is put back byte for byte.
 
-  Meant to run on bt (run-bt.ps1 copies the builds over and runs this there), not beside the
-  owner's game.
+  Meant to run on a machine other than the owner's own game install.
 
 .EXAMPLE
   .\run.ps1 -Comet '1e6 CarbonDioxide:60 Water:25 NitrousOxide:15 preview'
