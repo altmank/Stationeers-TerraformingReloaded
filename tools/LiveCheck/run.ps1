@@ -1,4 +1,5 @@
-﻿<#
+﻿#Requires -Version 7.5
+<#
 .SYNOPSIS
   Live tests: run the mod in a headless throwaway Mars world and check that gas is conserved.
 
@@ -504,7 +505,7 @@ try {
         if (Test-Path (Join-Path $mods 'TerraformingReloaded')) { $install += Join-Path $mods 'TerraformingReloaded' }
         # -Command, not -File: -File hands an array over as one string.
         $list = ($install | ForEach-Object { "'" + $_ + "'" }) -join ','
-        & powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($list); exit `$LASTEXITCODE" | Write-Host
+        & pwsh -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($list); exit `$LASTEXITCODE" | Write-Host
         if ($LASTEXITCODE -ne 0) { throw 'The test server setup failed.' }
     }
 
@@ -1110,7 +1111,7 @@ try {
         if ($TestServer) {
             # The test server's mods are what its setup installed: install again without the mod.
             $only = "'" + (Join-Path $mods 'TRLiveCheck') + "'"
-            & powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
+            & pwsh -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
             if ($LASTEXITCODE -ne 0) { throw 'The test server setup failed.' }
         }
         $log = Invoke-Game @('-file', 'start', $station, 'Mars2') @{ TR_LIVECHECK_INJECT = '0' } `
