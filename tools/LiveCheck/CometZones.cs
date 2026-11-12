@@ -1,0 +1,878 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Threading;
+using Assets.Scripts;
+using Assets.Scripts.Atmospherics;
+using Assets.Scripts.GridSystem;
+using Assets.Scripts.Objects;
+using Assets.Scripts.Objects.Motherboards;
+using Assets.Scripts.Serialization;
+using BepInEx.Logging;
+using Networks;
+using Objects.Rockets;
+using TerraformingReloaded.Comets;
+using UnityEngine;
+
+namespace TerraformingReloaded.LiveCheck
+{
+    /// <summary>
+    /// -CometZones: what an impact does near where it lands (docs/COMET-ROCKETS.md, "Near the impact", stage 7).
+    ///
+    /// Phase "make", a new world, the cap on rocks that hit set to <see cref="RockCap"/> with terraform set:
+    ///   C  a console comet of a million moles of carbon dioxide, sent north-west from the world's origin (whose view
+    ///      a console comet is aimed from when nobody is online) past anywhere the rocket comet can reach, and near
+    ///      enough that its whole line stands inside the game's extent, past which the game deletes a structure when
+    ///      it loads a save (<see cref="Inside"/>); while it falls, real
+    ///      structures from the game's prefabs are built on a line out from where it lands, at distances worked out
+    ///      from the zones and the wave in force (ground zero, the fireball, the inner and the middle and the outer
+    ///      falling rocks, the wave past them, and beyond); once everything the impact's pass scheduled has
+    ///      happened, each one's end state is judged against the table: destroyed in ground zero whatever its
+    ///      limit, burned by the stated amount in the fireball, broken, creaking or holding by its own limit, a
+    ///      rock's damage only where a rock came down and only in the falling rocks, the rocks the rule's for the
+    ///      places the pass found, at most the cap; and that it was one pass over every structure in the world;
+    ///   R  a comet brought down by rocket, untracked, by stage 6's Deorbit; the same line of structures built out
+    ///      from where its fall says it lands, judged the same way;
+    ///   then every structure's state is printed and the world saved.
+    /// Phase "load": the same states, read back from the save.
+    /// </summary>
+    internal sealed class CometZonesCheck
+    {
+        private const uint StartTick = 20;
+        private const double StageSeconds = 900.0;
+        private const int RockCap = 4;
+        private const double ConsoleMoles = 1e6;
+        private const string RocketMoles = "1000000";
+        private const double RocketMolesValue = 1e6;
+
+        /// <summary>The console comet's bearing from the origin's view, which faces north: to the north-west, along a diagonal of the extent.</summary>
+        private const double ConsoleTurnDegrees = -45.0;
+
+        /// <summary>How far inside the game's extent the farthest structure of a line stands.</summary>
+        private const double EdgeMarginMetres = 200.0;
+
+        /// <summary>The widest group stands this far either side of the line: eight frames 6 m apart, and the rounding to the grid.</summary>
+        private const double LineHalfWidthMetres = 24.0;
+
+        /// <summary>Where the rocket's launch mount is built, the pad the rocket comet's landing disc is drawn around.</summary>
+        private static readonly Vector3 PadAt = new Vector3(300f, 300f, -400f);
+
+        private readonly ManualLogSource _log;
+        private readonly Action<string[]> _command;
+        private readonly bool _load;
+
+        private enum Stage { Setup, GridEdge, ConsoleBuild, ConsoleImpact, RocketSetup, RocketFlying, RocketAim, RocketOrder, RocketFired, RocketImpact, Save, Saved, Done }
+
+        private Stage _stage = Stage.Setup;
+        private double _stageClock;
+        private bool _failed;
+
+        private int _sequence;
+        private Vector3 _impact;
+        private double _impactClock;
+        private double _moles;
+        private string _case;
+        private int _worldStructures;
+        private readonly List<Placed> _placed = new List<Placed>();
+        private readonly List<Placed> _all = new List<Placed>();
+
+        private Rocket _rocket;
+        private RocketPayloadBay _bay;
+        private int _cometId;
+
+        /// <summary>One structure built for the check, with what it was before the impact.</summary>
+        private sealed class Placed
+        {
+            public string Case;
+            public string Tag;
+            public string Prefab;
+            public long Id;
+            public Structure Structure;
+            public double Distance;
+            public CometZone Intended;
+            public double LimitKPa;
+            public float Health;
+            public bool Window;
+        }
+
+        private CometZonesCheck(ManualLogSource log, Action<string[]> command, bool load)
+        {
+            _log = log;
+            _command = command;
+            _load = load;
+            Application.logMessageReceivedThreaded += CountGridThrows;
+        }
+
+        // ---- the grid ---------------------------------------------------------------------------------------
+        //
+        // A structure placed on a cell's face or centre is registered in its cell's structural lookup and taken
+        // out of it when it goes. The game registers one whose grid is neither (a wall on the edge between four
+        // cells) in the cell's list alone (Cell.AddStructural), but takes it out by clearing the lookup at that
+        // grid (GridController.RemoveGridStructure, StructuralArray.Clear), which throws for it: the
+        // IndexOutOfRangeException in Structure.OnDestroy seen on bt in stage 8, when ground zero removed walls
+        // a driver had built on cell edges. So every structure here is built on its own face or centre, and the
+        // run counts every throw from StructuralArray.Clear.
+
+        private static int _gridThrows;
+        private int _gridThrowsBefore;
+        private Structure _edgeWall;
+        private Structure _faceWall;
+        private string _edgeLine;
+
+        private static void CountGridThrows(string condition, string stack, LogType type)
+        {
+            if ((type == LogType.Exception || type == LogType.Error)
+                && ((stack != null && stack.Contains("StructuralArray.Clear")) || (condition != null && condition.Contains("StructuralArray.Clear"))))
+            {
+                Interlocked.Increment(ref _gridThrows);
+            }
+        }
+
+        private static float Odd(float v) => 2f * Mathf.Floor(v / 2f) + 1f;
+
+        /// <summary>
+        /// The grid offset of a structure's grid from the cell the game takes it out of, as RemoveGridStructure works
+        /// it out: its grid less that grid's cell centre on the side of its middle. A structure snapped to the grid
+        /// is taken out by its cell's centre, whatever its grid.
+        /// </summary>
+        private static StructureElement Element(Structure structure, Grid3 grid, Vector3 middle)
+        {
+            return structure.PlacementType == PlacementSnap.Grid ? StructureElement.Center : StructuralArray.Get(grid - grid.GridCenter(middle));
+        }
+
+        /// <summary>Every grid of a built structure is one its cell can take it out of.</summary>
+        private static bool OnItsGrid(Structure structure, out string where)
+        {
+            List<string> parts = new List<string>();
+            bool ok = true;
+            foreach (Grid3 grid in structure.BlockingGrids ?? new Grid3[0])
+            {
+                StructureElement element = Element(structure, grid, structure.CenterPosition);
+                ok &= element != StructureElement.Invalid;
+                parts.Add(string.Format(C, "{0} {1}", grid, element));
+            }
+            where = string.Join(", ", parts);
+            return ok;
+        }
+
+        /// <summary>
+        /// Where near <paramref name="near"/> a structure of this prefab stands as the game places one: a cell's centre
+        /// for one snapped to the grid, else the first of the cell's faces its one grid can be taken out of (a wall
+        /// facing north first, a mounted thing on the floor first), with the prefab's own middle.
+        /// </summary>
+        private static Vector3 OnGrid(string prefabName, Vector3 near)
+        {
+            Vector3 centre = new Vector3(Odd(near.x), Odd(near.y), Odd(near.z));
+            if (!(Prefab.Find(prefabName) is Structure prefab) || prefab.PlacementType == PlacementSnap.Grid)
+            {
+                return centre;
+            }
+            Vector3[] steps = prefab.PlacementType == PlacementSnap.FaceMount
+                ? new[] { Vector3.down, Vector3.up, Vector3.forward, Vector3.back, Vector3.right, Vector3.left }
+                : new[] { Vector3.forward, Vector3.back, Vector3.right, Vector3.left, Vector3.up, Vector3.down };
+            foreach (Vector3 step in steps)
+            {
+                Vector3 at = centre + step;
+                if (Element(prefab, new Grid3(at), at + prefab.Bounds.center) != StructureElement.Invalid)
+                {
+                    return at;
+                }
+            }
+            return centre;
+        }
+
+        /// <summary>
+        /// The bt stage 8 error, made on purpose, with a control: a Composite Wall on the edge between four cells (x
+        /// and z even), as that driver built them, and the same wall on a face, both removed by the game's own removal
+        /// of a structure its damage destroys, as ground zero removes them.
+        /// </summary>
+        private void GridEdge()
+        {
+            Vector3 cell = new Vector3(-101f, 701f, 301f);
+            Vector3 edge = cell + new Vector3(1f, 0f, 1f);
+            Vector3 face = OnGrid("StructureCompositeWall", cell + new Vector3(8f, 0f, 0f));
+            _edgeWall = Spawn("StructureCompositeWall", edge);
+            _faceWall = Spawn("StructureCompositeWall", face);
+            if (_edgeWall == null || _faceWall == null)
+            {
+                Fail("the game made no Composite Wall for the grid case");
+                return;
+            }
+            bool edgeOk = OnItsGrid(_edgeWall, out string edgeWhere);
+            bool faceOk = OnItsGrid(_faceWall, out string faceWhere);
+            _edgeLine = string.Format(C, "a Composite Wall at ({0:0.#}, {1:0.#}, {2:0.#}), its grids {3}; the same wall at ({4:0.#}, {5:0.#}, {6:0.#}), its grids {7}",
+                edge.x, edge.y, edge.z, edgeWhere, face.x, face.y, face.z, faceWhere);
+            if (edgeOk || !faceOk)
+            {
+                Fail("the grid case's walls are not one on an edge and one on a face: " + _edgeLine);
+                return;
+            }
+            _gridThrowsBefore = Volatile.Read(ref _gridThrows);
+            _edgeWall.OnDamageDestroyed();
+            _faceWall.OnDamageDestroyed();
+            Next(Stage.GridEdge);
+        }
+
+        private void JudgeGridEdge()
+        {
+            int thrown = Volatile.Read(ref _gridThrows) - _gridThrowsBefore;
+            bool gone = (_edgeWall == null || _edgeWall.IsBeingDestroyed) && (_faceWall == null || _faceWall.IsBeingDestroyed);
+            bool pass = gone && thrown == 1;
+            Info(string.Format(C, "grid edge {0} | {1} | both removed by the game's own removal of a structure its damage destroys: {2} | StructuralArray.Clear threw {3} time(s), expected once, for the wall on the edge alone",
+                pass ? "PASS" : "FAIL", _edgeLine, gone, thrown));
+            if (!pass)
+            {
+                Fail("the wall on a cell's edge did not throw once on its removal while the wall on a face did not, so the stage 8 error is not the one this explains");
+                return;
+            }
+            _gridThrowsBefore = Volatile.Read(ref _gridThrows);
+            SetUp();
+        }
+
+        public static CometZonesCheck FromEnvironment(ManualLogSource log, Action<string[]> command)
+        {
+            string phase = Environment.GetEnvironmentVariable("TR_LIVECHECK_COMETZONES");
+            return phase == "make" || phase == "load" ? new CometZonesCheck(log, command, phase == "load") : null;
+        }
+
+        private static double Clock => OrbitalSimulation.System?.TotalRealTimeSeconds ?? 0.0;
+
+        private static CultureInfo C => CultureInfo.InvariantCulture;
+
+        private void Info(string line) => _log.LogInfo("LiveCheck: zones " + line);
+
+        private void Fail(string why)
+        {
+            if (!_failed)
+            {
+                _failed = true;
+                Info("FAIL " + why);
+                _stage = Stage.Done;
+            }
+        }
+
+        private void Next(Stage stage)
+        {
+            _stage = stage;
+            _stageClock = Clock;
+        }
+
+        private bool Overdue(string what)
+        {
+            if (Clock - _stageClock > StageSeconds)
+            {
+                Fail(what + " did not happen within " + StageSeconds + " s");
+                return true;
+            }
+            return false;
+        }
+
+        // ---- main thread ------------------------------------------------------------------------------
+
+        public void Step()
+        {
+            if (_stage == Stage.Done || _failed)
+            {
+                return;
+            }
+            try
+            {
+                if (_load)
+                {
+                    StepLoad();
+                }
+                else
+                {
+                    StepMake();
+                }
+            }
+            catch (Exception e)
+            {
+                Fail("the driver threw: " + e);
+            }
+        }
+
+        private void StepMake()
+        {
+            switch (_stage)
+            {
+                case Stage.Setup when GameManager.GameTickCount >= StartTick:
+                    GridEdge();
+                    break;
+                case Stage.GridEdge when Clock - _stageClock >= 2.0:
+                    JudgeGridEdge();
+                    break;
+                case Stage.ConsoleBuild:
+                    BuildForConsole();
+                    break;
+                case Stage.ConsoleImpact:
+                    if (Judged())
+                    {
+                        _command(new[] { "comet", "stop" });
+                        Next(Stage.RocketSetup);
+                    }
+                    break;
+                case Stage.RocketSetup when Clock - _stageClock >= 2.0:
+                    SetUpRocket();
+                    break;
+                case Stage.RocketFlying:
+                    WaitParked();
+                    break;
+                case Stage.RocketAim:
+                    AimUntracked();
+                    break;
+                case Stage.RocketOrder:
+                    Order();
+                    break;
+                case Stage.RocketFired:
+                    BuildForRocket();
+                    break;
+                case Stage.RocketImpact:
+                    if (Judged())
+                    {
+                        Next(Stage.Save);
+                    }
+                    break;
+                case Stage.Save:
+                    int thrown = Volatile.Read(ref _gridThrows) - _gridThrowsBefore;
+                    Info(string.Format(C, "grid throws {0} | StructuralArray.Clear threw {1} time(s) after the grid case, through both impacts, with every structure built on its own face or centre",
+                        thrown == 0 ? "PASS" : "FAIL", thrown));
+                    if (thrown != 0)
+                    {
+                        Fail("a structure built here could not be taken out of its cell");
+                        break;
+                    }
+                    PrintStates("at the save");
+                    Info("ids | " + string.Join(",", _all.Select(p => p.Id.ToString(C))));
+                    Util.Commands.CommandLine.Process("file save");
+                    Next(Stage.Saved);
+                    break;
+                case Stage.Saved when Clock - _stageClock >= 2.0:
+                    Info("phase make done");
+                    _stage = Stage.Done;
+                    break;
+            }
+        }
+
+        private void SetUp()
+        {
+            string verdict = CometRules.Verdict;
+            Info(string.Format(C, "parts | comet rules {0} | celestial rules {1} | deorbit {2} | planet size {3:R} | world {4}",
+                verdict ?? "pass", CelestialRules.Verdict ?? "pass", CometLand.Installed ? "installed" : "MISSING", CometMap.PlanetSize(), WorldSetting.Current?.Id));
+            if (verdict != null || CelestialRules.Verdict != null)
+            {
+                Fail("the comet rules did not pass their own check");
+                return;
+            }
+            _command(new[] { "set", "MaxDamagingRocks", RockCap.ToString(C) });
+            if ((int)Math.Round(Effective.Celestial.MaxDamagingRocks) != RockCap)
+            {
+                Fail("terraform set did not set MaxDamagingRocks to " + RockCap + " (it is " + Effective.Celestial.MaxDamagingRocks.ToString(C) + ")");
+                return;
+            }
+            double range = ConsoleRange(out string placed);
+            if (double.IsNaN(range))
+            {
+                Fail(placed);
+                return;
+            }
+            Info("placement | " + placed);
+            _command(new[] { "comet", ConsoleMoles.ToString("R", C), "CarbonDioxide", "turn=" + ConsoleTurnDegrees.ToString("R", C), "range=" + range.ToString("R", C) });
+            if (!CometZoneReport.Current(out _sequence, out _impact, out _impactClock, out _moles))
+            {
+                Fail("the console comet was not sent");
+                return;
+            }
+            _case = "C";
+            Info(string.Format(C, "console | event {0} | {1:R} mol | lands at ({2:R}, {3:R}, {4:R}) at clock {5:R}, {6:0.0} s from now",
+                _sequence, _moles, _impact.x, _impact.y, _impact.z, _impactClock, _impactClock - Clock));
+            Next(Stage.ConsoleBuild);
+        }
+
+        private void BuildForConsole()
+        {
+            Vector3 out_ = new Vector3(_impact.x, 0f, _impact.z);
+            Vector3 dir = out_.sqrMagnitude > 1f ? out_.normalized : Vector3.right;
+            if (!Build(_impact, _moles, dir))
+            {
+                return;
+            }
+            Next(Stage.ConsoleImpact);
+        }
+
+        // ---- the line of structures ---------------------------------------------------------------------
+
+        /// <summary>
+        /// The console comet's range from the origin along <see cref="ConsoleTurnDegrees"/>: as far out as its line, which
+        /// runs on away from the origin to twice its falling rocks, stays <see cref="EdgeMarginMetres"/> inside the extent
+        /// on both axes. NaN, with the reason, when that is not past where the rocket comet can reach: its landing disc
+        /// around the pad and its own line out to twice its falling rocks.
+        /// </summary>
+        private static double ConsoleRange(out string why)
+        {
+            CelestialTuning tuning = Effective.Celestial;
+            double extent = WorldGrid.WORLD_EXTENTS / 10.0;
+            double line = 2.0 * CometZones.Shipped.ReachFor(ConsoleMoles, tuning).Debris + LineHalfWidthMetres;
+            double bearing = ConsoleTurnDegrees * Math.PI / 180.0;
+            double perAxis = Math.Max(Math.Abs(Math.Sin(bearing)), Math.Abs(Math.Cos(bearing)));
+            double range = Math.Floor((extent - EdgeMarginMetres) / perAxis - line);
+            Vector2 impact = new Vector2((float)(range * Math.Sin(bearing)), (float)(range * Math.Cos(bearing)));
+            double fromPad = Vector2.Distance(impact, new Vector2(PadAt.x, PadAt.z)) - LineHalfWidthMetres;
+            double rocketReach = CometAim.DiscRadius(tuning) + 2.0 * CometZones.Shipped.ReachFor(RocketMolesValue, tuning).Debris;
+            why = string.Format(C, "the console comet {0:R} m out at {1:R} degrees, ({2:0.#}, {3:0.#}), its line out to {4:0.#} m more, inside the game's {5:N0} m extent less {6:N0} m; {7:0.#} m from the pad against the rocket comet's reach of {8:0.#} m",
+                range, ConsoleTurnDegrees, impact.x, impact.y, line, extent, EdgeMarginMetres, fromPad, rocketReach);
+            return fromPad > rocketReach ? range : double.NaN;
+        }
+
+        /// <summary>
+        /// Whether the game keeps a structure standing here when it loads a save: XmlSaveLoad calls
+        /// GameManager.DeleteOutOfBoundsObjects once a world has loaded, which destroys every thing whose
+        /// WorldGrid.OutOfBounds(), more than WorldGrid.WORLD_EXTENTS tenths of a metre from the origin on any axis.
+        /// </summary>
+        private static bool Inside(Vector3 at) => !new WorldGrid(at).OutOfBounds();
+
+        /// <summary>Distance from the impact at which the wave peaks at this many kPa.</summary>
+        private static double AtPeak(double moles, double kpa)
+        {
+            double felt = Math.Min(Math.Max(0.0, moles), CometRules.WaveMolesCap);
+            return CometRules.ReferenceMetres * Math.Sqrt(CometRules.ReferencePeakKPa * Math.Pow(felt / CometRules.ReferenceMoles, 2.0 / 3.0) / kpa);
+        }
+
+        /// <summary>
+        /// The line: each group at a distance worked out from the zones and the wave in force, its members side by side
+        /// across the line, each in a square of its own, a metre above the impact's ground.
+        /// </summary>
+        private bool Build(Vector3 impact, double moles, Vector3 dir)
+        {
+            if (Clock > _impactClock - 3.0)
+            {
+                Fail("too little of the fall was left to build in");
+                return false;
+            }
+            ZoneReach reach = CometZones.Shipped.ReachFor(moles, Effective.Celestial);
+            double gz = reach.GroundZero;
+            double heat = reach.Heat;
+            double debris = reach.Debris;
+            // An airlock in the fireball that the wave does not break: past where the wave passes its 1,000 kPa and
+            // inside the fireball, in the middle of what is left; left out when that is too narrow to stand in.
+            double holds = AtPeak(moles, 1000.0);
+            var groups = new List<(string Tag, double Distance, CometZone Zone, string[] Prefabs)>
+            {
+                ("ground zero, inner", 0.5 * gz, CometZone.GroundZero, new[] { "StructureReinforcedWall" }),
+                ("ground zero, outer", 0.85 * gz, CometZone.GroundZero, new[] { "StructureAirlock", "StructureSolarPanel" }),
+                ("fireball, near", gz + 0.3 * (heat - gz), CometZone.Fireball, new[] { "StructureReinforcedCompositeWindow", "StructureCompositeWindow", "StructureSolarPanel", "StructureFrame" }),
+                ("falling rocks, inner edge", heat + Math.Max(8.0, 0.01 * heat), CometZone.Debris, Enumerable.Repeat("StructureFrame", 2 * RockCap).ToArray()),
+                ("falling rocks, wave 400 kPa", AtPeak(moles, 400.0), CometZone.Debris, new[] { "StructureCompositeWall", "StructureManualHatch", "StructureWallIron" }),
+                ("falling rocks, wave 220 kPa", AtPeak(moles, 220.0), CometZone.Debris, new[] { "StructureCompositeWindow", "StructureCompositeWall", "StructureFrame" }),
+                ("wave, 180 kPa", AtPeak(moles, 180.0), CometZone.Wave, new[] { "StructureCompositeWindow", "StructureFrame" }),
+                ("wave, 120 kPa", AtPeak(moles, 120.0), CometZone.Wave, new[] { "StructureCompositeWindow" }),
+                ("beyond", 2.0 * debris, CometZone.Wave, new[] { "StructureSolarPanel" }),
+            };
+            if (heat - Math.Max(holds, gz) >= 16.0)
+            {
+                groups.Insert(3, ("fireball, wave under an airlock's limit", 0.5 * (Math.Max(holds, gz) + heat), CometZone.Fireball, new[] { "StructureAirlock", "StructureSolarPanel" }));
+            }
+            else
+            {
+                Info(string.Format(C, "layout {0} | no airlock in the fireball that the wave leaves standing: the wave passes 1,000 kPa out to {1:0.#} m and the fireball ends at {2:0.#} m", _case, holds, heat));
+            }
+            Vector3 across = Vector3.Cross(Vector3.up, dir).normalized;
+            List<Placed> built = new List<Placed>();
+            foreach (var group in groups)
+            {
+                CometZone zone = CometZones.Shipped.ZoneAt(group.Distance, reach);
+                if (zone != group.Zone || Math.Abs(group.Distance - Edge(group.Distance, reach)) < 6.0)
+                {
+                    Fail(string.Format(C, "the line's group '{0}' at {1:0.#} m is in {2}, not {3}, or within 6 m of a zone's edge ({4})", group.Tag, group.Distance, zone, group.Zone, reach));
+                    return false;
+                }
+                for (int i = 0; i < group.Prefabs.Length; i++)
+                {
+                    double side = (i - 0.5 * (group.Prefabs.Length - 1)) * 6.0;
+                    Vector3 at = OnGrid(group.Prefabs[i], impact + dir * (float)group.Distance + across * (float)side + Vector3.up);
+                    if (!Inside(at))
+                    {
+                        Fail(string.Format(C, "the line's group '{0}' would stand at ({1:0.#}, {2:0.#}, {3:0.#}), past the game's extent, where a load deletes it", group.Tag, at.x, at.y, at.z));
+                        return false;
+                    }
+                    Structure made = Spawn(group.Prefabs[i], at);
+                    if (made == null)
+                    {
+                        Fail("the game made no " + group.Prefabs[i]);
+                        return false;
+                    }
+                    if (!OnItsGrid(made, out string grids))
+                    {
+                        Fail(string.Format(C, "{0} {1} at ({2:0.#}, {3:0.#}, {4:0.#}) is not on a face or a centre of its cell, so the game cannot take it out of it: {5}",
+                            group.Tag, group.Prefabs[i], at.x, at.y, at.z, grids));
+                        return false;
+                    }
+                    built.Add(new Placed
+                    {
+                        Case = _case,
+                        Tag = group.Tag,
+                        Prefab = group.Prefabs[i],
+                        Id = made.ReferenceId,
+                        Structure = made,
+                        Distance = Vector3.Distance(impact, made.CenterPosition),
+                        Intended = group.Zone,
+                        LimitKPa = made.maxPressureDelta,
+                        Health = made.DamageState != null ? made.DamageState.MaxDamage : float.NaN,
+                        Window = made is Wall wall && wall.WallMaterialType == Wall.WallMaterial.Glass,
+                    });
+                }
+            }
+            foreach (Placed p in built)
+            {
+                if (CometZones.Shipped.ZoneAt(p.Distance, reach) != p.Intended)
+                {
+                    Fail(string.Format(C, "{0} {1} stands {2:0.#} m out, in {3}, not {4}", p.Tag, p.Prefab, p.Distance, CometZones.Shipped.ZoneAt(p.Distance, reach), p.Intended));
+                    return false;
+                }
+            }
+            _placed.Clear();
+            _placed.AddRange(built);
+            _all.AddRange(built);
+            int count = 0;
+            GridController.AllStructuresPool.ForEach((Action<Structure>)(s =>
+            {
+                if (s != null && !s.IsBeingDestroyed)
+                {
+                    count++;
+                }
+            }));
+            _worldStructures = count;
+            Info(string.Format(C, "built {0} | {1} structures on a line out from ({2:R}, {3:R}, {4:R}) toward ({5:0.###}, {6:0.###}) | {7} | the world holds {8} structures | impact in {9:0.0} s",
+                _case, built.Count, impact.x, impact.y, impact.z, dir.x, dir.z, reach, count, _impactClock - Clock));
+            return true;
+        }
+
+        private static double Edge(double metres, ZoneReach reach)
+        {
+            double best = double.MaxValue;
+            double edge = 0.0;
+            foreach (double e in new[] { reach.GroundZero, reach.Heat, reach.Debris })
+            {
+                if (Math.Abs(metres - e) < best)
+                {
+                    best = Math.Abs(metres - e);
+                    edge = e;
+                }
+            }
+            return edge;
+        }
+
+        private static Structure Spawn(string prefabName, Vector3 position)
+        {
+            Thing prefab = Prefab.Find(prefabName);
+            if (prefab == null)
+            {
+                return null;
+            }
+            Structure made = OnServer.Create<Structure>(prefab, position, Quaternion.identity);
+            if (made != null && made.BuildStates != null && made.BuildStates.Count > 0)
+            {
+                // Finished as a player finishes it: the last build state and what it shows and collides with. Setting
+                // the index alone leaves the first state's parts in place, a frame's bare beams.
+                made.UpdateBuildStateAndVisualizer(made.BuildStates.Count - 1);
+            }
+            return made;
+        }
+
+        // ---- the judging ---------------------------------------------------------------------------------
+
+        /// <summary>Once everything the impact's pass scheduled has happened, every structure of the line against the table. True when judged.</summary>
+        private bool Judged()
+        {
+            CometZoneReport report = CometZoneReport.Last;
+            if (report == null || report.Sequence != _sequence)
+            {
+                if (Clock > _impactClock + 30.0)
+                {
+                    Fail("no zone pass for event " + _sequence + " within 30 s of its impact");
+                }
+                return false;
+            }
+            if (Clock < _impactClock + report.LastSeconds + 3.0)
+            {
+                return false;
+            }
+            CometRules rules = CometRules.Shipped;
+            CometZones zones = CometZones.Shipped;
+            CelestialTuning tuning = Effective.Celestial;
+            ZoneReach reach = zones.ReachFor(report.Moles, tuning);
+            CometSizes sizes = CometYield.Shipped.For(report.Moles, tuning);
+            double burn = zones.HeatBurn(0.5 * (reach.GroundZero + reach.Heat), reach, sizes);
+            HashSet<long> rocked = new HashSet<long>(report.Rocks.Select(r => r.Structure));
+            int failures = 0;
+            foreach (Placed p in _placed)
+            {
+                CometZone zone = zones.ZoneAt(p.Distance, reach);
+                double peak = rules.PeakKPa(report.Moles, p.Distance);
+                bool breaks = p.LimitKPa > 0.0 && rules.Breaks(peak, p.LimitKPa);
+                bool creaks = p.Window && p.LimitKPa > 0.0 && !breaks && rules.Creaks(peak, p.LimitKPa);
+                double heat = zone == CometZone.Fireball ? burn : 0.0;
+                bool rock = rocked.Contains(p.Id);
+                CometZoneReport.Rock fell = report.Rocks.FirstOrDefault(r => r.Structure == p.Id);
+                double rockDamage = rock ? CometZones.RockForce : 0.0;
+                CometZoneReport.Entry? entry = report.Entries.Where(e => e.ReferenceId == p.Id).Select(e => (CometZoneReport.Entry?)e).FirstOrDefault();
+                Structure now = Referencable.Find<Structure>(p.Id);
+                bool gone = now == null || now.IsBeingDestroyed;
+                bool broken = !gone && now.IsBroken;
+                float gotBurn = gone || now.DamageState == null ? float.NaN : now.DamageState.Burn;
+                float gotBrute = gone || now.DamageState == null ? float.NaN : now.DamageState.Brute;
+                string expected;
+                bool pass;
+                if (zone == CometZone.GroundZero)
+                {
+                    expected = "destroyed whatever its limit";
+                    pass = gone && entry != null && entry.Value.Destroyed && !rock;
+                }
+                else
+                {
+                    bool overHealth = heat + rockDamage >= p.Health;
+                    bool reportOk = (heat > 0.0 || breaks || creaks) == (entry != null)
+                        && (entry == null || (entry.Value.Zone == zone && entry.Value.Breaks == breaks && entry.Value.Creaks == creaks && Math.Abs(entry.Value.Burn - heat) <= 1e-9 * Math.Max(1.0, heat)));
+                    bool rockOk = !rock || (zone == CometZone.Debris && fell != null && Math.Abs(fell.TargetDamage - CometZones.RockForce) <= 1e-3 * CometZones.RockForce);
+                    if (breaks || overHealth)
+                    {
+                        expected = string.Format(C, "{0}{1}{2}", breaks ? "broken by the wave" : "broken by its damage", heat > 0.0 ? ", burned " + heat.ToString("0.###", C) : "", rock ? ", a rock" : "");
+                        pass = (gone || broken) && reportOk && rockOk;
+                    }
+                    else
+                    {
+                        expected = string.Format(C, "standing, burn {0:0.###}, brute {1:0.###}{2}", heat, rockDamage, creaks ? ", creaked" : "");
+                        pass = !gone && !broken && Math.Abs(gotBurn - heat) <= 1e-3 * Math.Max(1.0, heat) && Math.Abs(gotBrute - rockDamage) <= 1e-3 * Math.Max(1.0, rockDamage)
+                            && reportOk && rockOk;
+                    }
+                }
+                if (!pass)
+                {
+                    failures++;
+                }
+                Info(string.Format(C, "structure {0} {1} | {2} {3} id {4} | {5}: {6:0.#} m out, in {7} | wave {8:0.#} kPa, limit {9:0.#} kPa, health {10:0.#} | expected {11} | got {12}, burn {13:R}, brute {14:R} | the pass: {15} | rock: {16}",
+                    p.Case, pass ? "PASS" : "FAIL", p.Prefab, p.Tag, p.Id, p.Case, p.Distance, zone, peak, p.LimitKPa, p.Health, expected,
+                    gone ? "gone" : broken ? "broken" : "standing", gotBurn, gotBrute,
+                    entry == null ? "nothing" : string.Format(C, "{0}{1}{2}{3}", entry.Value.Zone, entry.Value.Destroyed ? ", destroy" : "", entry.Value.Breaks ? ", break" : entry.Value.Creaks ? ", creak" : "",
+                        entry.Value.Burn > 0.0 ? ", burn " + entry.Value.Burn.ToString("0.###", C) : ""),
+                    fell == null ? "none" : fell.ToString()));
+            }
+
+            // The rocks: the rule's for the places the pass found, all in the falling rocks, all come down, at most the cap.
+            int[] rule = zones.Rocks(report.SpotMetres.ToArray(), reach, report.Seed, report.RockCap);
+            bool allIn = report.Rocks.All(r => zones.ZoneAt(r.Distance, reach) == CometZone.Debris);
+            bool asRule = rule.Length == report.Rocks.Count;
+            for (int i = 0; i < rule.Length && asRule; i++)
+            {
+                asRule = Math.Abs(report.SpotMetres[rule[i]] - report.Rocks[i].Distance) < 1e-6;
+            }
+            bool capped = report.Rocks.Count <= report.RockCap && report.RockCap == RockCap;
+            bool landed = report.RocksLanded == report.Rocks.Count;
+            int innerFrames = _placed.Count(p => p.Tag == "falling rocks, inner edge");
+            bool onInner = _case != "C" || (report.Rocks.Count == RockCap && report.Rocks.All(r => _placed.Any(p => p.Id == r.Structure && p.Tag == "falling rocks, inner edge")));
+            bool rocksPass = allIn && asRule && capped && landed && onInner;
+            Info(string.Format(C, "rocks {0} {1} | {2} rocks of a cap of {3} on {4} places the pass found in the falling rocks ({5:0.#} to {6:0.#} m) | the rule gives {7} for those places and the event's seed | {8} came down | {9}",
+                _case, rocksPass ? "PASS" : "FAIL", report.Rocks.Count, report.RockCap, report.SpotMetres.Count, reach.Inner, reach.Debris, rule.Length, report.RocksLanded,
+                string.Join(", ", report.Rocks.Select(r => string.Format(C, "{0} at {1:0.#} m after {2:0.#} s, {3}", r.Structure, r.Distance, r.Seconds, r)))
+                + (_case == "C" ? string.Format(C, " | the {0} frames at the inner edge take the cap, nearest first: {1}", innerFrames, onInner) : "")));
+            bool onePass = report.Structures == _worldStructures && report.Milliseconds >= 0.0 && report.Host;
+            Info(string.Format(C, "pass {0} {1} | event {2} | one pass over {3} structures (the world held {4} before the impact) and {5} players in {6:0.###} ms | {7} | burn {8:0.###} | destroyed {9}, burned {10}, broken {11}",
+                _case, onePass ? "PASS" : "FAIL", report.Sequence, report.Structures, _worldStructures, report.People, report.Milliseconds, reach, report.Burn, report.Destroyed, report.Burned, report.Broken));
+            if (failures > 0 || !rocksPass || !onePass)
+            {
+                Fail(string.Format(C, "case {0}: {1} structures did not end as the table says, the rocks {2}, the pass {3}", _case, failures, rocksPass ? "held" : "did not hold", onePass ? "held" : "did not hold"));
+                return false;
+            }
+            return true;
+        }
+
+        private void PrintStates(string when)
+        {
+            foreach (Placed p in _all)
+            {
+                Info(State(p.Id) + " | " + p.Case + " " + p.Prefab + " " + p.Tag + " | " + when);
+            }
+        }
+
+        private static string State(long id)
+        {
+            Structure s = Referencable.Find<Structure>(id);
+            bool gone = s == null || s.IsBeingDestroyed;
+            return string.Format(C, "state | {0} | {1} | burn {2} | brute {3}", id, gone ? "gone" : s.IsBroken ? "broken" : "standing",
+                gone || s.DamageState == null ? "-" : s.DamageState.Burn.ToString("R", C), gone || s.DamageState == null ? "-" : s.DamageState.Brute.ToString("R", C));
+        }
+
+        // ---- the comet brought down by rocket ---------------------------------------------------------------
+
+        private void SetUpRocket()
+        {
+            SpaceMap map = SpaceMap.Current;
+            if (map?.EntryNode == null || !CometMap.SaveInstalled || !CometSkyBodies.Installed || !CometAim.ReadoutsInstalled || !CometLand.Installed)
+            {
+                Fail("no space map, or a comet part is not installed");
+                return;
+            }
+            SpaceMapNode site = Discover(map);
+            if (site == null)
+            {
+                return;
+            }
+            double route = RouteDeltaV(site);
+            double premix = CelestialRules.PremixKgPerMole(Mole.MolarMass(Chemistry.GasType.Methane), Mole.MolarMass(Chemistry.GasType.Oxygen));
+            int index = CometMap.Sites().IndexOf(site) + 1;
+            HashSet<int> before = new HashSet<int>(CometMap.Views().Select(v => v.Id));
+            string[] args = { "comet", "make", index.ToString(C), RocketMoles, "Water" };
+            _command(args.Concat(new[] { "engines=8", "fuel=0" }).ToArray());
+            CometView probe = CometMap.Views().FirstOrDefault(v => !before.Contains(v.Id));
+            if (probe.Id == 0)
+            {
+                Fail("the mod's make verb made no comet");
+                return;
+            }
+            before.Add(probe.Id);
+            double fuel = 1.02 * CelestialRules.Shipped.FuelNeeded(probe.CometKg, 8, route, premix) + 500.0;
+            _command(args.Concat(new[] { "engines=8", "fuel=" + fuel.ToString("R", C) }).ToArray());
+            _cometId = CometMap.Views().Select(v => v.Id).FirstOrDefault(i => !before.Contains(i));
+            if (_cometId == 0)
+            {
+                Fail("the mod's make verb made no comet with fuel");
+                return;
+            }
+            _command(new[] { "comet", "send", _cometId.ToString(C) });
+            Spawn("StructureLaunchMount", new Vector3(300f, 300f, -400f));
+            EngineFuselage mount = Spawn("StructureEngineMountTypeA1", new Vector3(100f, 400f, 100f)) as EngineFuselage;
+            RocketNetwork network = mount?.RocketNetwork;
+            _rocket = network?.Rocket;
+            _bay = Spawn("StructureRocketLargePayloadBay", new Vector3(124f, 400f, 100f)) as RocketPayloadBay;
+            if (_rocket == null || _bay == null)
+            {
+                Fail("the rocket or its bay did not spawn");
+                return;
+            }
+            _bay.RocketData = new RocketData(network, _bay.ThingTransformPosition - mount.ThingTransformPosition);
+            network.AdoptFromLoad(_bay);
+            network.RefreshRocket();
+            _rocket.SetCurrentNode(map.EntryNode);
+            _rocket.RocketState = RocketState.InSpace;
+            Info(string.Format(C, "rocket set up | comet {0} of {1} mol of water from {2} ({3:R} delta-v), {4:R} kg | rocket {5} bay {6} at {7}",
+                _cometId, RocketMoles, site.DisplayName, route, probe.CometKg, _rocket.ReferenceId, _bay.ReferenceId, _rocket.CurrentNode?.DisplayName));
+            Next(Stage.RocketFlying);
+        }
+
+        private void WaitParked()
+        {
+            if (!CometMap.Views().Any(v => v.Id == _cometId && v.State == MapCometState.Arrived) || CometSkyBodies.For(_cometId) == null)
+            {
+                Overdue("the comet parking at Entry and going into the sky");
+                return;
+            }
+            Next(Stage.RocketAim);
+        }
+
+        private void AimUntracked()
+        {
+            if (CometLand.Busy())
+            {
+                Overdue("the console comet's show ending");
+                return;
+            }
+            CometAim.Aim? found = CometAim.ForBay(_bay.ReferenceId);
+            _bay.SetLogicValue(LogicType.PositionX, double.NaN);
+            _bay.SetLogicValue(LogicType.PositionZ, double.NaN);
+            if (found == null || found.Value.CometId != _cometId)
+            {
+                Overdue("the bay aiming comet " + _cometId);
+                return;
+            }
+            Next(Stage.RocketOrder);
+        }
+
+        private void Order()
+        {
+            CometAim.Aim? found = CometAim.ForBay(_bay.ReferenceId);
+            if (found == null || found.Value.CometId != _cometId || found.Value.Tracked)
+            {
+                Overdue("the bay aiming untracked");
+                return;
+            }
+            _rocket.RocketMode = CometModes.Deorbit;
+            _case = "R";
+            Next(Stage.RocketFired);
+        }
+
+        private void BuildForRocket()
+        {
+            LandingView l = CometLand.Falling().FirstOrDefault(x => x.CometId == _cometId);
+            if (l.CometId != _cometId || !CometZoneReport.Current(out _sequence, out _impact, out _impactClock, out _moles))
+            {
+                Overdue("comet " + _cometId + "'s burn and its event");
+                return;
+            }
+            Vector3 fromPad = new Vector3((float)(l.ImpactX - l.PadX), 0f, (float)(l.ImpactZ - l.PadZ));
+            Vector3 dir = fromPad.sqrMagnitude > 100f ? fromPad.normalized : Vector3.right;
+            Info(string.Format(C, "rocket | comet {0} untracked, event {1} | {2:R} mol | lands at ({3:R}, {4:R}, {5:R}) at clock {6:R}, {7:0.0} s from now | sky point ({8:R}, {9:R}), pad ({10:R}, {11:R})",
+                _cometId, _sequence, _moles, _impact.x, _impact.y, _impact.z, _impactClock, _impactClock - Clock, l.SkyX, l.SkyZ, l.PadX, l.PadZ));
+            if (Math.Abs(_impact.x - l.ImpactX) > 1e-3 || Math.Abs(_impact.z - l.ImpactZ) > 1e-3 || Math.Abs(_moles - l.ShowMoles) > 1e-6 * Math.Max(1.0, l.ShowMoles))
+            {
+                Fail("the impact event is not the fall's");
+                return;
+            }
+            if (!Build(_impact, _moles, dir))
+            {
+                return;
+            }
+            Next(Stage.RocketImpact);
+        }
+
+        private SpaceMapNode Discover(SpaceMap map)
+        {
+            foreach (SpaceMapNode parent in map.Nodes.Where(n => n?.DiscoverData != null && n.DiscoverData.SiteGenerations.Count > 0).OrderBy(n => RouteDeltaV(n)).ToList())
+            {
+                for (int tries = 0; tries < 6; tries++)
+                {
+                    HashSet<SpaceMapNode> before = new HashSet<SpaceMapNode>(CometMap.Sites());
+                    parent.DiscoverPoints = parent.DiscoverData.Difficulty;
+                    SpaceMapNode made = CometMap.Sites().FirstOrDefault(s => !before.Contains(s));
+                    if (made == null)
+                    {
+                        break;
+                    }
+                    if (made.Deposit != null && made.Deposit.TotalOreAtLocation > 0)
+                    {
+                        return made;
+                    }
+                }
+            }
+            Fail("discovery made no site on the map");
+            return null;
+        }
+
+        private static double RouteDeltaV(SpaceMapNode node)
+        {
+            if (node == SpaceMap.Current.EntryNode || !SpaceMapPathFinder.GetPath(node, SpaceMap.Current.EntryNode, out List<Assets.Scripts.Serialization.NodeTransit> path) || path == null)
+            {
+                return 0.0;
+            }
+            return path.Sum(t => (double)t.GetDistance());
+        }
+
+        // ---- phase load -------------------------------------------------------------------------------
+
+        private void StepLoad()
+        {
+            if (GameManager.GameTickCount < 5)
+            {
+                return;
+            }
+            string ids = Environment.GetEnvironmentVariable("TR_LIVECHECK_COMETZONES_IDS") ?? "";
+            foreach (string one in ids.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                long id = long.Parse(one, NumberStyles.Integer, C);
+                Info(State(id) + " | after the load");
+            }
+            Info("done");
+            _stage = Stage.Done;
+        }
+    }
+}

@@ -14,16 +14,30 @@ namespace TerraformingReloaded
     {
         public const string PluginGuid = "xceled.stationeers.terraformingreloaded";
         public const string PluginName = "Terraforming Reloaded";
-        public const string PluginVersion = "0.13.2";
+        public const string PluginVersion = "0.22.5";
 
         /// <summary>The game build the patches were last checked against. Advisory only.</summary>
         private const string TestedGameVersion = "0.2.6428.27798";
+
+        /// <summary>The AppDomain slot holding the path of the copy of the mod that started first in this game.</summary>
+        private const string LoadedSlot = "xceled.stationeers.terraformingreloaded.loaded";
 
         private void Awake()
         {
             Log.InfoSink = Logger.LogInfo;
             Log.WarnSink = Logger.LogWarning;
             Log.ErrorSink = Logger.LogError;
+
+            // Two copies in one game (a Workshop subscription beside a local copy, both enabled) are two assemblies,
+            // each with statics of its own; the second would find the tank's call sites already rewritten by the
+            // first and report a failed conversion. The process-wide slot says which copy started first.
+            string here = typeof(Plugin).Assembly.Location;
+            if (AppDomain.CurrentDomain.GetData(LoadedSlot) is string first && first != here)
+            {
+                Logger.LogError($"Terraforming Reloaded is loaded twice ({first} and {here}); only the first is active. Keep one copy: disable or remove the other.");
+                return;
+            }
+            AppDomain.CurrentDomain.SetData(LoadedSlot, here);
 
             BindConfig();
 
@@ -79,6 +93,25 @@ namespace TerraformingReloaded
             catch (Exception e)
             {
                 Logger.LogWarning("Multiplayer sync is off: this StationeersLaunchPad has no mod networking. Single player and hosting are unaffected; clients will not see the changed planet. " + e.Message);
+            }
+
+            string comets = Comets.CometRules.Verdict ?? Comets.CometGround.Verdict;
+            if (comets == null)
+            {
+                Logger.LogInfo("Comet rules checked: the safe distance, the wave, the push, the sound, the sky, the show drawn from its yield, the zones near the impact, whose view a console comet is aimed from, the ground under an impact and its drop on curved worlds.");
+            }
+            else
+            {
+                Logger.LogWarning("Comets are off: their rules did not pass their own check (" + comets + ").");
+            }
+            string celestial = Comets.CelestialRules.Verdict;
+            if (celestial == null)
+            {
+                Logger.LogInfo("Celestial terraforming rules checked: flight by the rocket rule, a comet's place along its route over time, the size multiplier against the planet's size, what Cut makes, the sky rule and its reach, the orbit, the impact zones, the losses, and the defaults' derivations.");
+            }
+            else
+            {
+                Logger.LogWarning("Celestial terraforming rules did not pass their own check (" + celestial + ").");
             }
 
             try
@@ -250,6 +283,12 @@ namespace TerraformingReloaded
             Bind("Storms", "MildAtmosphereStopsSolarStorms", Settings.MildAtmosphereStopsSolarStorms,
                 "Air shields radiation, so a mild world stops solar storms as well. Off by default: on the Moon they give four times normal solar power.",
                 v => Settings.MildAtmosphereStopsSolarStorms = v, null, "Mild air stops solar storms too", 58, world: true);
+            Bind("Storms", "StormFloorKelvin", Settings.StormFloorKelvin,
+                "Coldest a storm may take the planet, in kelvin. 0 means no floor. While a storm runs, its cold never takes the planet below this; a planet already colder without the storm stays where it is. Only the storm's own effect is limited. A world saved without this setting has no floor until you set one for that world.",
+                v => Settings.StormFloorKelvin = v, Bounds(Limits.StormFloorKelvin), "Storm floor (K)", 59, "%.2f", world: true);
+            Bind("Storms", "StormCeilingKelvin", Settings.StormCeilingKelvin,
+                "Hottest a storm may take the planet, in kelvin. 0 means no ceiling. While a storm runs, its heat never takes the planet above this; a planet already hotter without the storm stays where it is. Only the storm's own effect is limited. A world saved without this setting has no ceiling until you set one for that world.",
+                v => Settings.StormCeilingKelvin = v, Bounds(Limits.StormCeilingKelvin), "Storm ceiling (K)", 60, "%.2f", world: true);
 
             // Trace gases. Their own section: they decide how outdoor air near a base draws from the
             // planet, which is neither climate nor storms.
@@ -284,6 +323,20 @@ namespace TerraformingReloaded
             Bind("Trace gases", "PlanetKeepsTraceGas", Settings.PlanetKeepsTraceGas,
                 "Off by default. The game deletes any gas an outdoor cell holds less than 0.00001 mol of, so a gas the planet's air holds so little of that one outdoor cell's draw of it falls under that is drawn and deleted every tick by every outdoor cell beside open ground, until it is gone. On, the planet keeps such a gas instead of handing it out: nothing is deleted, and none of it reaches the outdoor air. A world saved without this setting takes the config's.",
                 v => Settings.PlanetKeepsTraceGas = v, null, "The planet keeps gas too thin for outdoor air", 63, world: true);
+
+            // Celestial terraforming. The switch for comets, then one entry for every tuning number of
+            // comets made and brought down by rocket, each declared once with its default and range
+            // (Comets.CelestialSettings).
+            Bind(Comets.CelestialSettings.Section, "CometsEnabled", Settings.CometsEnabled,
+                "EXPERIMENTAL, off by default. Enable at your own risk. Comets: cut from ice and mineral sites on the space map by rocket, flown to the planet's orbit, seen in the sky and brought down where you aim them, bringing gas or blasting air away, with an impact that can wreck a base, yours included. Also the console comet and the comet debug commands. Turned off in a world that has comets, they stay as they are, stopped where they were, and carry on when it is turned on again. In multiplayer the host's world setting applies to everyone. A world saved without this setting takes the config's.",
+                v => Settings.CometsEnabled = v, null, "Comets (experimental)", Comets.CelestialSettings.FirstOrder - 1, world: true);
+            foreach (Comets.CelestialSetting setting in Comets.CelestialSettings.All)
+            {
+                Comets.CelestialSetting one = setting;
+                Bind(Comets.CelestialSettings.Section, one.Key, one.Default, one.Description,
+                    v => Settings.Celestial = Settings.Celestial.With(one, v),
+                    Bounds(one.Range), one.Label, Comets.CelestialSettings.FirstOrder + one.Index, one.Format, world: true);
+            }
 
             Bind("Multiplayer", "SyncIntervalSeconds", Settings.SyncIntervalSeconds,
                 "How often the host sends the planet state to clients.",

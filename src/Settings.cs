@@ -69,6 +69,12 @@ namespace TerraformingReloaded
         /// <summary>Air shields radiation, so a mild world stops solar storms as well.</summary>
         public static bool MildAtmosphereStopsSolarStorms = false;
 
+        /// <summary>Coldest a running weather event may take the planet, in kelvin. 0 means no floor.</summary>
+        public static double StormFloorKelvin = 0.0;
+
+        /// <summary>Hottest a running weather event may take the planet, in kelvin. 0 means no ceiling.</summary>
+        public static double StormCeilingKelvin = 0.0;
+
         /// <summary>
         /// Experimental, off by default: trace gases gather where they are consumed.
         /// </summary>
@@ -120,6 +126,20 @@ namespace TerraformingReloaded
 
         /// <summary>Write the terraform status to the log this often. 0 is off.</summary>
         public static double StatusLogSeconds = 0.0;
+
+        /// <summary>
+        /// The Celestial terraforming section: every tuning number of comets made and brought down by
+        /// rocket, one whole set (docs/COMET-ROCKETS.md). Each one's key, default and range are declared
+        /// once, in <see cref="Comets.CelestialSettings"/>.
+        /// </summary>
+        public static Comets.CelestialTuning Celestial = Comets.CelestialTuning.Defaults;
+
+        /// <summary>
+        /// Experimental, off by default: comets made and brought down by rocket, the console comet and
+        /// every debug verb for them (docs/COMET-ROCKETS.md). Off, comets already in a world are kept as
+        /// they are and come back when it is turned on.
+        /// </summary>
+        public static bool CometsEnabled = false;
     }
 
     /// <summary>
@@ -196,6 +216,12 @@ namespace TerraformingReloaded
         public static readonly Range MildAtmosphereMinPressureKpa = new Range(0.0, 10000.0);
         public static readonly Range MildAtmosphereMaxPressureKpa = new Range(0.0, 10000.0);
         public static readonly Range MildAtmosphereMaxToxinsKpa = new Range(0.0, 1000.0);
+
+        /// <summary>In the config 0 means no floor. In a file use <see cref="Range.AboveMin"/>.</summary>
+        public static readonly Range StormFloorKelvin = new Range(0.0, 5000.0);
+
+        /// <summary>In the config 0 means no ceiling. In a file use <see cref="Range.AboveMin"/>.</summary>
+        public static readonly Range StormCeilingKelvin = new Range(0.0, 5000.0);
 
         public static readonly Range TraceGasGathering = new Range(1.0, 2000.0);
         public static readonly Range TraceGasLine = new Range(0.0, 0.01);
@@ -357,6 +383,19 @@ namespace TerraformingReloaded
         public static double MildAtmosphereMaxToxinsKpa = 1.0;
         public static bool MildAtmosphereStopsSolarStorms = false;
 
+        private static volatile Patching.StormBounds _stormBounds = Patching.StormBounds.Off;
+
+        /// <summary>
+        /// The floor and ceiling on what a running weather event does to the planet temperature.
+        /// One reference, so the temperature formula on a worker thread reads both bounds of one
+        /// setting. Never null: assigning null is no bounds.
+        /// </summary>
+        public static Patching.StormBounds StormBounds
+        {
+            get => _stormBounds;
+            set => _stormBounds = value ?? Patching.StormBounds.Off;
+        }
+
         public static bool TraceGasGatheringEnabled = false;
         public static double TraceGasGathering = 200.0;
         public static double TraceGasLine = 1e-3;
@@ -366,6 +405,21 @@ namespace TerraformingReloaded
         public static bool PlanetAirBurns = false;
         public static bool PlanetHoldsBackWhileIgnitable = false;
         public static bool PlanetKeepsTraceGas = false;
+
+        /// <summary>Whether comets are on for the world being played; on a client, the host's once its planet has arrived.</summary>
+        public static volatile bool CometsEnabled = false;
+
+        private static volatile Comets.CelestialTuning _celestial = Comets.CelestialTuning.Defaults;
+
+        /// <summary>
+        /// The Celestial terraforming values in force, one whole set, so code on any thread reads one
+        /// consistent set. Never null: assigning null is the defaults.
+        /// </summary>
+        public static Comets.CelestialTuning Celestial
+        {
+            get => _celestial;
+            set => _celestial = value ?? Comets.CelestialTuning.Defaults;
+        }
     }
 
     /// <summary>

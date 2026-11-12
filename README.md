@@ -12,12 +12,6 @@ mod switches it on and fixes what goes wrong when it runs for real.
 Inspired by [Elmotrix's Terraforming Mod](https://github.com/Elmotrix/TerraformingMod), which did
 this by hand before the game had a model of its own. This is a new mod, not a port of that code.
 
-> **Release candidate.** Gas conservation, save and load, the reset to stock and the temperature model
-> are all checked against the running game by automated runs, on Mars, Venus, Vulcan, Europa, the Moon
-> and Mimas. [VERIFICATION.md](docs/VERIFICATION.md) lists what each run covers and what it measured.
-> That is testing, not play. Back up your save before its first session, and please open an issue with
-> your `Player.log` if something reads wrong.
-
 ## Install
 
 1. Install [StationeersLaunchPad](https://github.com/StationeersLaunchPad/StationeersLaunchPad).
@@ -56,11 +50,20 @@ the planet section of the save; the game reads that section with or without the 
   Neither happens on a world you have not changed. Solar storms are not stopped by taking the air
   away, because air was never what caused them. `terraform` says which of the two is holding storms
   back, and which point in the world's year it judged that at, because a world can be calm in one
-  season and stormy in another.
+  season and stormy in another. A world can also be given a storm floor and ceiling (off unless you
+  set them): a storm then never takes the planet colder than the floor or hotter than the ceiling,
+  so a cold snap cannot freeze the air out of the sky. Only the storm's own effect is limited; a
+  planet already colder than the floor without the storm stays as cold as it is.
 - **Seas.** Enough liquid on the planet (rain that stays liquid) and the game raises a sea 2 to 10 m
   deep, and everything outdoors below it counts as under water. The amount of liquid that takes
   is fixed by the game and does not shrink with planet size.
 - **Heat.** Heat your base sheds outdoors warms the planet slightly and fades over time.
+- **Comets: an experimental option, off unless you turn it on.** It is off in every world until you
+  run `terraform set CometsEnabled true` in that world (or turn it on in the config for new worlds), at
+  your own risk: a comet brought down badly can wreck a base, yours included. Switched on, rockets can
+  cut comets from ice and mineral sites on the space map, fly them to the planet's orbit and bring them
+  down where you aim, adding gas to the air or blasting air away. Switched off again, a world's comets
+  stay as they are and carry on when it is turned back on.
 - **Small spills can gather at your base: an experimental option, off unless you turn it on.** It is
   off in every world until you run `terraform set TraceGasGatheringEnabled on` in that world (or turn
   it on in the config for new worlds). Switched on, a gas the planet's air holds only a trace of is
@@ -264,8 +267,8 @@ lives in the host's game, and the mod sends it to every player's game every few 
   `terraform` shows the planet the host sent.
 - **A joining player gets the host's planet as they join**, before their first look outside, and it is
   refreshed every few seconds after that. Their sky follows it, and their outdoor temperature is worked
-  out with the host's greenhouse strength, air density strength and airless reflectivity, so it reads
-  the same as the host's.
+  out with the host's greenhouse strength, air density strength, airless reflectivity and storm
+  floor and ceiling, so it reads the same as the host's.
 - **A host without the mod** turns away a player who has it, unless both games also run another mod
   that syncs through StationeersLaunchPad. Then the game runs as shipped, and the player with the mod
   sees exactly that.
@@ -308,6 +311,8 @@ The few worth knowing before you start:
 - **`RocketsBurnCompletely`** (the `Rockets` section) is on by default. Rocket engines burn all of the
   propellant that runs out first instead of 96 % of it. Read the landing note under What to expect
   before turning it off on a world you have flown rockets in.
+- **`CometsEnabled`** (the `Celestial terraforming` section) is experimental and off by default; enable it at
+  your own risk. The rest of that section tunes comets.
 - **The `Trace gases` section** is experimental and off by default. It switches trace gas gathering on
   and decides how many times faster the air beside your base draws a gas the planet holds only a trace
   of, and how little counts as a trace. **`PlanetKeepsTraceGas`**, off by default, keeps in the planet
@@ -320,6 +325,13 @@ The few worth knowing before you start:
   the pressure it must stay between, and the most toxic gas allowed. The mild rule is judged at the
   point in the orbit the world is at, so a world near the edge of those bounds is calm in a good
   season and stormy in a bad one. Solar storms follow the opposite rule and have their own setting.
+- **`StormFloorKelvin`** and **`StormCeilingKelvin`** (the `Storms` section) are off by default (0).
+  Set, a running storm never takes the planet below the floor or above the ceiling, and everything
+  that follows the temperature (freezing, melting, the outdoor air) follows the limited one. Only
+  the storm's own effect is limited: a planet already past a bound without the storm is left where it
+  is. A world made before this version has neither, whatever the config says; `terraform set
+  StormFloorKelvin <K>` sets one for the world you are playing, and takes effect on a storm already
+  running.
 
 ## If a game update breaks it
 

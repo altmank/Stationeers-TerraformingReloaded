@@ -85,13 +85,20 @@ namespace TerraformingReloaded.Patching
                     AirlessAlbedo = 0.3,
                     DynamicSky = false,
                     WeatherOnWeatherlessWorlds = null,
+                    StormFloorKelvin = 228.15,
+                    StormCeilingKelvin = null,
                     SpaceDeletesGas = true,
                     GasLostToSpaceMoles = 1234.5,
                     RocketsBurnCompletely = false,
                     PlanetAirBurns = false,
                     PlanetHoldsBackWhileIgnitable = true,
                     PlanetKeepsTraceGas = false,
+                    CometsEnabled = true,
                     PlanetFireHeatJoules = -2.5e11,
+                    Celestial = new System.Collections.Generic.List<CelestialEntry>
+                    {
+                        new CelestialEntry { Key = "GasArrivingShare", Value = 0.25.ToString("R", CultureInfo.InvariantCulture) },
+                    },
                 };
                 string xml = Sidecar.ToXml(written);
                 if (!xml.Contains("xsi:nil=\"true\""))
@@ -131,6 +138,10 @@ namespace TerraformingReloaded.Patching
                 {
                     return "a recorded off, or a switch that is not set, did not survive the round trip";
                 }
+                if (read.StormFloorKelvin != 228.15 || read.StormCeilingKelvin.HasValue)
+                {
+                    return "a storm floor, or a storm ceiling that is not set, did not survive the round trip";
+                }
                 if (read.SpaceDeletesGas != true || read.GasLostToSpaceMoles != 1234.5)
                 {
                     return "whether gas released in space is deleted, or the total lost, did not survive the round trip";
@@ -147,6 +158,15 @@ namespace TerraformingReloaded.Patching
                 {
                     return "a world's armed hold-back or trace hold did not survive the round trip";
                 }
+                if (read.CometsEnabled != true)
+                {
+                    return "a world that turned comets on did not stay on across the round trip";
+                }
+                if (read.Celestial == null || read.Celestial.Count != 1 || read.Celestial[0].Key != "GasArrivingShare"
+                    || read.Celestial[0].Value != 0.25.ToString("R", CultureInfo.InvariantCulture))
+                {
+                    return "a Celestial terraforming setting did not survive the round trip";
+                }
 
                 SidecarFile partial = Sidecar.FromXml(OneElement);
                 if (partial == null || partial.MaxExternalOffsetKelvin != 7.0)
@@ -157,11 +177,13 @@ namespace TerraformingReloaded.Patching
                     || partial.GhgResponseScale.HasValue || partial.DensityResponseScale.HasValue
                     || partial.AirlessAlbedo.HasValue || partial.DynamicSky.HasValue
                     || partial.StormsStopWhenStripped.HasValue || partial.MildAtmosphereColdestKelvin.HasValue
+                    || partial.StormFloorKelvin.HasValue || partial.StormCeilingKelvin.HasValue
                     || partial.TraceGasGatheringEnabled.HasValue || partial.TraceGasGathering.HasValue || partial.TraceGasLine.HasValue
                     || partial.SpaceDeletesGas.HasValue || partial.GasLostToSpaceMoles.HasValue
                     || partial.RocketsBurnCompletely.HasValue
                     || partial.PlanetAirBurns.HasValue || partial.PlanetFireHeatJoules.HasValue
-                    || partial.PlanetHoldsBackWhileIgnitable.HasValue || partial.PlanetKeepsTraceGas.HasValue)
+                    || partial.PlanetHoldsBackWhileIgnitable.HasValue || partial.PlanetKeepsTraceGas.HasValue || partial.CometsEnabled.HasValue
+                    || (partial.Celestial != null && partial.Celestial.Count != 0))
                 {
                     return "a file holding one setting invented values for the rest";
                 }

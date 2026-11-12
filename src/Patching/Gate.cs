@@ -132,6 +132,14 @@ namespace TerraformingReloaded.Patching
         /// </summary>
         public static bool SkyEnabled() => Effective.DynamicSky && (NetworkManager.IsClient ? _hostPlanet && WorldRunning() : Enabled());
 
+        /// <summary>
+        /// Comets (docs/COMET-ROCKETS.md): this world's switch, and the mod live. Every comet feature asks
+        /// this, on the main thread and in the rocket's own steps, so it stays field reads. A client asks
+        /// its host's switch, which arrives with the host's planet; until then, and for good when the host
+        /// does not run the mod, comets are off there.
+        /// </summary>
+        public static bool CometsEnabled() => Effective.CometsEnabled && (NetworkManager.IsClient ? _hostPlanet && WorldRunning() : Enabled());
+
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
         {
             return Rewrite(instructions, original, EnabledMethod);

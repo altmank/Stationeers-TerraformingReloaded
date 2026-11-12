@@ -397,6 +397,42 @@ namespace TerraformingReloaded.Patching
                 harmony.Patch(update, transpiler: Body(typeof(Gate), nameof(Gate.SkyTranspiler)));
             });
 
+            // The darker sky after a comet. Its own postfixes, not part of the dynamic sky above, so it
+            // works whether or not the sky follows the air; refused unless the two methods that rebuild
+            // the sky and the sun every frame, and every value they scale, are still there.
+            Extra(report, "comet sky", () => CometSky.Apply(harmony));
+
+            // Comets on the space map (docs/COMET-ROCKETS.md, stage 3). Saved inside the .save, an entry of
+            // their own written after the terrain and read back once the map's sites are rebuilt; without
+            // this part no comet is made, since one that could not be saved would vanish at the next load.
+            Extra(report, "comet map save", () => Comets.CometMapPatches.ApplySave(harmony));
+            // Their icons on the rocket map screen, made from the game's rocket icon.
+            Extra(report, "comet map icon", () => Comets.CometMapIcons.Apply(harmony));
+            // A site a comet holds stays on the map: the host's two ways of removing one skip it.
+            Extra(report, "comet site guard", () => Comets.CometMapPatches.ApplyGuard(harmony));
+            // The rocket actions that make and send a comet (stage 4): Cut, Rig, Fuel, Burn and Launch, the
+            // save kept from ever holding a mode the game does not define. Offered only with the save above.
+            Extra(report, "comet rocket actions", () => Comets.CometActionPatches.Apply(harmony));
+            // Their buttons on the rocket map screen, copied from the game's Mine button.
+            Extra(report, "comet action buttons", () => Comets.CometActionPatches.ApplyButtons(harmony));
+            // A comet parked at Entry as a body in the game's own sky (stage 5). Nothing is patched: refused
+            // unless the sky still keeps its bodies in the lists the comet joins and the sky rules pass their
+            // own check.
+            Extra(report, "comet sky body", () => Comets.CometSkyBodies.Apply());
+            // A comet leaving the sky makes the game's list of bodies shorter, which only the game tick's own
+            // main-thread moment may do: the logic tick, off that thread, counts the list and then indexes it.
+            Extra(report, "comet sky safe point", () => Comets.CometSkyBodies.ApplySafePoint(harmony));
+            // Where a rocket at Entry would bring it down, read out through its payload bay.
+            Extra(report, "comet aim readouts", () => Comets.CometAim.ApplyReadouts(harmony));
+            // Its target and its landing as two icons on the Map motherboard.
+            Extra(report, "comet map motherboard icons", () => Comets.CometSkyIcons.Apply(harmony));
+            // Deorbit (stage 6): a rocket at Entry brings the comet its bay aims down. Nothing of its own is
+            // patched; refused unless the rocket actions, the comets' save, the sky body and its safe point are in.
+            Extra(report, "comet deorbit", () => Comets.CometLand.Apply());
+            // A console comet called by a joined player through the game's serverrun is aimed from that player;
+            // without this part a dedicated server aims it from the first player online.
+            Extra(report, "comet invoking player", () => Comets.CometInvoker.Apply(harmony));
+
             return report;
         }
 
@@ -435,6 +471,7 @@ namespace TerraformingReloaded.Patching
                 Storms.Invalidate();
                 TraceGases.Reset();
                 PlanetCombustion.WorldStart();
+                Comets.CometMap.WorldStart();
                 SelfTest.Arm();
                 Planet.NoteShippedReservoirs();
             }

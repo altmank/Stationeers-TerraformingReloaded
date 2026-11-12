@@ -118,6 +118,88 @@
                -BurnCase every case runs, with controls for 1, 2, 4 and 5. -BurnTicks caps a run
                (default 4,800 after the release); a run ends early once the fire has been out for
                240 ticks, or after 1,200 ticks with the switch off.
+    -CometFlight  A comet as a map object, flying by the rocket rule (docs/COMET-ROCKETS.md, stage 3).
+               Two instances of one world. The first discovers a real site with the game's own discovery,
+               makes three comets there with terraform comet make, checks that the game's own removal
+               leaves the site a comet holds on the map and removes a site with none, and sends all three
+               to Entry: A, with a quarter more fuel than its route needs, must arrive when the rule says
+               and when a flight stepped as the game steps a rocket says; B, with half of what A needs,
+               must stop at the rule's share of the route and still be there 30 s later. With the third,
+               C, partway, the world is saved. The second instance loads it: A must be parked at Entry
+               with the fuel it had, B stranded where it was, and C must fly on from exactly where it was
+               saved and arrive when the rule says. The mod's own line for each comet at the save and at
+               the load are compared here, field by field.
+    -CometActions  The rocket actions that make and send a comet (docs/COMET-ROCKETS.md, stage 4), run by
+               a real rocket spawned from the game's own prefabs (engine mount, miner with a Basic drill
+               head, Medium gas fuel tank, Large payload bay with a Payload Delivery Container holding two
+               Pumped Gas engine kits). Three instances of one world. The first discovers real sites and
+               runs Cut at an ice site (the comet's moles against the rule from the site's own figures,
+               the site's depletion against the game's own), Rig by Deploy (two kits, two engines), Burn on
+               a comet of methane and oxygen at a second site, Cut at a mineral site, then Fuel, every tick
+               judged against the rule from the tank's own gas, and saves while Fuel runs. The second loads
+               it: the rocket must be back in Fuel where its comet waits, Fuel must go on by the rule, and
+               Launch must send the comet to arrive when the rule says. The mod's own line for each comet at
+               the save and the load are compared here. The third loads the same save with the mod removed:
+               it must load, with the rocket there and idle.
+    -CometSky  The comet parked at Entry in the game's sky (docs/COMET-ROCKETS.md, stage 5). Three
+               instances of one world. The first parks a small comet at Entry from a real site, spawns from
+               the game's prefabs a launch pad, a rocket with a payload bay at Entry aimed by its PositionX
+               and PositionZ, and a Ground Telescope facing north, and judges: the comet in the game's lists
+               of bodies with the rule's orbit and seen where the rule puts it; the rule's frame putting the
+               Sun where the game's sky does; the bay's readouts and the Map motherboard's two icons against
+               the sky rule from the direction the game shows the comet in; the telescope, aimed by its own
+               logic values at the rule's bearing, locked onto the comet within 2 degrees and reading back
+               the rule's orbit; and the comet highest when the bay said it would be. Then it saves and
+               prints the comet's direction at a clock time 30 s later. The second loads it: the comet back
+               in the sky with the same elements, the same direction at the same clock time (compared here),
+               the telescope locked again, and a storm blanking its orbit readings while it keeps the lock.
+               The third loads the same save with the mod removed: it must load, the telescope there and no
+               comet in the sky.
+    -CometLand  Comets brought down from Entry by a rocket's Deorbit (docs/COMET-ROCKETS.md, stage 6), on
+               -CometSky's setup with a Rocket Celestial Tracker on the rocket. Three instances of one world.
+               The first parks five comets from a real site and brings four down, one at a time: A tracked,
+               its target half its reach from the landing the bay reads out, must land within a metre of the
+               target on the rule's fuel, where the bay read out in the frame the burn used, leave the map at
+               once and the sky at the game tick's main-thread moment with the tracker on it set back, and
+               give the planet each gas's arriving moles exactly, stored heat in kelvin unchanged; B, a
+               mineral comet, its target past its reach, must land at its reach along the line on the whole
+               reach's fuel and take the rule's moles in the planet's own proportions; C, untracked, must land
+               at the sky point inside the disc; D is saved 8 s into its fall with E still parked. Every burn
+               must warn with the fall's seconds and where it lands. The second loads it: D must fall on and
+               land at the clock time it was saved to, its event made again, warned again, its gas in once.
+               The third loads the same save with the mod removed: it must load, the rocket there and idle,
+               no comet in the sky.
+    -CometZones  What an impact does near where it lands (docs/COMET-ROCKETS.md, "Near the impact", stage 7).
+               Two instances of one world. The first sets the cap on rocks that hit to 4, sends a console
+               comet of a million moles far from everything and, while it falls, builds real structures from
+               the game's prefabs on a line out from where it lands: a Reinforced Wall, an Airlock and a solar
+               panel in ground zero; a Reinforced Composite Window, a Composite Window, a solar panel and a
+               frame in the fireball, and an Airlock the wave leaves standing there; eight frames at the inner
+               edge of the falling rocks; Composite Walls, an Iron Wall, a Manual Hatch, a Composite Window and
+               a frame where the wave is 400 and 220 kPa; windows where it is 180 and 120 kPa; a solar panel
+               beyond. Each end state is judged against the table: destroyed in ground zero whatever its limit,
+               burned by the stated amount in the fireball, broken or creaking or holding by its own limit, a
+               rock's damage only where a rock came down, the rocks the rule's for the places the pass found and
+               the cap taken by the nearest, and one pass over every structure in the world. Then a comet
+               brought down by rocket, untracked, by stage 6's Deorbit, the same line built out from where its
+               fall lands it and judged the same way, and the world saved. The second loads it: every
+               structure's state must be what it was at the save.
+    -CometDebug  The console verbs for staging a comet situation by hand (docs/COMET-ROCKETS.md, "Staging a
+               situation in a game"), each run through the mod's console command. Two instances of one
+               world. The first runs terraform comet discover for an ice site, a mineral site and either,
+               each one new site of that kind under a charted node; spawns a rocket from the game's prefabs
+               in space at Entry and one on the ground, which terraform comet rocket lists; moves the one in
+               space to the ice site and back to Entry, each time left with every field the game's own
+               arrival sets as the game sets it, and then lets the game itself fly it back to the ice site
+               by its own rocket instantmove, which must leave the same; the rocket on the ground is refused;
+               fill puts the game's refuel figure of 2:1 premix in its tank and a second fill adds nothing;
+               terraform comet arrive parks a comet at Entry with the rule's fuel left and in the sky with
+               the rule's orbit, the same as one that arrives by itself; a comet short of fuel is refused,
+               and stopped with strand where the rule says; the rocket log has one arrival a trip; then the
+               rocket goes to the mineral site and the world is saved. The second loads it: the rocket at
+               the same node, idle, both comets parked with the same fuel and back in the sky, the stranded
+               one at the same share, every comet the mod saved read back the same, and one Cut cycle by the
+               moved rocket at the mineral site, by the rule.
     -MenuPressure  The mix the new-game menu builds to describe a world must be the shipped planet,
                not the resized one it is playing.
     -Schedule  The two storm rules (docs/STORMS.md). Nothing else can reach them: -Storm and -Weather
@@ -157,7 +239,8 @@
 
   Things learned the hard way, all checked here rather than assumed:
     - LaunchPad lists <game>\mods before the game creates that folder, so it must exist first.
-    - With -logFile, plugin output goes to BepInEx\LogOutput.log, not the Unity log.
+    - With -logFile, plugin output goes to BepInEx\LogOutput.log, not the Unity log, and a line
+      written with UnityEngine's Debug.Log only to the Unity log.
     - A headless world pauses itself until a player acts; the driver unpauses it.
     - Launch arguments that change settings are overwritten when the settings file loads.
     - The instance opens a LAN host on port 27016 for as long as it runs.
@@ -196,6 +279,12 @@ param(
     [switch]$Space,
     [switch]$Rockets,
     [switch]$PlanetBurn,
+    [switch]$CometFlight,
+    [switch]$CometActions,
+    [switch]$CometSky,
+    [switch]$CometLand,
+    [switch]$CometZones,
+    [switch]$CometDebug,
     [int]$BurnCase = 0,
     [switch]$BurnOff,
     [int]$BurnTicks = 4800,
@@ -256,7 +345,13 @@ if ($TestServer) {
     if (Get-Process rocketstation_DedicatedServer -ErrorAction SilentlyContinue) { throw 'The test server is already running: one user at a time.' }
     if (Test-Path (Join-Path $TestServerRoot 'test.lock.busy')) { throw 'The test server is marked busy (test.lock.busy).' }
 }
-if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Upgrade, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip, $Space, $Rockets, $PlanetBurn | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Upgrade, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld, -Strip, -Space, -Rockets and -PlanetBurn.' }
+if (@(($Vanilla -and -not ($Observe -or $Model -or $BuildOver -or $Weather)), $SaveLoad, $Sidecar, $Sessions, $RainSave, $Upgrade, $Reset, [bool]$Dump, $WallVent, $MenuPressure, $Rescale, $BuildOver, $Weather, $Schedule, $CustomWorld, $Strip, $Space, $Rockets, $PlanetBurn, $CometFlight, $CometActions, $CometSky, $CometLand, $CometZones, $CometDebug | Where-Object { $_ }).Count -gt 1) { throw 'Pick one of -Vanilla, -SaveLoad, -Sidecar, -Sessions, -RainSave, -Upgrade, -Reset, -Dump, -WallVent, -MenuPressure, -Rescale, -BuildOver, -Weather, -Schedule, -CustomWorld, -Strip, -Space, -Rockets, -PlanetBurn, -CometFlight, -CometActions, -CometSky, -CometLand, -CometZones and -CometDebug.' }
+if ($CometFlight -and $Vanilla) { throw 'Without the mod there are no comets on the space map.' }
+if ($CometActions -and $Vanilla) { throw '-CometActions loads its own save without the mod as its third instance.' }
+if ($CometSky -and $Vanilla) { throw '-CometSky loads its own save without the mod as its third instance.' }
+if ($CometLand -and $Vanilla) { throw '-CometLand loads its own save without the mod as its third instance.' }
+if ($CometZones -and $Vanilla) { throw 'Without the mod an impact does nothing near where it lands.' }
+if ($CometDebug -and $Vanilla) { throw 'Without the mod there are no staging verbs.' }
 if ($PlanetBurn -and $Vanilla) { throw 'Without the mod the planet never burns, which is what -BurnOff checks with the mod loaded.' }
 if (($BurnCase -lt 0) -or ($BurnCase -gt 5)) { throw '-BurnCase is 1 to 5, or 0 for every case.' }
 if (($BurnCase -ne 0 -or $BurnOff) -and -not $PlanetBurn) { throw '-BurnCase and -BurnOff only apply to -PlanetBurn.' }
@@ -280,12 +375,23 @@ if ($CustomWorld -and $Vanilla) { throw 'Without the mod there is nothing to say
 if ($Storm -and $StormTick -le 0) { throw '-Storm needs -StormTick, the tick to force the event on at.' }
 
 # Only what a run creates is removed afterwards.
-$names = 'mods', 'saves', 'scripts', 'thumbnails', 'modconfig.xml', 'modrepos.xml', 'setting.xml'
+$names = 'mods', 'saves', 'scripts', 'thumbnails', 'modconfig.xml', 'modrepos.xml'
+# A settings file already there is the machine's own, and it can point SavePath at the machine's real saves
+# (bt's does) and turn autosave on. So for the run it is moved aside, next to itself, and the game makes its
+# own defaults, which save under the game folder. Afterwards the run's file is removed and the machine's is
+# moved back. An interrupted run leaves the aside file; -Clean moves it back.
+$settingFile = Join-Path $GameDir 'setting.xml'
+$settingAside = Join-Path $GameDir 'setting.xml.tr-aside'
 
 if ($Clean) {
     # A run that is interrupted never reaches its own cleanup, and every run after it then refuses to
     # start. This is that cleanup on its own: the same names, the same folder, nothing else.
     $left = @($names | Where-Object { Test-Path (Join-Path $GameDir $_) })
+    if (Test-Path $settingAside) {
+        if (Test-Path $settingFile) { Remove-Item $settingFile -Force }
+        Move-Item $settingAside $settingFile
+        Write-Host "Moved the machine's own setting.xml back into ${GameDir}."
+    }
     if ($left.Count -eq 0) {
         Write-Host "Nothing from a previous run is left in ${GameDir}."
         return
@@ -303,6 +409,14 @@ if ($LASTEXITCODE -ne 0) { throw 'LiveCheck build failed.' }
 $preexisting = if ($TestServer) { @() } else { @($names | Where-Object { Test-Path (Join-Path $GameDir $_) }) }
 if ($preexisting.Count -gt 0) {
     throw "Already present in the game folder: $($preexisting -join ', '). A headless run would mix with them; move them aside first."
+}
+if (-not $TestServer -and (Test-Path $settingAside)) {
+    throw "A previous run left the machine's setting.xml aside as $settingAside. Run with -Clean to move it back first."
+}
+$settingMoved = $false
+if (-not $TestServer -and (Test-Path $settingFile)) {
+    Move-Item $settingFile $settingAside
+    $settingMoved = $true
 }
 
 $bepLog = Join-Path $runDir 'BepInEx\LogOutput.log'
@@ -328,7 +442,13 @@ $envKeys = @(
     'TR_LIVECHECK_STRIP_TICK', 'TR_LIVECHECK_STRIP_TICKS', 'TR_LIVECHECK_STRIP_CELLS',
     'TR_LIVECHECK_STRIP_PER_CELL', 'TR_LIVECHECK_STRIP_FLOOR', 'TR_LIVECHECK_STRIP_SHARE',
     'TR_LIVECHECK_WALKCOST', 'TR_LIVECHECK_SIDECAR_TICK',
-    'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_SPACE_TICK', 'TR_LIVECHECK_ROCKETS_TICK', 'TR_LIVECHECK_BURN_CASE', 'TR_LIVECHECK_BURN_SWITCH', 'TR_LIVECHECK_BURN_TICK', 'TR_LIVECHECK_BURN_TICKS', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK', 'TR_LIVECHECK_SESSIONS', 'TR_LIVECHECK_RAINSAVE', 'TR_LIVECHECK_UPGRADE')
+    'TR_LIVECHECK_STORMS_TICK', 'TR_LIVECHECK_SPACE_TICK', 'TR_LIVECHECK_ROCKETS_TICK', 'TR_LIVECHECK_BURN_CASE', 'TR_LIVECHECK_BURN_SWITCH', 'TR_LIVECHECK_BURN_TICK', 'TR_LIVECHECK_BURN_TICKS', 'TR_LIVECHECK_ORBIT', 'TR_LIVECHECK_ORBIT_TICK', 'TR_LIVECHECK_SESSIONS', 'TR_LIVECHECK_RAINSAVE', 'TR_LIVECHECK_UPGRADE',
+    'TR_LIVECHECK_COMETFLIGHT', 'TR_LIVECHECK_COMETFLIGHT_MADE', 'TR_LIVECHECK_COMETACTIONS', 'TR_LIVECHECK_COMETACTIONS_ROCKET',
+    'TR_LIVECHECK_COMETSKY', 'TR_LIVECHECK_COMETSKY_COMET', 'TR_LIVECHECK_COMETSKY_AT', 'TR_LIVECHECK_COMETSKY_TARGET', 'TR_LIVECHECK_COMETSKY_TELESCOPE', 'TR_LIVECHECK_COMETSKY_BAY',
+    'TR_LIVECHECK_COMETLAND', 'TR_LIVECHECK_COMETLAND_FALLING', 'TR_LIVECHECK_COMETLAND_PARKED', 'TR_LIVECHECK_COMETLAND_IMPACT', 'TR_LIVECHECK_COMETLAND_TELESCOPE',
+    'TR_LIVECHECK_COMETLAND_BAY', 'TR_LIVECHECK_COMETLAND_ROCKET', 'TR_LIVECHECK_COMETZONES', 'TR_LIVECHECK_COMETZONES_IDS',
+    'TR_LIVECHECK_COMETDEBUG', 'TR_LIVECHECK_COMETDEBUG_ROCKET', 'TR_LIVECHECK_COMETDEBUG_AT', 'TR_LIVECHECK_COMETDEBUG_PARKED',
+    'TR_LIVECHECK_COMETDEBUG_STRANDED', 'TR_LIVECHECK_COMETDEBUG_SHARE', 'TR_LIVECHECK_COMETDEBUG_STOPPED', 'TR_LIVECHECK_COMETDEBUG_FLOWN')
 
 function Stop-Game {
     if ($script:game -and -not $script:game.HasExited) {
@@ -921,6 +1041,529 @@ try {
             throw "LiveCheck FAILED: expected the default, six burns and at least one engine, got $($burns.Count) burns and $($thrust.Count) engines."
         }
         Write-Host 'LiveCheck OK: a new world burns rocket propellant completely, a correctly mixed or fuel-rich premix and hydrazine leave nothing unburnt with the setting on and the shipped 4 % with it off, and the rated thrust at load stays the game''s own.'
+        return
+    }
+
+    if ($CometFlight) {
+        # Two instances of one world: the flights and a save mid-flight, then the load and the rest of the flight.
+        if ($TimeoutSeconds -lt 900) { $TimeoutSeconds = 900 }
+        $station = 'trcometflight'
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETFLIGHT = 'make' } `
+            { param($l) @($l -match 'LiveCheck: comet (phase make done|FAIL)').Count -gt 0 } 'the comets to fly and the world to be saved mid-flight'
+        Assert-ModLive $log
+        # Give the save time to finish writing, as -SaveLoad does.
+        Start-Sleep -Seconds 20
+        $made = @(Get-Content $bepLog)
+        $keptMake = Join-Path $env:TEMP 'tr-livecheck-cometflight-make.log'
+        $made | Set-Content $keptMake
+        Stop-Game
+        $first = @(@($made -match 'LiveCheck: comet ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' })
+        $first | Write-Host
+        Write-Host "  the whole log is in $keptMake"
+        $failed = @($first -match '^comet FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+        $files = @(Get-ChildItem (Join-Path $saveDir $station) -Recurse -File -Filter '*.save' -ErrorAction SilentlyContinue)
+        if ($files.Count -eq 0) { throw "LiveCheck FAILED: no save was written under saves\$station." }
+        # The fuel each comet was made with, A, B and C in that order, for the second instance to judge by.
+        $fuels = @($first | ForEach-Object { if ($_ -match '^comet made \| comet (\d+) \| fuel (\S+) ') { "$($Matches[1]):$($Matches[2])" } })
+        if ($fuels.Count -ne 3) { throw "LiveCheck FAILED: the first instance reported $($fuels.Count) comets made, expected 3." }
+        $ids = @($fuels | ForEach-Object { [int]($_ -split ':')[0] })
+        $saved = @{}
+        foreach ($line in @($made -match '\[TR comet map\] saved comet ')) {
+            $text = $line -replace '.*\[TR comet map\] saved ', ''
+            if ($text -match '^comet (\d+) ') { $saved[[int]$Matches[1]] = $text.Trim() }
+        }
+        if ($saved.Count -ne 3) { throw "LiveCheck FAILED: the mod logged $($saved.Count) comets at the save, expected 3." }
+
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETFLIGHT = 'load'; TR_LIVECHECK_COMETFLIGHT_MADE = ($fuels -join ',') } `
+            { param($l) @($l -match 'LiveCheck: comet (done|FAIL)').Count -gt 0 } 'the save to load and the third comet to arrive'
+        Assert-ModLive $log
+        $keptLoad = Join-Path $env:TEMP 'tr-livecheck-cometflight-load.log'
+        $log | Set-Content $keptLoad
+        Stop-Game
+        $second = @(@($log -match 'LiveCheck: comet ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' })
+        $second | Write-Host
+        Write-Host "  the whole log is in $keptLoad"
+        $failed = @($second -match '^comet FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+
+        # Across the two instances. Each comet's line at the load must be its line at the save, every
+        # number round-trip exact: its state, the seconds it had flown, its hop, its progress through it
+        # and its fuel.
+        $loaded = @{}
+        foreach ($line in @($log -match '\[TR comet map\] loaded comet ')) {
+            $text = $line -replace '.*\[TR comet map\] loaded ', ''
+            if ($text -match '^comet (\d+) ') { $loaded[[int]$Matches[1]] = $text.Trim() }
+        }
+        $judged = @()
+        foreach ($id in $ids) {
+            $same = $saved.ContainsKey($id) -and $loaded.ContainsKey($id) -and $saved[$id] -eq $loaded[$id]
+            $judged += "comet saveload $(if ($same) { 'PASS' } else { 'FAIL' }) | saved: $($saved[$id]) | loaded: $($loaded[$id])"
+        }
+        # The third comet flies on from exactly the seconds it had flown at the save.
+        $c = $ids[2]
+        $flownSaved = if ($saved[$c] -match '\| flown (\S+) \|') { $Matches[1] } else { '?' }
+        $onClock = @($log -match "\[TR comet map\] comet $c flies on from clock ")
+        $flownLoaded = if ($onClock.Count -gt 0 -and $onClock[0] -match ', (\S+) s into its flight') { $Matches[1] } else { 'not logged' }
+        $judged += "comet resumed $(if ($flownSaved -eq $flownLoaded) { 'PASS' } else { 'FAIL' }) | comet $c saved $flownSaved s into its flight, back on the clock at $flownLoaded s"
+        # A keeps the fuel it arrived with; B stays at the hop and progress it stopped at.
+        $arrivedFuel = @(@($first -match "^comet arrive PASS \| comet $($ids[0]) ") | ForEach-Object { if ($_ -match 'fuel left (\S+) \(rule') { $Matches[1] } })
+        $parkedFuel = @(@($second -match "^comet parked PASS \| comet $($ids[0]) ") | ForEach-Object { if ($_ -match 'fuel left (\S+)$') { $Matches[1] } })
+        $judged += "comet parked fuel $(if ($arrivedFuel.Count -eq 1 -and $parkedFuel.Count -eq 1 -and $arrivedFuel[0] -eq $parkedFuel[0]) { 'PASS' } else { 'FAIL' }) | comet $($ids[0]) arrived with $arrivedFuel mol, parked after the load with $parkedFuel"
+        $stoppedAt = @(@($first -match "^comet strand PASS \| comet $($ids[1]) ") | ForEach-Object { if ($_ -match ' hop (\d+) at (\S+) \(rule hop.*\| between (.+)$') { "hop $($Matches[1]) at $($Matches[2]) between $($Matches[3])" } })
+        $strandedAt = @(@($second -match "^comet stranded PASS \| comet $($ids[1]) ") | ForEach-Object { if ($_ -match '\| hop (\d+) at (\S+) \|.*\| between (.+)$') { "hop $($Matches[1]) at $($Matches[2]) between $($Matches[3])" } })
+        $judged += "comet stranded place $(if ($stoppedAt.Count -eq 1 -and $strandedAt.Count -eq 1 -and $stoppedAt[0] -eq $strandedAt[0]) { 'PASS' } else { 'FAIL' }) | comet $($ids[1]) stopped at $stoppedAt, after the load at $strandedAt"
+        # Every node a comet refers to, by an identity a load cannot change (the game's ids are not kept by a
+        # load): each comet's site and route at the save and after the load.
+        foreach ($id in $ids) {
+            $before = @(@($first -match "^comet route \| comet $id \| ") | ForEach-Object { $_ -replace '^comet route \| comet \d+ \| ', '' })
+            $after = @(@($second -match "^comet route \| comet $id \| ") | ForEach-Object { $_ -replace '^comet route \| comet \d+ \| ', '' })
+            $same = $before.Count -eq 1 -and $after.Count -eq 1 -and $before[0] -eq $after[0]
+            $judged += "comet route $(if ($same) { 'PASS' } else { 'FAIL' }) | comet $id | saved: $($before -join ' / ') | loaded: $($after -join ' / ')"
+        }
+        $judged | Write-Host
+
+        $problems = @($judged -match ' FAIL ')
+        foreach ($want in '^comet guard PASS', '^comet arrive PASS', '^comet strand PASS') {
+            if (@($first -match $want).Count -ne 1) { $problems += "the first instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        foreach ($want in '^comet parked PASS', '^comet stranded PASS', '^comet nodes PASS', '^comet resume arrive PASS') {
+            if (@($second -match $want).Count -ne 1) { $problems += "the second instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join ' / ')" }
+        Write-Host 'LiveCheck OK: a comet flew the game''s route from a real site to Entry in the rule''s time, one short of fuel stopped where the rule says and stayed, the site a comet held stayed on the map, and a save in the middle of a flight loaded with every comet where it was: one parked at Entry with its fuel, one stranded at the same place, and one flying on from the same second to arrive on time, every node each refers to the same after the load.'
+        return
+    }
+
+    if ($CometActions) {
+        # Three instances of one world: the actions and a save while Fuel runs; the load, Fuel on and Launch;
+        # the same save loaded without the mod.
+        if ($TimeoutSeconds -lt 900) { $TimeoutSeconds = 900 }
+        $station = 'trcometactions'
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETACTIONS = 'make' } `
+            { param($l) @($l -match 'LiveCheck: actions (phase make done|FAIL)').Count -gt 0 } 'Cut, Rig, Burn, a mineral Cut and Fuel, and the save'
+        Assert-ModLive $log
+        Start-Sleep -Seconds 20
+        $made = @(Get-Content $bepLog)
+        $keptMake = Join-Path $env:TEMP 'tr-livecheck-cometactions-make.log'
+        $made | Set-Content $keptMake
+        Stop-Game
+        $first = @(@($made -match 'LiveCheck: actions ') | ForEach-Object { $_ -replace '.*LiveCheck: actions ', '' })
+        $first | Write-Host
+        Write-Host "  the whole log is in $keptMake"
+        $failed = @($first -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+        $rocketLine = @($first -match '^rocket \| .*\(id (\d+)\)')
+        if ($rocketLine.Count -ne 1 -or $rocketLine[0] -notmatch '\(id (\d+)\)') { throw 'LiveCheck FAILED: the first instance reported no rocket.' }
+        $rocketId = $Matches[1]
+        $files = @(Get-ChildItem (Join-Path $saveDir $station) -Recurse -File -Filter '*.save' -ErrorAction SilentlyContinue)
+        if ($files.Count -eq 0) { throw "LiveCheck FAILED: no save was written under saves\$station." }
+        $saved = @{}
+        foreach ($line in @($made -match '\[TR comet map\] saved comet ')) {
+            $text = $line -replace '.*\[TR comet map\] saved ', ''
+            if ($text -match '^comet (\d+) ') { $saved[[int]$Matches[1]] = $text.Trim() }
+        }
+        $savedRocket = @($made -match "\[TR comet actions\] saved rocket $rocketId running Fuel")
+
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETACTIONS = 'load'; TR_LIVECHECK_COMETACTIONS_ROCKET = $rocketId } `
+            { param($l) @($l -match 'LiveCheck: actions (done|FAIL)').Count -gt 0 } 'the save to load, Fuel to go on, and the comet to be launched and arrive'
+        Assert-ModLive $log
+        $keptLoad = Join-Path $env:TEMP 'tr-livecheck-cometactions-load.log'
+        $log | Set-Content $keptLoad
+        Stop-Game
+        $second = @(@($log -match 'LiveCheck: actions ') | ForEach-Object { $_ -replace '.*LiveCheck: actions ', '' })
+        $second | Write-Host
+        Write-Host "  the whole log is in $keptLoad"
+        $failed = @($second -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+
+        $judged = @()
+        $loaded = @{}
+        foreach ($line in @($log -match '\[TR comet map\] loaded comet ')) {
+            $text = $line -replace '.*\[TR comet map\] loaded ', ''
+            if ($text -match '^comet (\d+) ') { $loaded[[int]$Matches[1]] = $text.Trim() }
+        }
+        foreach ($id in @($saved.Keys | Sort-Object)) {
+            $same = $loaded.ContainsKey($id) -and $saved[$id] -eq $loaded[$id]
+            $judged += "actions saveload $(if ($same) { 'PASS' } else { 'FAIL' }) | saved: $($saved[$id]) | loaded: $($loaded[$id])"
+        }
+        $back = @($log -match "\[TR comet actions\] rocket $rocketId is back to Fuel after the load$")
+        $loadedRocket = @($log -match "\[TR comet actions\] loaded rocket $rocketId running Fuel")
+        $judged += "actions mode $(if ($savedRocket.Count -eq 1 -and $loadedRocket.Count -eq 1 -and $back.Count -eq 1) { 'PASS' } else { 'FAIL' }) | rocket $rocketId saved running Fuel $($savedRocket.Count), read back $($loadedRocket.Count), back in Fuel $($back.Count)"
+
+        # The same save, without the mod: the unmodded game loads it, the rocket there and idle.
+        Remove-Item (Join-Path $mods 'TerraformingReloaded') -Recurse -Force
+        if ($TestServer) {
+            $only = "'" + (Join-Path $mods 'TRLiveCheck') + "'"
+            & powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
+            if ($LASTEXITCODE -ne 0) { throw 'The test server setup failed.' }
+        }
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETACTIONS = 'vanilla'; TR_LIVECHECK_COMETACTIONS_ROCKET = $rocketId } `
+            { param($l) @($l -match 'LiveCheck: actions vanilla ').Count -gt 0 -and @(Get-Rows $l).Count -ge 2 } 'the unmodded game to load the save'
+        $keptVanilla = Join-Path $env:TEMP 'tr-livecheck-cometactions-vanilla.log'
+        $log | Set-Content $keptVanilla
+        Stop-Game
+        if ($log -match 'Terraforming Reloaded\] Active:') { throw 'The mod loaded in the unmodded phase.' }
+        $third = @(@($log -match 'LiveCheck: actions vanilla ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' })
+        $third | Write-Host
+        Write-Host "  the whole log is in $keptVanilla"
+        $judged += "actions unmodded $(if (@($third -match '^actions vanilla PASS').Count -eq 1) { 'PASS' } else { 'FAIL' }) | the unmodded game loaded the save with $(@(Get-Rows $log).Count) planet samples"
+        $judged | Write-Host
+
+        $problems = @($judged -match ' FAIL ')
+        if ($saved.Count -lt 3) { $problems += "the mod logged $($saved.Count) comets at the save, expected 3" }
+        foreach ($want in '^cut PASS', '^rig PASS', '^mineral PASS') {
+            if (@($first -match $want).Count -ne 1) { $problems += "the first instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        if (@($first -match '^burn PASS').Count -lt 2) { $problems += 'the first instance judged fewer than two Burn cycles' }
+        if (@($first -match '^fuel tick PASS .* before the save').Count -lt 6) { $problems += 'the first instance judged fewer than six Fuel ticks' }
+        if (@($second -match '^fuel tick PASS .* after the load').Count -lt 4) { $problems += 'the second instance judged fewer than four Fuel ticks after the load' }
+        foreach ($want in '^loaded PASS', '^launch PASS', '^done') {
+            if (@($second -match $want).Count -ne 1) { $problems += "the second instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join ' / ')" }
+        Write-Host 'LiveCheck OK: a real rocket cut a comet at a real ice site by the rule while the site depleted as the game depletes it and no ice was made, rigged it with two engines from two kits, burnt a comet''s methane and oxygen into fuel two to one, cut a mineral comet, and fuelled the comet by the rule tick by tick; a save while it fuelled loaded with every comet as it was and the rocket back in Fuel, which went on by the rule; Launch sent the comet to Entry in the rule''s time; and the unmodded game loaded the same save with the rocket there and idle.'
+        return
+    }
+
+    if ($CometDebug) {
+        # Two instances of one world: the staging verbs and a save; the load and a Cut by the moved rocket.
+        if ($TimeoutSeconds -lt 900) { $TimeoutSeconds = 900 }
+        $station = 'trcometdebug'
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETDEBUG = 'make' } `
+            { param($l) @($l -match 'LiveCheck: debug (phase make done|FAIL)').Count -gt 0 } 'discover, the rocket trips, fill, arrive, strand and the save'
+        Assert-ModLive $log
+        Start-Sleep -Seconds 20
+        $made = @(Get-Content $bepLog)
+        $keptMake = Join-Path $env:TEMP 'tr-livecheck-cometdebug-make.log'
+        $made | Set-Content $keptMake
+        Stop-Game
+        $first = @(@($made -match 'LiveCheck: debug ') | ForEach-Object { $_ -replace '.*LiveCheck: debug ', '' })
+        $first | Write-Host
+        Write-Host "  the whole log is in $keptMake"
+        $failed = @($first -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+        $savingLine = @($first -match '^saving \| ')
+        if ($savingLine.Count -ne 1 -or $savingLine[0] -notmatch '^saving \| rocket (\d+) at (.+?) \| parked (\d+) fuel (\S+) \| parked (\d+) fuel (\S+) \| stranded (\d+) share (\S+) \| stopped (\d+) flown (\S+) \| comets off \|') {
+            throw 'LiveCheck FAILED: the first instance reported no saving line.'
+        }
+        $debugEnv = @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETDEBUG = 'load'; TR_LIVECHECK_COMETDEBUG_ROCKET = $Matches[1]; TR_LIVECHECK_COMETDEBUG_AT = $Matches[2]
+            TR_LIVECHECK_COMETDEBUG_PARKED = "$($Matches[3])=$($Matches[4]);$($Matches[5])=$($Matches[6])"; TR_LIVECHECK_COMETDEBUG_STRANDED = $Matches[7]; TR_LIVECHECK_COMETDEBUG_SHARE = $Matches[8]
+            TR_LIVECHECK_COMETDEBUG_STOPPED = $Matches[9]; TR_LIVECHECK_COMETDEBUG_FLOWN = $Matches[10] }
+        $files = @(Get-ChildItem (Join-Path $saveDir $station) -Recurse -File -Filter '*.save' -ErrorAction SilentlyContinue)
+        if ($files.Count -eq 0) { throw "LiveCheck FAILED: no save was written under saves\$station." }
+        $saved = @{}
+        foreach ($line in @($made -match '\[TR comet map\] saved comet ')) {
+            $text = $line -replace '.*\[TR comet map\] saved ', ''
+            if ($text -match '^comet (\d+) ') { $saved[[int]$Matches[1]] = $text.Trim() }
+        }
+
+        $log = Invoke-Game @('-file', 'start', $station, $World) $debugEnv `
+            { param($l) @($l -match 'LiveCheck: debug (done|FAIL)').Count -gt 0 } 'the save to load with the rocket and the comets where they were, and a Cut by the moved rocket'
+        Assert-ModLive $log
+        $keptLoad = Join-Path $env:TEMP 'tr-livecheck-cometdebug-load.log'
+        $log | Set-Content $keptLoad
+        Stop-Game
+        $second = @(@($log -match 'LiveCheck: debug ') | ForEach-Object { $_ -replace '.*LiveCheck: debug ', '' })
+        $second | Write-Host
+        Write-Host "  the whole log is in $keptLoad"
+        $failed = @($second -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+
+        $judged = @()
+        $loaded = @{}
+        foreach ($line in @($log -match '\[TR comet map\] loaded comet ')) {
+            $text = $line -replace '.*\[TR comet map\] loaded ', ''
+            if ($text -match '^comet (\d+) ') { $loaded[[int]$Matches[1]] = $text.Trim() }
+        }
+        foreach ($id in @($saved.Keys | Sort-Object)) {
+            $same = $loaded.ContainsKey($id) -and $saved[$id] -eq $loaded[$id]
+            $judged += "debug saveload $(if ($same) { 'PASS' } else { 'FAIL' }) | saved: $($saved[$id]) | loaded: $($loaded[$id])"
+        }
+        $judged | Write-Host
+
+        $problems = @($judged -match ' FAIL ')
+        if ($saved.Count -lt 4) { $problems += "the mod logged $($saved.Count) comets at the save, expected 4" }
+        $rocketId = $debugEnv['TR_LIVECHECK_COMETDEBUG_ROCKET']
+        if (@($made -match "\[TR comet actions\] rocket $rocketId stopped Cut: comets are off for this world").Count -ne 1) { $problems += 'the mod did not stop the rocket''s Cut once when comets went off' }
+        if (@($made -match "\[TR comet actions\] saved rocket $rocketId running Cut \(idle until it goes back to it\)").Count -ne 1) { $problems += 'the save did not keep the stopped rocket''s Cut' }
+        if (@($log -match "\[TR comet actions\] rocket $rocketId is back to Cut after the load$").Count -ne 1) { $problems += 'the rocket did not go back to Cut once comets were on after the load' }
+        if (@($first -match '^discover PASS').Count -ne 3) { $problems += 'the first instance did not judge three discoveries' }
+        if (@($first -match '^move PASS').Count -ne 3) { $problems += 'the first instance did not judge three trips ended by the verb' }
+        foreach ($want in '^default off PASS', '^list PASS', '^game trip PASS', '^ground PASS', '^fill PASS', '^fill again PASS', '^arrive PASS', '^natural PASS', '^dry refused PASS', '^strand PASS', '^off PASS', '^off held PASS', '^rocket log PASS', '^phase make done') {
+            if (@($first -match $want).Count -ne 1) { $problems += "the first instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        foreach ($want in '^loaded rocket PASS', '^loaded off PASS', '^loaded comets PASS', '^on again PASS', '^cut PASS', '^done') {
+            if (@($second -match $want).Count -ne 1) { $problems += "the second instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join ' / ')" }
+        Write-Host 'LiveCheck OK: the staging verbs did what the game and the rule do: discover made one site of each kind asked for; a rocket in space had its trip ended at a site and at Entry with every field the game''s own arrival sets as the game''s own trip left them, and one on the ground was refused; fill put the game''s refuel figure of 2:1 premix in its tank, once; arrive parked a comet at Entry with the rule''s fuel left and in the sky, as one that arrived by itself, refused one short of fuel and stranded it where the rule says; and a save loaded with the rocket at its node, the comets as they were, and the moved rocket cutting by the rule.'
+        return
+    }
+
+    if ($CometSky) {
+        # Three instances of one world: the comet in the sky, the aim, the telescope, the pass and the save; the
+        # load, the same sky at the same clock time, the telescope again and a storm; the same save without the mod.
+        if ($TimeoutSeconds -lt 1500) { $TimeoutSeconds = 1500 }
+        $station = 'trcometsky'
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETSKY = 'make' } `
+            { param($l) @($l -match 'LiveCheck: sky (phase make done|FAIL)').Count -gt 0 } 'the comet to park in the sky, the aim, the telescope, its next highest, and the save'
+        Assert-ModLive $log
+        Start-Sleep -Seconds 20
+        $made = @(Get-Content $bepLog)
+        $keptMake = Join-Path $env:TEMP 'tr-livecheck-cometsky-make.log'
+        $made | Set-Content $keptMake
+        Stop-Game
+        $first = @(@($made -match 'LiveCheck: sky ') | ForEach-Object { $_ -replace '.*LiveCheck: sky ', '' })
+        $first | Write-Host
+        Write-Host "  the whole log is in $keptMake"
+        $failed = @($first -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+        $ids = @($first -match '^ids \| comet (\d+) \| bay (\d+) \| telescope (\d+) \| target (\S+)$')
+        if ($ids.Count -ne 1 -or $ids[0] -notmatch '^ids \| comet (\d+) \| bay (\d+) \| telescope (\d+) \| target (\S+)$') { throw 'LiveCheck FAILED: the first instance reported no comet, bay and telescope.' }
+        $cometId = $Matches[1]; $bayId = $Matches[2]; $telescopeId = $Matches[3]; $target = $Matches[4]
+        $atFirst = @($first -match '^at PASS \| clock (\S+) \| direction \(([^)]+)\)')
+        if ($atFirst.Count -ne 1 -or $atFirst[0] -notmatch '^at PASS \| clock (\S+) \| direction \(([^)]+)\)') { throw 'LiveCheck FAILED: the first instance printed no direction at the chosen clock.' }
+        $at = $Matches[1]; $directionFirst = $Matches[2]
+        $files = @(Get-ChildItem (Join-Path $saveDir $station) -Recurse -File -Filter '*.save' -ErrorAction SilentlyContinue)
+        if ($files.Count -eq 0) { throw "LiveCheck FAILED: no save was written under saves\$station." }
+
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETSKY = 'load'; TR_LIVECHECK_COMETSKY_COMET = $cometId
+                TR_LIVECHECK_COMETSKY_AT = $at; TR_LIVECHECK_COMETSKY_TARGET = $target; TR_LIVECHECK_COMETSKY_TELESCOPE = $telescopeId; TR_LIVECHECK_COMETSKY_BAY = $bayId } `
+            { param($l) @($l -match 'LiveCheck: sky (done|FAIL)').Count -gt 0 } 'the save to load, the comet back in the sky, the telescope again and a storm'
+        Assert-ModLive $log
+        $keptLoad = Join-Path $env:TEMP 'tr-livecheck-cometsky-load.log'
+        $log | Set-Content $keptLoad
+        Stop-Game
+        $second = @(@($log -match 'LiveCheck: sky ') | ForEach-Object { $_ -replace '.*LiveCheck: sky ', '' })
+        $second | Write-Host
+        Write-Host "  the whole log is in $keptLoad"
+        $failed = @($second -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+
+        # Across the two instances: the same elements, and the same direction at the same clock time.
+        $judged = @()
+        $elementsFirst = @(@($first -match '^body PASS ') | ForEach-Object { if ($_ -match '\| elements: (.+?) \| once round') { $Matches[1] } })
+        $elementsSecond = @(@($second -match '^readded PASS ') | ForEach-Object { if ($_ -match '\| elements: (.+?) \| once round') { $Matches[1] } })
+        $sameElements = $elementsFirst.Count -eq 1 -and $elementsSecond.Count -eq 1 -and $elementsFirst[0] -eq $elementsSecond[0]
+        $judged += "sky elements $(if ($sameElements) { 'PASS' } else { 'FAIL' }) | before the save: $($elementsFirst -join ' / ') | after the load: $($elementsSecond -join ' / ')"
+        $atSecond = @(@($second -match "^at PASS \| clock $([regex]::Escape($at)) \| direction \(") | ForEach-Object { if ($_ -match 'direction \(([^)]+)\)') { $Matches[1] } })
+        $sameDirection = $false
+        if ($atSecond.Count -eq 1) {
+            $a = @($directionFirst -split ', ' | ForEach-Object { [double]::Parse($_, [Globalization.CultureInfo]::InvariantCulture) })
+            $b = @($atSecond[0] -split ', ' | ForEach-Object { [double]::Parse($_, [Globalization.CultureInfo]::InvariantCulture) })
+            $sameDirection = $a.Count -eq 3 -and $b.Count -eq 3 -and @(0..2 | Where-Object { [math]::Abs($a[$_] - $b[$_]) -gt 1e-7 }).Count -eq 0
+        }
+        $judged += "sky direction $(if ($sameDirection) { 'PASS' } else { 'FAIL' }) | at clock ${at}: before the save ($directionFirst), after the load ($($atSecond -join ' / '))"
+
+        # The same save, without the mod: the unmodded game loads it, the telescope there and no comet in the sky.
+        Remove-Item (Join-Path $mods 'TerraformingReloaded') -Recurse -Force
+        if ($TestServer) {
+            $only = "'" + (Join-Path $mods 'TRLiveCheck') + "'"
+            & powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
+            if ($LASTEXITCODE -ne 0) { throw 'The test server setup failed.' }
+        }
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETSKY = 'vanilla'; TR_LIVECHECK_COMETSKY_TELESCOPE = $telescopeId } `
+            { param($l) @($l -match 'LiveCheck: sky vanilla ').Count -gt 0 -and @(Get-Rows $l).Count -ge 2 } 'the unmodded game to load the save'
+        $keptVanilla = Join-Path $env:TEMP 'tr-livecheck-cometsky-vanilla.log'
+        $log | Set-Content $keptVanilla
+        Stop-Game
+        if ($log -match 'Terraforming Reloaded\] Active:') { throw 'The mod loaded in the unmodded phase.' }
+        $third = @(@($log -match 'LiveCheck: sky vanilla ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' })
+        $third | Write-Host
+        Write-Host "  the whole log is in $keptVanilla"
+        $judged += "sky unmodded $(if (@($third -match '^sky vanilla PASS').Count -eq 1) { 'PASS' } else { 'FAIL' }) | the unmodded game loaded the save with $(@(Get-Rows $log).Count) planet samples"
+        $judged | Write-Host
+
+        $problems = @($judged -match ' FAIL ')
+        foreach ($want in '^body PASS', '^frame PASS', '^aim PASS', '^telescope PASS', '^pass PASS', '^at PASS') {
+            if (@($first -match $want).Count -ne 1) { $problems += "the first instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        foreach ($want in '^readded PASS', '^at PASS', '^relock PASS', '^storm PASS', '^done') {
+            if (@($second -match $want).Count -ne 1) { $problems += "the second instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join ' / ')" }
+        Write-Host 'LiveCheck OK: a comet parked at Entry went into the game''s sky as a body circling the planet with the rule''s orbit, where the rule puts it; the rule''s frame put the Sun where the game''s sky does; a rocket''s payload bay and the Map motherboard''s two icons gave the sky rule''s landing from the direction the game shows the comet in; a Ground Telescope aimed by its own logic values at the rule''s bearing locked onto the comet and read back the rule''s orbit; the comet was highest when the bay said; after a save and a load it was back with the same elements and in the same place at the same clock time, the telescope locked again, and a storm blanked the orbit readings while the lock stayed; and the unmodded game loaded the same save.'
+        return
+    }
+
+    if ($CometLand) {
+        # Three instances of one world: four comets brought down, three landing and the fourth saved in its fall;
+        # the load, the fall landing at the same clock time; the same save without the mod.
+        if ($TimeoutSeconds -lt 2400) { $TimeoutSeconds = 2400 }
+        $station = 'trcometland'
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETLAND = 'make' } `
+            { param($l) @($l -match 'LiveCheck: land (phase make done|FAIL)').Count -gt 0 } 'five comets to park, three brought down to land, and a save in the fourth''s fall'
+        Assert-ModLive $log
+        # Stopped well inside the fall, so the save is all the second instance has of it.
+        Start-Sleep -Seconds 5
+        $made = @(Get-Content $bepLog)
+        $keptMake = Join-Path $env:TEMP 'tr-livecheck-cometland-make.log'
+        $made | Set-Content $keptMake
+        Stop-Game
+        $first = @(@($made -match 'LiveCheck: land ') | ForEach-Object { $_ -replace '.*LiveCheck: land ', '' })
+        $first | Write-Host
+        Write-Host "  the whole log is in $keptMake"
+        $failed = @($first -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+        $ids = @($first -match '^ids \| falling (\d+) \| parked (\d+) \| bay (\d+) \| rocket (\d+) \| telescope (\d+) \| impact (\S+)$')
+        if ($ids.Count -ne 1 -or $ids[0] -notmatch '^ids \| falling (\d+) \| parked (\d+) \| bay (\d+) \| rocket (\d+) \| telescope (\d+) \| impact (\S+)$') { throw 'LiveCheck FAILED: the first instance reported no falling comet, parked comet, bay, rocket and telescope.' }
+        $falling = $Matches[1]; $parked = $Matches[2]; $bayId = $Matches[3]; $rocketId = $Matches[4]; $telescopeId = $Matches[5]; $impact = $Matches[6]
+        $files = @(Get-ChildItem (Join-Path $saveDir $station) -Recurse -File -Filter '*.save' -ErrorAction SilentlyContinue)
+        if ($files.Count -eq 0) { throw "LiveCheck FAILED: no save was written under saves\$station." }
+
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETLAND = 'load'; TR_LIVECHECK_COMETLAND_FALLING = $falling
+                TR_LIVECHECK_COMETLAND_PARKED = $parked; TR_LIVECHECK_COMETLAND_IMPACT = $impact; TR_LIVECHECK_COMETLAND_TELESCOPE = $telescopeId; TR_LIVECHECK_COMETLAND_BAY = $bayId } `
+            { param($l) @($l -match 'LiveCheck: land (done|FAIL)').Count -gt 0 } 'the save to load and the fall to land at the clock time it was saved to'
+        Assert-ModLive $log
+        $loaded = @($log)
+        $keptLoad = Join-Path $env:TEMP 'tr-livecheck-cometland-load.log'
+        $loaded | Set-Content $keptLoad
+        Stop-Game
+        $second = @(@($loaded -match 'LiveCheck: land ') | ForEach-Object { $_ -replace '.*LiveCheck: land ', '' })
+        $second | Write-Host
+        Write-Host "  the whole log is in $keptLoad"
+        $failed = @($second -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+
+        # Across the instances and from the mod's own lines.
+        $judged = @()
+        $warnFirst = @(@($made -match '\[TR comet land\] warning \| ') | ForEach-Object { $_ -replace '.*\[TR comet land\] warning \| ', '' })
+        $warnSecond = @(@($loaded -match '\[TR comet land\] warning \| ') | ForEach-Object { $_ -replace '.*\[TR comet land\] warning \| ', '' })
+        foreach ($burn in @($first -match '^burn [A-D] PASS ')) {
+            if ($burn -notmatch '^burn ([A-D]) PASS \| comet (\d+) \| .* \| lands \((\S+), (\S+), (\S+)\) at clock (\S+) after (\S+) s \|') { $judged += "warning ? FAIL | a burn line this run cannot read: $burn"; continue }
+            $which = $Matches[1]; $comet = $Matches[2]; $x = $Matches[3]; $y = $Matches[4]; $z = $Matches[5]; $clock = $Matches[6]; $fall = [double]::Parse($Matches[7], [Globalization.CultureInfo]::InvariantCulture)
+            $mine = @($warnFirst -match "^comet $comet \| lands in (\S+) s, at clock $([regex]::Escape($clock)) \| at \($([regex]::Escape($x)), $([regex]::Escape($y)), $([regex]::Escape($z))\) \|")
+            $ok = $false
+            if ($mine.Count -eq 1 -and $mine[0] -match '^comet \d+ \| lands in (\S+) s,') {
+                $seconds = [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
+                $ok = $seconds -le $fall -and $seconds -ge ($fall - 1.0)
+            }
+            $judged += "warning $which $(if ($ok) { 'PASS' } else { 'FAIL' }) | comet $comet lands at clock $clock at ($x, $y, $z) after $fall s | warned: $($mine -join ' / ')"
+        }
+        $warnD = @($warnSecond -match "^comet $falling \| lands in (\S+) s, at clock $([regex]::Escape($impact)) \|")
+        $judged += "warning after the load $(if ($warnD.Count -eq 1) { 'PASS' } else { 'FAIL' }) | comet $falling, landing at clock ${impact}: $($warnD -join ' / ')"
+        foreach ($which in 'A', 'B', 'C') {
+            $burn = @($first -match "^burn $which PASS \| comet (\d+) ")
+            $comet = if ($burn.Count -eq 1 -and $burn[0] -match "^burn $which PASS \| comet (\d+) ") { $Matches[1] } else { '?' }
+            $left = @($made -match "\[TR comet sky\] comet $comet left the sky, at the game tick's main-thread moment")
+            $judged += "left the sky $which $(if ($left.Count -eq 1) { 'PASS' } else { 'FAIL' }) | the mod's own line for comet ${comet}: $($left.Count)"
+        }
+        $thrown = @(@($made) + @($loaded) | Where-Object { $_ -match "IndexOutOfRangeException|index '\d+' out of range|Collection was modified" })
+        $judged += "no throw $(if ($thrown.Count -eq 0) { 'PASS' } else { 'FAIL' }) | lines naming an index out of range or a list changed under a reader: $($thrown.Count) $($thrown | Select-Object -First 3)"
+        $gasFirst = @(@($first -match '^falling PASS ') | ForEach-Object { if ($_ -match '\| gases (\S+) \|') { $Matches[1] } })
+        $gasSecond = @(@($second -match '^loaded PASS ') | ForEach-Object { if ($_ -match '\| gases (\S+) \|') { $Matches[1] } })
+        $sameGas = $gasFirst.Count -eq 1 -and $gasSecond.Count -eq 1 -and $gasFirst[0] -eq $gasSecond[0]
+        $judged += "fall across the save $(if ($sameGas) { 'PASS' } else { 'FAIL' }) | gases at the save: $($gasFirst -join ' / ') | after the load: $($gasSecond -join ' / ')"
+
+        # The same save, without the mod: the unmodded game loads it, a comet falling and one parked.
+        Remove-Item (Join-Path $mods 'TerraformingReloaded') -Recurse -Force
+        if ($TestServer) {
+            $only = "'" + (Join-Path $mods 'TRLiveCheck') + "'"
+            & powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
+            if ($LASTEXITCODE -ne 0) { throw 'The test server setup failed.' }
+        }
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETLAND = 'vanilla'; TR_LIVECHECK_COMETLAND_TELESCOPE = $telescopeId; TR_LIVECHECK_COMETLAND_ROCKET = $rocketId } `
+            { param($l) @($l -match 'LiveCheck: land vanilla ').Count -gt 0 -and @(Get-Rows $l).Count -ge 2 } 'the unmodded game to load the save'
+        $keptVanilla = Join-Path $env:TEMP 'tr-livecheck-cometland-vanilla.log'
+        $log | Set-Content $keptVanilla
+        Stop-Game
+        if ($log -match 'Terraforming Reloaded\] Active:') { throw 'The mod loaded in the unmodded phase.' }
+        $third = @(@($log -match 'LiveCheck: land vanilla ') | ForEach-Object { $_ -replace '.*LiveCheck: ', '' })
+        $third | Write-Host
+        Write-Host "  the whole log is in $keptVanilla"
+        $judged += "land unmodded $(if (@($third -match '^land vanilla PASS').Count -eq 1) { 'PASS' } else { 'FAIL' }) | the unmodded game loaded the save, a comet falling and one parked, with $(@(Get-Rows $log).Count) planet samples"
+        $judged | Write-Host
+
+        $problems = @($judged -match ' FAIL ')
+        foreach ($want in '^burn A PASS', '^sky A PASS', '^impact A PASS', '^burn B PASS', '^sky B PASS', '^impact B PASS', '^burn C PASS', '^sky C PASS', '^impact C PASS', '^burn D PASS', '^falling PASS') {
+            if (@($first -match $want).Count -ne 1) { $problems += "the first instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        foreach ($want in '^loaded PASS', '^impact D PASS', '^done') {
+            if (@($second -match $want).Count -ne 1) { $problems += "the second instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        if (@($judged -match '^warning [A-D] PASS').Count -ne 4) { $problems += 'not every burn warned with its fall and where it lands' }
+        if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join ' / ')" }
+        Write-Host 'LiveCheck OK: a rocket at Entry brought four comets down by Deorbit; a tracked comet landed within a metre of its target on the rule''s fuel, where the bay read out in the frame the burn used; a mineral comet aimed past its reach landed at its reach along the line on the whole reach''s fuel and took the rule''s moles of the planet''s air in its own proportions; an untracked comet landed at the sky point inside the disc; each left the map at once and the sky at the game tick''s main-thread moment, a Rocket Celestial Tracker on it set back and nothing thrown; every burn warned with the fall''s seconds and where it lands; each ice comet gave the planet its arriving moles exactly, every landing with the stored heat in kelvin unchanged; a save during a fall loaded to land at the same clock time, its event made again and its gas delivered once; and the unmodded game loaded that save with a comet falling and one parked.'
+        return
+    }
+
+    if ($CometZones) {
+        # Two instances of one world: a console comet and a rocket comet, each landing by a line of real structures
+        # judged against the table; the load, every structure as it was at the save.
+        if ($TimeoutSeconds -lt 2400) { $TimeoutSeconds = 2400 }
+        $station = 'trcometzones'
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETZONES = 'make' } `
+            { param($l) @($l -match 'LiveCheck: zones (phase make done|FAIL)').Count -gt 0 } 'a console comet and a rocket comet to land by their lines of structures, and the save'
+        Assert-ModLive $log
+        Start-Sleep -Seconds 10
+        $made = @(Get-Content $bepLog)
+        $keptMake = Join-Path $env:TEMP 'tr-livecheck-cometzones-make.log'
+        $made | Set-Content $keptMake
+        Stop-Game
+        $first = @(@($made -match 'LiveCheck: zones ') | ForEach-Object { $_ -replace '.*LiveCheck: zones ', '' })
+        $first | Write-Host
+        Write-Host "  the whole log is in $keptMake"
+        $failed = @($first -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+        $ids = @($first -match '^ids \| (\S+)$')
+        if ($ids.Count -ne 1 -or $ids[0] -notmatch '^ids \| (\S+)$') { throw 'LiveCheck FAILED: the first instance reported no structures.' }
+        $idList = $Matches[1]
+        $files = @(Get-ChildItem (Join-Path $saveDir $station) -Recurse -File -Filter '*.save' -ErrorAction SilentlyContinue)
+        if ($files.Count -eq 0) { throw "LiveCheck FAILED: no save was written under saves\$station." }
+
+        $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETZONES = 'load'; TR_LIVECHECK_COMETZONES_IDS = $idList } `
+            { param($l) @($l -match 'LiveCheck: zones (done|FAIL)').Count -gt 0 } 'the save to load and every structure to be read back'
+        Assert-ModLive $log
+        $loaded = @($log)
+        $keptLoad = Join-Path $env:TEMP 'tr-livecheck-cometzones-load.log'
+        $loaded | Set-Content $keptLoad
+        Stop-Game
+        $second = @(@($loaded -match 'LiveCheck: zones ') | ForEach-Object { $_ -replace '.*LiveCheck: zones ', '' })
+        $second | Write-Host
+        Write-Host "  the whole log is in $keptLoad"
+        $failed = @($second -match '^FAIL')
+        if ($failed.Count -gt 0) { throw "LiveCheck FAILED: $($failed -join ' / ')" }
+
+        # Across the instances: every structure as it was at the save.
+        $judged = @()
+        $atSave = @{}
+        foreach ($line in @($first -match '^state \| ')) {
+            if ($line -match '^(state \| (\d+) \| \w+ \| burn \S+ \| brute \S+)') { $atSave[$Matches[2]] = $Matches[1] }
+        }
+        $afterLoad = @{}
+        foreach ($line in @($second -match '^state \| ')) {
+            if ($line -match '^(state \| (\d+) \| \w+ \| burn \S+ \| brute \S+)') { $afterLoad[$Matches[2]] = $Matches[1] }
+        }
+        $expectedIds = @($idList -split ',')
+        foreach ($id in $expectedIds) {
+            $same = $atSave.ContainsKey($id) -and $afterLoad.ContainsKey($id) -and $atSave[$id] -eq $afterLoad[$id]
+            $judged += "kept $(if ($same) { 'PASS' } else { 'FAIL' }) | structure $id | at the save: $($atSave[$id]) | after the load: $($afterLoad[$id])"
+        }
+        $judged += "kept all $(if ($expectedIds.Count -gt 0 -and $atSave.Count -eq $expectedIds.Count -and $afterLoad.Count -eq $expectedIds.Count) { 'PASS' } else { 'FAIL' }) | $($expectedIds.Count) structures, $($atSave.Count) read at the save, $($afterLoad.Count) after the load"
+        $passLines = @($made -match '\[TR comet\] event \d+ impact at .*zones in one pass over ')
+        $judged += "pass logged $(if ($passLines.Count -eq 2) { 'PASS' } else { 'FAIL' }) | the mod's own line for each impact's pass: $($passLines.Count) $(@($passLines | ForEach-Object { if ($_ -match 'zones in one pass over (\d+) structures and (\d+) players in (\S+) ms') { "$($Matches[1]) structures in $($Matches[3]) ms" } }) -join ' / ')"
+        $thrown = @(@($made) + @($loaded) | Where-Object { $_ -match '\[TR comet\] (stopped|a moment of the impact failed)' })
+        $judged += "no throw $(if ($thrown.Count -eq 0) { 'PASS' } else { 'FAIL' }) | lines of an impact that stopped or a moment that failed: $($thrown.Count) $($thrown | Select-Object -First 3)"
+        # A structure the game cannot take out of its cell throws in StructuralArray.Clear when it goes (bt, stage 8).
+        $gridLoaded = @($loaded | Where-Object { $_ -match 'StructuralArray\.Clear' })
+        $judged += "no grid throw after the load $(if ($gridLoaded.Count -eq 0) { 'PASS' } else { 'FAIL' }) | lines naming StructuralArray.Clear in the second instance: $($gridLoaded.Count)"
+        $judged | Write-Host
+
+        $problems = @($judged -match ' FAIL ')
+        foreach ($case in 'C', 'R') {
+            foreach ($want in "^built $case ", "^rocks $case PASS", "^pass $case PASS") {
+                if (@($first -match $want).Count -ne 1) { $problems += "the first instance did not print one '$($want.TrimStart('^'))' line" }
+            }
+            $structures = @($first -match "^structure $case ")
+            if ($structures.Count -lt 20 -or @($structures -match "^structure $case PASS").Count -ne $structures.Count) { $problems += "case ${case}: $($structures.Count) structures judged, not all PASS" }
+        }
+        foreach ($want in '^grid edge PASS', '^grid throws PASS') {
+            if (@($first -match $want).Count -ne 1) { $problems += "the first instance did not print one '$($want.TrimStart('^'))' line" }
+        }
+        if (@($second -match '^done').Count -ne 1) { $problems += "the second instance did not print one 'done' line" }
+        if ($problems.Count -gt 0) { throw "LiveCheck FAILED: $($problems -join ' / ')" }
+        Write-Host 'LiveCheck OK: a console comet and a comet brought down by rocket each landed by a line of real structures; ground zero destroyed what stood in it whatever its limit, the fireball burned what stood in it by the stated amount, the wave broke, creaked or left each by its own limit, rocks came down only on places in the falling rocks, as the rule gives for the places the pass found, the nearest taking the cap, and did a rock''s damage there and nowhere else; each impact was one pass over every structure in the world; and every structure was as it was at the save after the load.'
         return
     }
 
@@ -1638,5 +2281,7 @@ finally {
             $path = Join-Path $GameDir $name
             if (Test-Path $path) { Remove-Item $path -Recurse -Force }
         }
+        if (Test-Path $settingFile) { Remove-Item $settingFile -Force }
+        if ($settingMoved) { Move-Item $settingAside $settingFile }
     }
 }

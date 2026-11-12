@@ -10,6 +10,7 @@
 | `src/Patching/Guards.cs` | Patch bodies for the defects (DEFECTS.md) and the sky throttle |
 | `src/Patching/Climate.cs` | Temperature rule for worlds that ship without curves (anchored greenhouse, proportional swing damping, airless base); the curves file |
 | `src/Patching/Storms.cs` | The two rules that stop a world scheduling its own storm, the day forecast behind the second, and the readout that says which one fired (STORMS.md) |
+| `src/Patching/StormBounds.cs` | The storm floor and ceiling: the rule that limits a running storm's share of the temperature, and its own check (STORMS.md, Part four) |
 | `src/Patching/Sidecar.cs` | Per-world settings: the file beside each save, what a world may carry, and the fail-closed rule for the pressure ceiling (SIDECAR.md) |
 | `src/Patching/Planet.cs` | Whole-planet operations: planet size at creation, rescaling the planet being played, reset to shipped |
 | `src/Patching/TraceGases.cs` | Trace gases gather where they are consumed: the outdoor lerp draws more of a gas the planet holds only a trace of, paid for by the planet, with its bounds and its own arithmetic check |
@@ -240,6 +241,7 @@ client check and asks instead that the host's planet has arrived since the world
 | One postfix on the long temperature method, not three on one-line getters | The swing term multiplies base plus sun distance, which no single part can express; and one-line getters are inlining candidates |
 | Sunlight for the anchor comes from the game's orbit range, no table | Custom worlds |
 | A storm's temperature offset shrinks with the planet | Offsets are sized for the shipped world; unscaled, one ash storm freezes a finished Vulcan solid (D17) |
+| The storm floor and ceiling limit only the storm's own share | A plain clamp of the temperature would warm a planet already below the floor, which is the mod moving the planet, not the storm; limited this way the result is always between the planet with and without the storm |
 | Only one of the 17 read-only-copy bypasses is fixed | The owner's rule: no effort on minor sources. The wall vent moves rooms of gas and is how bases open to outdoors; the rest are a breath, a mask, or one portable's contents (INTERACTIONS.md) |
 | Settings tagged as needing a restart do not apply live | The pressure ceiling deletes air for good; dragging its slider must not wipe a planet |
 | The clouds and ice caps read the planet's air | The game asks the caps for their own temperature, and they hold no gas (DEFECTS.md D13) |
@@ -305,7 +307,7 @@ client it says whose answer it is rather than inventing one.
 `ExternalHeatHalfLifeMinutes`, `MaxExternalOffsetKelvin`; `StormsStopWhenStripped`,
 `StrippedAtmosphereShare`, `StormsStopWhenAtmosphereIsMild`, `MildAtmosphereColdestKelvin`,
 `MildAtmosphereHottestKelvin`, `MildAtmosphereMinPressureKpa`, `MildAtmosphereMaxPressureKpa`,
-`MildAtmosphereMaxToxinsKpa`, `MildAtmosphereStopsSolarStorms`; `TraceGasGathering`, `TraceGasLine`;
+`MildAtmosphereMaxToxinsKpa`, `MildAtmosphereStopsSolarStorms`, `StormFloorKelvin`, `StormCeilingKelvin`; `TraceGasGathering`, `TraceGasLine`;
 `SpaceDeletesGas`; `RocketsBurnCompletely`; `PlanetAirBurns`;
 `SyncIntervalSeconds`;
 `StatusLogSeconds`. Player-facing descriptions are in the root README.

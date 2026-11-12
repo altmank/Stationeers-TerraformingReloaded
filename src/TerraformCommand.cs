@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
 using Assets.Scripts;
 using Assets.Scripts.Atmospherics;
 using Assets.Scripts.Networking;
+using TerraformingReloaded.Comets;
 using TerraformingReloaded.Patching;
 using Util.Commands;
 using Weather;
@@ -14,9 +16,9 @@ namespace TerraformingReloaded
     /// <summary>Console command: what the planet holds and what the mod is doing about it.</summary>
     public sealed class TerraformCommand : CommandBase
     {
-        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'set' lists the settings the world you are playing keeps for itself, and 'set <key> <value>' changes one for this world only; the config only decides what a new world starts with (host only). 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships and sets the gas lost to space back to 0, keeping this world's settings, which is also how to remove the mod cleanly (host only). 'gas add <gas> <mol> [<K>]' and 'gas remove <gas> <mol|all> confirm' put a gas into the planet or take it out, for testing (host only). 'curves export' and 'curves reload' are for tuning the temperature response.";
+        public override string HelpText => "Shows the planet atmosphere and the state of Terraforming Reloaded. 'set' lists the settings the world you are playing keeps for itself, and 'set <key> <value>' changes one for this world only; the config only decides what a new world starts with (host only). 'size <share> confirm' changes how big the planet you are playing is, and so how long terraforming it takes, without touching its air (host only). 'reset confirm' puts the whole planet back as the world ships and sets the gas lost to space back to 0, keeping this world's settings, which is also how to remove the mod cleanly (host only). 'gas add <gas> <mol> [<K>]' and 'gas remove <gas> <mol|all> confirm' put a gas into the planet or take it out, for testing (host only). 'comet <mol> <gas>[:<share>] ...' (comets are experimental and off in a world until 'set CometsEnabled true', at your own risk) calls a comet down in the distance where you are looking; its gas goes into the planet when it lands, and its pressure wave can break windows facing outside and throw players who are outdoors; 'comet' alone explains the rest (host only). 'comet make', 'comet send <id>' and 'comet list' are for testing comets on the space map: make puts one at a discovered site, send flies it to the planet's orbit by the game's rocket travel rule, list shows where each is (make and send host only). 'comet discover [ice|mineral]', 'comet rocket [<n> [<site>|entry] [fill]]' and 'comet arrive <id> [strand]' are for staging a comet situation by hand: discover finds a site as a Discover scan does, rocket lists the rockets and ends one's trip in space at a site or Entry now, fill fills its tanks with 2:1 methane and oxygen, arrive brings a comet in flight to orbit now (host only). 'curves export' and 'curves reload' are for tuning the temperature response.";
 
-        public override string[] Arguments => new[] { "[status | set [<key> [<value> [confirm]]] | size <share> confirm | reset confirm | gas add <gas> <mol> [<K>] | gas remove <gas> <mol|all> confirm | curves export | curves reload]" };
+        public override string[] Arguments => new[] { "[status | set [<key> [<value> [confirm]]] | size <share> confirm | reset confirm | gas add <gas> <mol> [<K>] | gas remove <gas> <mol|all> confirm | comet <mol> <gas>[:<share>] ... [turn=<deg>] [range=<m>] [K=<kelvin>] [preview] | comet stop | comet make [<site> <mol> <gas>[:<share>] ... engines=<n> fuel=<mol>] | comet send <id> | comet list | comet discover [ice|mineral] | comet rocket [<n> [<site>|entry] [fill]] | comet arrive <id> [strand] | curves export | curves reload]" };
 
         public override bool IsLaunchCmd => false;
 
@@ -41,6 +43,9 @@ namespace TerraformingReloaded
                     return Reset(args.Length > 1 && args[1].ToLowerInvariant() == "confirm");
                 case "gas":
                     return Gas(args);
+                case "comet":
+                    return CometVerb.Run(args, typed => TryGasType(typed, out Chemistry.GasType type) ? type : (Chemistry.GasType?)null,
+                        () => string.Join(", ", TankSpecies()));
                 case "curves":
                     return Curves(args.Length > 1 ? args[1].ToLowerInvariant() : "");
                 default:
@@ -247,7 +252,7 @@ namespace TerraformingReloaded
         /// Every setting a world keeps its own copy of, in the order the config editor shows them.
         /// Adding one to the world file means adding it here too, or it has no way to change.
         /// </summary>
-        private static readonly WorldKey[] WorldKeys =
+        private static readonly WorldKey[] WorldKeys = WithCelestial(new[]
         {
             Switch("DynamicSky", "Sky follows the air", () => Effective.DynamicSky, () => Settings.DynamicSky, v => Effective.DynamicSky = v),
             Number("GhgResponseScale", "Greenhouse strength", "", Limits.GhgResponseScale,
@@ -292,6 +297,20 @@ namespace TerraformingReloaded
                 () => Effective.MildAtmosphereMaxToxinsKpa, () => Settings.MildAtmosphereMaxToxinsKpa, v => Effective.MildAtmosphereMaxToxinsKpa = v),
             Switch("MildAtmosphereStopsSolarStorms", "Mild air stops solar storms too",
                 () => Effective.MildAtmosphereStopsSolarStorms, () => Settings.MildAtmosphereStopsSolarStorms, v => Effective.MildAtmosphereStopsSolarStorms = v),
+            new WorldKey
+            {
+                Name = "StormFloorKelvin", Label = "Storm floor", Unit = "K", Limits = Limits.StormFloorKelvin, ZeroMeans = "no floor",
+                Get = () => Effective.StormBounds.FloorKelvin,
+                Config = () => Settings.StormFloorKelvin > 0.0 ? (double?)Settings.StormFloorKelvin : null,
+                Set = v => Effective.StormBounds = Effective.StormBounds.WithFloor((double?)v),
+            },
+            new WorldKey
+            {
+                Name = "StormCeilingKelvin", Label = "Storm ceiling", Unit = "K", Limits = Limits.StormCeilingKelvin, ZeroMeans = "no ceiling",
+                Get = () => Effective.StormBounds.CeilingKelvin,
+                Config = () => Settings.StormCeilingKelvin > 0.0 ? (double?)Settings.StormCeilingKelvin : null,
+                Set = v => Effective.StormBounds = Effective.StormBounds.WithCeiling((double?)v),
+            },
             Switch("TraceGasGatheringEnabled", "Trace gases gather (experimental)",
                 () => Effective.TraceGasGatheringEnabled, () => Settings.TraceGasGatheringEnabled, v => Effective.TraceGasGatheringEnabled = v),
             Number("TraceGasGathering", "Speed at the trace line (below it: doubles per factor of ten, up to 10x)", "x", Limits.TraceGasGathering,
@@ -308,7 +327,22 @@ namespace TerraformingReloaded
                 () => Effective.PlanetHoldsBackWhileIgnitable, () => Settings.PlanetHoldsBackWhileIgnitable, v => Effective.PlanetHoldsBackWhileIgnitable = v),
             Switch("PlanetKeepsTraceGas", "The planet keeps gas too thin for outdoor air",
                 () => Effective.PlanetKeepsTraceGas, () => Settings.PlanetKeepsTraceGas, v => Effective.PlanetKeepsTraceGas = v),
-        };
+            Switch("CometsEnabled", "Comets (experimental)",
+                () => Effective.CometsEnabled, () => Settings.CometsEnabled, v => Effective.CometsEnabled = v),
+        });
+
+        /// <summary>The keys above, then every Celestial terraforming setting, from its one declaration.</summary>
+        private static WorldKey[] WithCelestial(WorldKey[] keys)
+        {
+            List<WorldKey> all = new List<WorldKey>(keys);
+            foreach (Comets.CelestialSetting setting in Comets.CelestialSettings.All)
+            {
+                Comets.CelestialSetting one = setting;
+                all.Add(Number(one.Key, one.Label, one.Unit, one.Range,
+                    () => Effective.Celestial[one], () => Settings.Celestial[one], v => Effective.Celestial = Effective.Celestial.With(one, v)));
+            }
+            return all.ToArray();
+        }
 
         /// <summary>
         /// terraform set [&lt;key&gt; [&lt;value&gt; [confirm]]]: shows or changes a setting of the
@@ -397,6 +431,10 @@ namespace TerraformingReloaded
             {
                 text.Append(SpaceLine());
             }
+            if (key.Name == "StormFloorKelvin" || key.Name == "StormCeilingKelvin")
+            {
+                text.AppendLine("  Applies at once, to a storm already running too: only the storm's own effect on the planet temperature is limited.");
+            }
             if (key.Name == "DynamicSky" && !(bool)asked)
             {
                 text.AppendLine("  The sky stops following the air now, and keeps the look it has until this world is loaded again.");
@@ -416,6 +454,12 @@ namespace TerraformingReloaded
                 text.AppendLine((bool)asked
                     ? "  From the next planet tick, the planet keeps any gas too thin for an outdoor cell to keep, instead of handing it out to be deleted."
                     : "  From the next planet tick, a gas too thin for an outdoor cell to keep is handed out and deleted, as the game ships.");
+            }
+            if (key.Name == "CometsEnabled")
+            {
+                text.AppendLine((bool)asked
+                    ? "  Comets are on for this world, an experimental part of the mod. Any comets it already had carry on from where they stopped; terraform comet explains the commands."
+                    : "  Comets are off for this world. Its comets are kept as they are: one in flight or coming down stops where it is, a rocket running a comet action goes idle and takes it up again, and all of it carries on when comets are turned on again.");
             }
             if (key.Name == "RocketsBurnCompletely" && !(bool)asked)
             {
@@ -1103,6 +1147,7 @@ namespace TerraformingReloaded
                 + (NetworkManager.IsClient ? "" : Effective.PlanetKeepsTraceGas
                     ? ", it keeps gas too thin for outdoor air (trace hold)"
                     : ", gas too thin for outdoor air is handed out and deleted, as shipped")
+                + (Effective.CometsEnabled ? ", comets on (experimental)" : ", comets off (experimental)")
                 + "; the storm settings are under storms below; all of them with terraform set");
         }
 

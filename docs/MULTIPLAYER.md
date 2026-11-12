@@ -70,8 +70,58 @@ Nothing they see is wrong in the host's simulation, and nothing they do can chan
   them: the deleting happens in the mixing, which only the host runs. The total is sent as it stands
   with every planet update, so the host's `terraform reset confirm`, which sets it back to 0, shows on
   joining players' games within `SyncIntervalSeconds`.
+- **The storm floor and ceiling.** After space come the host's `StormFloorKelvin` and
+  `StormCeilingKelvin`, each a flag and a number, 18 bytes. The joining player's game applies them in
+  the temperature formula, so during a storm it reads what the host reads; one outside the setting's
+  range keeps the player's own for that bound.
+- **The comet in force.** Then a flag and, when set, the comet event the host is playing
+  (`docs/COMET.md` section 1), for a player who joins during one or missed its own message.
+- **The Celestial terraforming settings.** Then come all of the host's Celestial terraforming settings,
+  a count and then each value, 4 + 8 bytes a setting (132 bytes for the sixteen). The joining player's
+  game works out a comet's orbit, the sky rule's disc and whatever else it shows of a comet from them.
+  Each is checked against its range, declared once beside its key (`Comets.CelestialSettings`); one
+  outside it keeps the player's own for that setting, and a count that is not this build's is not read.
+- **The comets on the space map.** Last comes every comet on the map, each as the state it is in or set
+  off with: its gas, mass, engines and fuel, its route as node ids and each hop's delta-v, and its start on
+  the shared clock (`OrbitalSimulation.System.TotalRealTimeSeconds`, which the game sends in every state
+  update). A joining player's game places each flight by the same rule the host does, so nothing is sent
+  while one flies. The host also sends the whole list the moment it changes (made, sent, arrived, out of
+  fuel, back on the clock after a load) as a mod message of its own. A joining player's game replaces its
+  list with the host's whenever one arrives; its own copy only draws the map icons and answers
+  `terraform comet list`. About 150 bytes a comet of one gas on a three-hop route. The list carries its own
+  layout byte: 1 for 0.18.0, 2 for 0.19.0, which adds each comet's kind, ore and Cut cycles, 3 for 0.20.0,
+  which adds after the comets the target of every payload bay on a rocket at Entry (its PositionX and
+  PositionZ, 16 bytes a bay), which the game itself neither saves nor sends, and 4 from 0.21.0, in which a
+  bay's target may be NaN (a bay aiming untracked) and after the targets come the comets brought down and still
+  falling: each comet's id, kind, size, where it lands and its fall on the shared clock, 61 bytes a fall. A
+  reader that does not know the byte ignores the list. While a rocket action changes a comet every tick (Cut, Fuel, Burn), or a chip moves
+  a bay's target, the host sends the list at most every 2 s.
+- **Whether comets are on.** Last, one byte: the host's `CometsEnabled` for its world. A joining player's game
+  shows and offers comets only once the host's planet has arrived with it on; its own config never turns them
+  on. Layout 8, 0.22.5 on.
+- **The comet in the sky.** Every machine, the dedicated server included, puts a comet parked at Entry into
+  its own sky as a body circling the planet, from the list it already has: the orbit comes from the comet's
+  id, the world and the host's Celestial terraforming settings, and the game places every body by the sky's
+  clock, which it sends in every state update. So the comet is in the same place on every machine and
+  nothing is sent while it orbits. A Ground Telescope works its lock out on every machine, as it does for the
+  game's own bodies; its logic values, and the payload bay's comet readouts, are read on the host, where
+  logic runs. The Map motherboard's two icons and the glow in the sky are drawn by each player's game from
+  its own copy of the comets and the bays' targets.
+- **A comet brought down falls the same on every machine.** The host's burn takes the comet off the list and puts
+  its fall on it, sent at once; each machine warns its own player from its own copy, with that player's own
+  distance, on its own console, once, and again after a load. The impact is the comet event above, sent the same
+  way. Only the host changes the planet's air at the end of the fall; the joining players get the new air with
+  the planet sync. The body leaves each machine's sky at that machine's own game tick main-thread moment.
+- **A console comet called by a joined player** with the game's `serverrun terraform comet ...` (which needs the
+  same `ServerAuthSecret` in both games' `setting.xml`) is aimed from that player: where they stand and the way
+  their character faces, as their game sends it. Called from the host's own console on a dedicated server, it is
+  aimed from the first player online (`docs/COMET.md` section 2).
+- **The comet actions run on the host.** A rocket's mode reaches every player as the game sends any mode, a
+  raw byte the game does not check, so a joining player's panel and buttons show Cut, Fuel, Burn and Launch
+  from it, and the comet's line from that player's own copy of the comets. The miner's cycles, the deploy, the
+  fuel moving and the launch happen only where the game's simulation runs.
 - **The section's first byte says what follows.** 0 nothing, 1 the planet alone (0.10.0 and earlier),
-  2 the planet and the settings (0.10.1 to 0.11.3), 3 the planet, the settings and space (0.11.4 on). A reader takes the planet from 1 or 2 and skips any other
+  2 the planet and the settings (0.10.1 to 0.11.3), 3 the planet, the settings and space (0.11.4 to 0.13.2), 4 those and the storm bounds (0.14.0 to 0.15.0), 5 those and the comet (0.16.0 and 0.16.1), 6 those and the Celestial terraforming settings (0.17.0), 7 those and the comets on the space map (0.18.0 to 0.22.4), 8 those and whether comets are on (0.22.5 on). A reader takes the planet from 1 to 8 and skips any other
   value; a layout, once shipped, keeps its byte and a new one takes the next. Mixed versions never
   meet in practice, because the exact version match above refuses the join, so this guards a
   hand-built or mis-versioned peer, not a supported mix: a 0.10.0 game reading a 2 would skip the
@@ -130,8 +180,8 @@ planet: its own takes and gives go to its own copy, which nothing sends back.
   Between refreshes their own game ticks the copy on its own (freezing, melting, cloud tips), which
   the next refresh overwrites.
 - **Temperature.** The temperature rule runs on a joining player's game (`Climate.TemperaturePostfix`
-  checks only `Settings.Enabled`), on the host's three response settings once the first planet state
-  has arrived (`Sync.Apply`). `Climate.Lookup` rebuilds its per-world entry when those change, so the
+  checks only `Settings.Enabled`), on the host's three response settings and storm bounds once the first
+  planet state has arrived (`Sync.Apply`). `Climate.Lookup` rebuilds its per-world entry when those change, so the
   planet's temperature matches the host's. Before 0.10.1 it used the player's own config for them.
 - **Sky: follows the host's air.** On a joining player's game `Gate.SkyEnabled()` asks every
   condition of `Enabled()` except the client check, plus `Gate.HostPlanet`: set when `Sync.Read` has
@@ -204,7 +254,9 @@ dedicated server at least for readouts; it is a player's account, not a measurem
 
 - **The per-update warning and the sync bandwidth** need a multiplayer session to measure.
 - **Not seen on a second machine:** the sky and the host's settings reaching a joining player
-  (0.10.1). Both are worked out from code only.
+  (0.10.1). Both are worked out from code only. `tools/Stage8` (bt only, written for 0.22.1 and not yet run)
+  judges the planet sync, the host's settings and every comet path with a dedicated server and a rendered client
+  on one machine.
 - **The planet goes out about 20 times per sync window.** Harmless; sending once needs state the
   sync does not keep.
 - **A joining player without the mod** (possible only beside another LaunchPadBooster networking mod)

@@ -125,6 +125,23 @@ internal static class Program
             failures++;
         }
 
+        // Storm bounds: the rule by hand and across a grid, then wrong rules it must catch.
+        string bounds = TerraformingReloaded.Patching.StormBounds.Check();
+        failures += Judge(bounds == null, "storm bounds: " + (bounds ?? "a storm stops at the floor and ceiling, never moves a planet already past them, and leaves everything else alone"));
+        var wrongBounds = new (string What, Func<TerraformingReloaded.Patching.StormBounds, double, double, double> Rule)[]
+        {
+            ("clamping the whole temperature, which raises a planet already below the floor",
+                (b, t, e) => Math.Min(Math.Max(t, b.FloorKelvin ?? double.MinValue), b.CeilingKelvin ?? double.MaxValue)),
+            ("ignoring the bounds", (b, t, e) => t),
+            ("taking the storm out entirely while a bound is set", (b, t, e) => b.IsOff ? t : t - e),
+            ("swapping floor and ceiling", (b, t, e) => new TerraformingReloaded.Patching.StormBounds(b.CeilingKelvin, b.FloorKelvin).Limit(t, e)),
+        };
+        foreach (var wrong in wrongBounds)
+        {
+            string caught = TerraformingReloaded.Patching.StormBounds.Check(wrong.Rule);
+            failures += Judge(caught != null, "storm bounds check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+
         // Gas released in space. The shape check proves the places space gas reaches the planet are
         // still exactly where the rule expects. This runtime's mscorlib has no System.Span, so it
         // cannot open the body of the mixing method at all; the check is handed a counter that reads
@@ -238,6 +255,12 @@ internal static class Program
 
         failures += CheckRockets();
         failures += CheckPlanetFire();
+        failures += CheckComets();
+        failures += CheckCelestial();
+        failures += CheckCometMap();
+        failures += CheckCometSky();
+        failures += CheckSafePoint();
+        failures += CheckDeorbit();
 
         Console.WriteLine(failures == 0 ? "OK" : failures + " problem(s)");
         return failures == 0 ? 0 : 1;
@@ -721,6 +744,1342 @@ internal static class Program
     private sealed class TraceKeepsAll : TerraformingReloaded.Patching.TraceHoldRule
     {
         public override bool Deleted(double share, double exchangeRate) => true;
+    }
+
+    /// <summary>
+    /// A comet's rules (docs/COMET.md sections 2, 3, 5 and 8) by their own check, then wrong rules the
+    /// check must catch; its reactions by worked cases; and the darker sky's two postfixes bound to
+    /// their targets, which need Unity to compile.
+    /// </summary>
+    private static int CheckComets()
+    {
+        int failures = 0;
+        string rules = TerraformingReloaded.Comets.CometRules.Check(TerraformingReloaded.Comets.CometRules.Shipped);
+        failures += Judge(rules == null, "comet rules: " + (rules ?? "the safe distance outside the drawn fireball and ground zero, the wave, the push bands, the loudness and the darker sky hold docs/COMET.md's tables"));
+        var wrongRules = new (string What, TerraformingReloaded.Comets.CometRules Rules)[]
+        {
+            ("a wave that falls with the distance rather than its square", new LinearWave()),
+            ("a wave that goes on growing past a billion moles", new UncappedWave()),
+            ("a safe distance 500 m short", new ShortSafeDistance()),
+            ("a safe distance on the 0.16 log scale alone, inside the drawn fireball of a big comet", new LogScaleSafeDistance()),
+            ("a safe distance at the drawn fireball's edge, with no margin past its boils", new BareFireballSafeDistance()),
+            ("a sound as loud wherever the listener is", new FlatLoudness()),
+            ("a darker sky as deep as the 0.16 log scale made it", new LogScaleSky()),
+            ("a hard push past the game's 20 m/s", new OverspeedPush()),
+            ("suit damage that can knock a player out", new KnockoutPush()),
+            ("a gentle push with no upward part", new FlatPush()),
+            ("a sky that never clears", new StuckSky()),
+        };
+        foreach (var wrong in wrongRules)
+        {
+            string caught = TerraformingReloaded.Comets.CometRules.Check(wrong.Rules);
+            failures += Judge(caught != null, "comet rules check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        string yieldCheck = TerraformingReloaded.Comets.CometYield.Check(TerraformingReloaded.Comets.CometYield.Shipped);
+        failures += Judge(yieldCheck == null, "comet yield: " + (yieldCheck ?? string.Format(System.Globalization.CultureInfo.InvariantCulture,
+            "the wave refitted to the blast curve gives {0:0.####E+0} kt a mole, the laws hold against their sources, the fireball is never drawn inside its damage zone, the cloud stays inside the far clip",
+            TerraformingReloaded.Comets.CometYield.FitKilotonsPerMole(TerraformingReloaded.Comets.CometRules.Shipped))));
+        var wrongYields = new (string What, TerraformingReloaded.Comets.CometYield Yield)[]
+        {
+            ("a yield growing as the 2/3 power of the moles", new TwoThirdsYield()),
+            ("a yield growing with the logarithm of the moles", new LogYield()),
+            ("a yield a fifth too big", new BigYield()),
+            ("a fireball drawn by the law alone, smaller than its damage zone", new FireballInsideZone()),
+            ("a fireball growing as the cube root of the yield", new CubeRootFireball()),
+            ("a cloud rising as the cube root of the yield", new CubeRootCloud()),
+            ("a far clip of four times the impact's distance, as 0.16 had", new ShortFarClip()),
+            ("a show that outlasts the darker sky", new LongShow()),
+        };
+        foreach (var wrong in wrongYields)
+        {
+            string caught = TerraformingReloaded.Comets.CometYield.Check(wrong.Yield);
+            failures += Judge(caught != null, "comet yield check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        Console.WriteLine("billow:  " + TerraformingReloaded.Comets.CometBillow.Measure(TerraformingReloaded.Comets.CometBillow.Shipped));
+        string lookCheck = TerraformingReloaded.Comets.CometLook.Check(TerraformingReloaded.Comets.CometLook.Shipped);
+        failures += Judge(lookCheck == null, "comet look: " + (lookCheck ?? "the flash whites out the view for at most 0.3 s from anywhere, every layer of the cloud fits the part it draws and keeps its proportions at every size, the layers fit under the particle cap, the cloud's puff is a soft mass lit from above whose frames run on into each other, puffs are thin enough to blend where they cross, the cloud stands until the last 30 s of the show, and its stem and cap are fed in full and never past their limits"));
+        var wrongLooks = new (string What, TerraformingReloaded.Comets.CometLook Look)[]
+        {
+            ("a flash that fades over a second", new LingeringFlash()),
+            ("a thermal pulse that holds the view white", new WhiteThermal()),
+            ("stem puffs half as wide again as the stem", new WideStemPuffs()),
+            ("a surge whose puffs may fill the screen", new FullScreenSurge()),
+            ("cap puffs drawn from the fireball rather than the cap", new CapFromFireball()),
+            ("cloud puffs as opaque as 0.16's", new OpaquePuffs()),
+            ("a puff cut out as a disc with a hard edge", new PuffOf(new HardPuff())),
+            ("a puff full to its rim, with nothing eaten from its edge", new PuffOf(new FullPuff())),
+            ("a puff lit from below", new PuffOf(new PuffLitFromBelow())),
+            ("a puff whose frames jump where they wrap", new PuffOf(new PuffJumpsAtWrap())),
+            ("a cloud that fades over the show's last 90 s", new EarlyClearing()),
+            ("a stem and a cap fed past their limits, as 0.22.2 fed them", new OverFed()),
+            ("a cloud fed at half of what its limits hold", new UnderFed()),
+            ("a cap opened with half its limit at once", new HalfOpened()),
+        };
+        foreach (var wrong in wrongLooks)
+        {
+            string caught = TerraformingReloaded.Comets.CometLook.Check(wrong.Look);
+            failures += Judge(caught != null, "comet look check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        foreach (double moles in new[] { 1e5, 1e7, 1e9 })
+        {
+            var sizes = TerraformingReloaded.Comets.CometYield.Shipped.For(moles, TerraformingReloaded.Comets.CelestialTuning.Defaults);
+            Console.WriteLine(string.Format(System.Globalization.CultureInfo.InvariantCulture, "layers:  {0:0.#E+0} mol: {1}",
+                moles, string.Join("; ", TerraformingReloaded.Comets.CometLook.Shipped.Layers(sizes))));
+        }
+        foreach (double moles in new[] { 1e5, 1e6, 1e7, 3.6e7, 1e8, 1e9 })
+        {
+            var shipped = TerraformingReloaded.Comets.CometRules.Shipped;
+            var sizes = TerraformingReloaded.Comets.CometYield.Shipped.For(moles, TerraformingReloaded.Comets.CelestialTuning.Defaults);
+            double safe = shipped.SafeDistance(moles, TerraformingReloaded.Comets.CelestialTuning.Defaults);
+            double far = TerraformingReloaded.Comets.CometYield.Shipped.FarClipMetres(safe, 0.001 * Math.Pow((safe - 144.0) * 0.3, 2.0), sizes);
+            Console.WriteLine(string.Format(System.Globalization.CultureInfo.InvariantCulture, "table:   {0:0.#E+0} mol: {1}; far clip {2:N0} m from the safe distance, {3:N0} m",
+                moles, sizes, far, safe));
+        }
+        string zoneCheck = TerraformingReloaded.Comets.CometZones.Check(TerraformingReloaded.Comets.CometZones.Shipped);
+        failures += Judge(zoneCheck == null, "comet zones: " + (zoneCheck ?? "ground zero, the fireball's heat as far as it is drawn and the falling rocks nest in one table; the heat is the game's lava rate for the fireball's growth, inside it only; a rock is the game's suit-burst explosion, one to a square, by its chance as an ejecta blanket thins, nearest first up to the cap, never outside the falling rocks and never before the wave"));
+        var wrongZones = new (string What, TerraformingReloaded.Comets.CometZones Zones)[]
+        {
+            ("a fireball's heat at 2.24 times ground zero, smaller than the fireball drawn", new GroundZeroHeat()),
+            ("zones judged outermost first", new OutermostZone()),
+            ("a fireball's heat that falls off toward its edge", new FadingHeat()),
+            ("a fireball's heat for the thermal pulse's peak alone", new PeakHeat()),
+            ("a fireball that burns past its own edge", new HeatPastTheFireball()),
+            ("rocks past the cap", new UncappedRocks()),
+            ("rocks over the whole wave, past the falling rocks", new RocksEverywhere()),
+            ("a chance of a rock the same everywhere in the falling rocks", new EvenRocks()),
+            ("rocks the farthest first", new FarthestRocks()),
+            ("rocks that come down before the wave gets there", new EarlyRocks()),
+        };
+        foreach (var wrong in wrongZones)
+        {
+            string caught = TerraformingReloaded.Comets.CometZones.Check(wrong.Zones);
+            failures += Judge(caught != null, "comet zones check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        foreach (double moles in new[] { 1e5, 1e6, 1e7, 1.524e7, 1e8, 1e9 })
+        {
+            var shipped = TerraformingReloaded.Comets.CometRules.Shipped;
+            var tuning = TerraformingReloaded.Comets.CelestialTuning.Defaults;
+            var reach = TerraformingReloaded.Comets.CometZones.Shipped.ReachFor(moles, tuning);
+            var sizes = TerraformingReloaded.Comets.CometYield.Shipped.For(moles, tuning);
+            double safe = shipped.SafeDistance(moles, tuning);
+            Console.WriteLine(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "zones:   {0:0.###E+0} mol: {1}; burn {2:0.#} in the fireball; a rock certain at {3:N0} m, {4:0.###} at {5:N0} m; safe distance {6:N0} m, {7:0.#} kPa there; sound {8:0.##} there; sky {9:0.###} dimmer",
+                moles, reach, TerraformingReloaded.Comets.CometZones.Shipped.HeatBurn(0.5 * (reach.GroundZero + reach.Heat), reach, sizes), reach.Inner,
+                TerraformingReloaded.Comets.CometZones.Shipped.RockChance(reach.Debris, reach), reach.Debris, safe, shipped.PeakKPa(moles, safe),
+                shipped.Loudness(shipped.PeakKPa(moles, safe)), shipped.SkyDepth(moles)));
+        }
+        string ground = TerraformingReloaded.Comets.CometGround.Check(TerraformingReloaded.Comets.CometGround.Shipped);
+        failures += Judge(ground == null, "comet ground: " + (ground ?? "the impact's height from the voxels, the world's edge outside them, and the curved ground's drop as measured on Mars"));
+        var wrongGround = new (string What, TerraformingReloaded.Comets.CometGround Ground)[]
+        {
+            ("a column read only every 8 m", new StridedGround()),
+            ("the ground at the bottom of its top voxel", new GroundOneLow()),
+            ("the lowest ground in a column rather than the highest", new LowestGround()),
+            ("a point outside the voxel world read where it is", new UnclampedGround()),
+            ("a drop that starts at the viewer", new DropFromViewer()),
+            ("a drop that grows with the distance rather than its square", new LinearDrop()),
+            ("a drop that leaves out the orbital view's lift", new DropWithoutLift()),
+            ("a drop taken from the point's place before recentring", new DropNotRecentred()),
+        };
+        foreach (var wrong in wrongGround)
+        {
+            string caught = TerraformingReloaded.Comets.CometGround.Check(wrong.Ground);
+            failures += Judge(caught != null, "comet ground check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        string viewpoint = TerraformingReloaded.Comets.CometViewpoint.Check(TerraformingReloaded.Comets.CometViewpoint.Shipped);
+        failures += Judge(viewpoint == null, "comet viewpoint: " + (viewpoint ?? "a console comet is aimed from the player who ran it, a dedicated server's first player online and never its undrawn scene camera, the rig's camera, a played game's own view"));
+        var wrongViewpoints = new (string What, TerraformingReloaded.Comets.CometViewpoint Rule)[]
+        {
+            ("the camera first wherever there is one, as 0.22.0 had it", new CameraFirstViewpoint()),
+            ("the first player online before the one who ran the command", new OnlineBeforeInvoker()),
+            ("a dedicated server's undrawn camera with nobody online", new UndrawnCameraViewpoint()),
+            ("the rig's drawn camera passed over for the world origin", new NoRigCamera()),
+            ("a hosting game's own view before the joined player who ran the command", new HostBeforeInvoker()),
+        };
+        foreach (var wrong in wrongViewpoints)
+        {
+            string caught = TerraformingReloaded.Comets.CometViewpoint.Check(wrong.Rule);
+            failures += Judge(caught != null, "comet viewpoint check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        try
+        {
+            TerraformingReloaded.Comets.CometInvoker.Apply(new HarmonyLib.Harmony("patchcheck.comet.invoking.player"));
+            Console.WriteLine("applied: comet invoking player");
+        }
+        catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+        {
+            Console.WriteLine("bound:   comet invoking player (the serverrun message and the client it names found; compiling it needs Unity)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  comet invoking player: " + e.Message);
+            failures++;
+        }
+        string reactions = TerraformingReloaded.Comets.CometReactions.Check();
+        failures += Judge(reactions == null, "comet reactions: " + (reactions ?? "steam, burning, dry ice, toxic and ionised each as strong as their share, fuel burning only with an oxidiser"));
+        try
+        {
+            TerraformingReloaded.Patching.CometSky.Apply(new HarmonyLib.Harmony("patchcheck.cometsky"));
+            Console.WriteLine("applied: comet sky");
+        }
+        catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+        {
+            Console.WriteLine("bound:   comet sky (both targets found, every value it scales is there; compiling it needs Unity)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  comet sky: " + e.Message);
+            failures++;
+        }
+        return failures;
+    }
+
+    /// <summary>
+    /// The comets on the space map: the save, the map icon and the site guard go in, or bind where
+    /// compiling the patched method needs Unity. Their rules are CheckCelestial's.
+    /// </summary>
+    private static int CheckCometMap()
+    {
+        int failures = 0;
+        string save = TerraformingReloaded.Comets.CometMap.CheckSave();
+        failures += Judge(save == null, "comet map save: " + (save ?? "comets waiting, in flight and stranded read back from the save to the last bit, a flight stands where it was saved whenever its load puts it back on the clock, every node a comet refers to moves to the id the load gives it, and a comet falling at the save lands at the same clock time after its load"));
+        var parts = new (string Name, Action<HarmonyLib.Harmony> Apply)[]
+        {
+            ("comet map save", TerraformingReloaded.Comets.CometMapPatches.ApplySave),
+            ("comet map icon", TerraformingReloaded.Comets.CometMapIcons.Apply),
+            ("comet site guard", TerraformingReloaded.Comets.CometMapPatches.ApplyGuard),
+            ("comet rocket actions", TerraformingReloaded.Comets.CometActionPatches.Apply),
+            ("comet action buttons", TerraformingReloaded.Comets.CometActionPatches.ApplyButtons),
+        };
+        foreach (var part in parts)
+        {
+            try
+            {
+                part.Apply(new HarmonyLib.Harmony("patchcheck." + part.Name.Replace(' ', '.')));
+                Console.WriteLine("applied: " + part.Name);
+            }
+            catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+            {
+                Console.WriteLine("bound:   " + part.Name + " (targets found, patch bodies fit; compiling one needs Unity)");
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("FAILED:  " + part.Name + ": " + e.Message);
+                failures++;
+            }
+        }
+        return failures;
+    }
+
+    /// <summary>The camera, wherever there is one, before anyone: what a dedicated server did before 0.22.1.</summary>
+    private sealed class CameraFirstViewpoint : TerraformingReloaded.Comets.CometViewpoint
+    {
+        public override TerraformingReloaded.Comets.ViewSource Choose(TerraformingReloaded.Comets.ViewFacts f) =>
+            f.HasCamera ? TerraformingReloaded.Comets.ViewSource.Camera : base.Choose(f);
+    }
+
+    private sealed class OnlineBeforeInvoker : TerraformingReloaded.Comets.CometViewpoint
+    {
+        public override TerraformingReloaded.Comets.ViewSource Choose(TerraformingReloaded.Comets.ViewFacts f) =>
+            f.BatchMode && f.HasOnlinePlayer ? TerraformingReloaded.Comets.ViewSource.OnlinePlayer : base.Choose(f);
+    }
+
+    private sealed class UndrawnCameraViewpoint : TerraformingReloaded.Comets.CometViewpoint
+    {
+        public override TerraformingReloaded.Comets.ViewSource Choose(TerraformingReloaded.Comets.ViewFacts f) =>
+            f.BatchMode && !f.HasInvoker && !f.HasOnlinePlayer && f.HasCamera ? TerraformingReloaded.Comets.ViewSource.Camera : base.Choose(f);
+    }
+
+    private sealed class NoRigCamera : TerraformingReloaded.Comets.CometViewpoint
+    {
+        public override TerraformingReloaded.Comets.ViewSource Choose(TerraformingReloaded.Comets.ViewFacts f)
+        {
+            TerraformingReloaded.Comets.ViewSource chosen = base.Choose(f);
+            return f.BatchMode && chosen == TerraformingReloaded.Comets.ViewSource.Camera ? TerraformingReloaded.Comets.ViewSource.WorldOrigin : chosen;
+        }
+    }
+
+    private sealed class HostBeforeInvoker : TerraformingReloaded.Comets.CometViewpoint
+    {
+        public override TerraformingReloaded.Comets.ViewSource Choose(TerraformingReloaded.Comets.ViewFacts f) =>
+            !f.BatchMode && f.HasCamera ? TerraformingReloaded.Comets.ViewSource.Camera : base.Choose(f);
+    }
+
+    private sealed class StridedGround : TerraformingReloaded.Comets.CometGround
+    {
+        public override double? Surface(Func<int, double> density, int top)
+        {
+            for (int y = top; y >= 0; y -= Stride)
+            {
+                if (density(y) >= SolidDensity)
+                {
+                    return y + 1;
+                }
+            }
+            return null;
+        }
+    }
+
+    private sealed class GroundOneLow : TerraformingReloaded.Comets.CometGround
+    {
+        public override double? Surface(Func<int, double> density, int top) => base.Surface(density, top) - 1.0;
+    }
+
+    private sealed class LowestGround : TerraformingReloaded.Comets.CometGround
+    {
+        public override double? Surface(Func<int, double> density, int top)
+        {
+            for (int y = 0; y <= top; y++)
+            {
+                if (density(y) < SolidDensity)
+                {
+                    return y == 0 ? (double?)null : y;
+                }
+            }
+            return top + 1;
+        }
+    }
+
+    private sealed class UnclampedGround : TerraformingReloaded.Comets.CometGround
+    {
+        public override Column ColumnFor(double x, double z, int halfWidth) => new Column(x, z, base.ColumnFor(x, z, halfWidth).Inside);
+    }
+
+    private sealed class DropFromViewer : TerraformingReloaded.Comets.CometGround
+    {
+        public override double Drop(double metres, Curve curve) =>
+            base.Drop(metres + curve.Start, curve);
+    }
+
+    private sealed class LinearDrop : TerraformingReloaded.Comets.CometGround
+    {
+        public override double Drop(double metres, Curve curve) =>
+            Math.Max(0.0, metres - curve.Start) * curve.Amount * 0.6 - curve.Lift;
+    }
+
+    private sealed class DropWithoutLift : TerraformingReloaded.Comets.CometGround
+    {
+        public override double Drop(double metres, Curve curve) => base.Drop(metres, curve) + curve.Lift;
+    }
+
+    private sealed class DropNotRecentred : TerraformingReloaded.Comets.CometGround
+    {
+        public override double DropAt(double x, double z, double viewerX, double viewerZ, Curve curve) =>
+            Drop(Math.Sqrt((x - viewerX) * (x - viewerX) + (z - viewerZ) * (z - viewerZ)), curve);
+    }
+
+    private sealed class LinearWave : TerraformingReloaded.Comets.CometRules
+    {
+        public override double PeakKPa(double moles, double metres) => base.PeakKPa(moles, metres) * Math.Max(100.0, metres) / ReferenceMetres;
+    }
+
+    private sealed class UncappedWave : TerraformingReloaded.Comets.CometRules
+    {
+        public override double PeakKPa(double moles, double metres)
+        {
+            double ratio = ReferenceMetres / Math.Max(NearestMetres, metres);
+            return ReferencePeakKPa * Math.Pow(moles / ReferenceMoles, 2.0 / 3.0) * ratio * ratio;
+        }
+    }
+
+    private sealed class ShortSafeDistance : TerraformingReloaded.Comets.CometRules
+    {
+        public override double SafeDistance(double moles, TerraformingReloaded.Comets.CelestialTuning tuning) => base.SafeDistance(moles, tuning) - 500.0;
+    }
+
+    private sealed class LogScaleSafeDistance : TerraformingReloaded.Comets.CometRules
+    {
+        public override double SafeDistance(double moles, TerraformingReloaded.Comets.CelestialTuning tuning) => SafeBaseMetres + SafeMetresPerScale * Scale(moles);
+    }
+
+    private sealed class BareFireballSafeDistance : TerraformingReloaded.Comets.CometRules
+    {
+        public override double SafeDistance(double moles, TerraformingReloaded.Comets.CelestialTuning tuning) =>
+            Math.Max(SafeBaseMetres + SafeMetresPerScale * Scale(moles), base.SafeDistance(moles, tuning) / SafeFireballMargin);
+    }
+
+    private sealed class FlatLoudness : TerraformingReloaded.Comets.CometRules
+    {
+        public override double Loudness(double peakKPa) => 0.85;
+    }
+
+    private sealed class LogScaleSky : TerraformingReloaded.Comets.CometRules
+    {
+        public override double SkyDepth(double moles) => SkyDimSmallest + (SkyDimLargest - SkyDimSmallest) * Math.Max(0.0, Math.Min(1.0, (Scale(moles) - 1.0) / 2.0));
+    }
+
+    private sealed class GroundZeroHeat : TerraformingReloaded.Comets.CometZones
+    {
+        public override TerraformingReloaded.Comets.ZoneReach ReachFor(double moles, TerraformingReloaded.Comets.CelestialTuning tuning)
+        {
+            var reach = base.ReachFor(moles, tuning);
+            return new TerraformingReloaded.Comets.ZoneReach(reach.GroundZero, 2.24 * reach.GroundZero, reach.Debris);
+        }
+    }
+
+    private sealed class OutermostZone : TerraformingReloaded.Comets.CometZones
+    {
+        public override TerraformingReloaded.Comets.CometZone ZoneAt(double metres, TerraformingReloaded.Comets.ZoneReach reach)
+        {
+            if (metres <= reach.Debris)
+            {
+                return TerraformingReloaded.Comets.CometZone.Debris;
+            }
+            return TerraformingReloaded.Comets.CometZone.Wave;
+        }
+    }
+
+    private sealed class FadingHeat : TerraformingReloaded.Comets.CometZones
+    {
+        public override double HeatBurn(double metres, TerraformingReloaded.Comets.ZoneReach reach, TerraformingReloaded.Comets.CometSizes sizes) =>
+            base.HeatBurn(metres, reach, sizes) * Math.Max(0.0, 1.0 - metres / Math.Max(1.0, reach.Heat));
+    }
+
+    private sealed class PeakHeat : TerraformingReloaded.Comets.CometZones
+    {
+        public override double HeatBurn(double metres, TerraformingReloaded.Comets.ZoneReach reach, TerraformingReloaded.Comets.CometSizes sizes) =>
+            base.HeatBurn(metres, reach, sizes) * sizes.FlashPeakSeconds / Math.Max(1e-9, sizes.FireballSeconds);
+    }
+
+    private sealed class HeatPastTheFireball : TerraformingReloaded.Comets.CometZones
+    {
+        public override double HeatBurn(double metres, TerraformingReloaded.Comets.ZoneReach reach, TerraformingReloaded.Comets.CometSizes sizes) =>
+            metres > reach.GroundZero ? LavaBurnPerSecond * sizes.FireballSeconds : 0.0;
+    }
+
+    private sealed class UncappedRocks : TerraformingReloaded.Comets.CometZones
+    {
+        public override int[] Rocks(double[] spotMetres, TerraformingReloaded.Comets.ZoneReach reach, int seed, int cap) =>
+            base.Rocks(spotMetres, reach, seed, cap <= 0 ? 0 : int.MaxValue);
+    }
+
+    private sealed class RocksEverywhere : TerraformingReloaded.Comets.CometZones
+    {
+        public override double RockChance(double metres, TerraformingReloaded.Comets.ZoneReach reach) =>
+            metres > reach.Inner ? Math.Min(1.0, Math.Pow(reach.Inner / metres, 3.0)) : 0.0;
+    }
+
+    private sealed class EvenRocks : TerraformingReloaded.Comets.CometZones
+    {
+        public override double RockChance(double metres, TerraformingReloaded.Comets.ZoneReach reach) => base.RockChance(metres, reach) > 0.0 ? 0.5 : 0.0;
+    }
+
+    private sealed class FarthestRocks : TerraformingReloaded.Comets.CometZones
+    {
+        public override int[] Rocks(double[] spotMetres, TerraformingReloaded.Comets.ZoneReach reach, int seed, int cap)
+        {
+            if (spotMetres == null)
+            {
+                return new int[0];
+            }
+            int[] all = base.Rocks(spotMetres, reach, seed, int.MaxValue);
+            Array.Sort(all, (a, b) => spotMetres[b].CompareTo(spotMetres[a]));
+            int n = Math.Max(0, Math.Min(cap, all.Length));
+            int[] kept = new int[n];
+            Array.Copy(all, kept, n);
+            return kept;
+        }
+    }
+
+    private sealed class EarlyRocks : TerraformingReloaded.Comets.CometZones
+    {
+        public override double RockSeconds(double metres, double gravity) => gravity > 0.05 ? Math.Sqrt(2.0 * Math.Max(0.0, metres) / gravity) : WeightlessRockSeconds;
+    }
+
+    private sealed class OverspeedPush : TerraformingReloaded.Comets.CometRules
+    {
+        public override Push PushFor(double peakKPa)
+        {
+            Push push = base.PushFor(peakKPa);
+            return push.Band == 3 ? new Push(20.0, push.Up, push.SuitImpulse, 3) : push;
+        }
+    }
+
+    private sealed class KnockoutPush : TerraformingReloaded.Comets.CometRules
+    {
+        public override Push PushFor(double peakKPa)
+        {
+            Push push = base.PushFor(peakKPa);
+            return push.Band == 3 ? new Push(push.Away, push.Up, push.SuitImpulse * 2.0, 3) : push;
+        }
+    }
+
+    private sealed class FlatPush : TerraformingReloaded.Comets.CometRules
+    {
+        public override Push PushFor(double peakKPa)
+        {
+            Push push = base.PushFor(peakKPa);
+            return push.Band == 1 ? new Push(push.Away, 0.0, 0.0, 1) : push;
+        }
+    }
+
+    private sealed class StuckSky : TerraformingReloaded.Comets.CometRules
+    {
+        public override double SkyDim(double scale, double secondsSinceImpact) => base.SkyDim(scale, Math.Min(secondsSinceImpact, SkyFallSeconds));
+    }
+
+    private sealed class TwoThirdsYield : TerraformingReloaded.Comets.CometYield
+    {
+        public override double Kilotons(double moles) => base.Kilotons(1e7) * Math.Pow(base.Kilotons(moles) / base.Kilotons(1e7), 2.0 / 3.0);
+    }
+
+    private sealed class LogYield : TerraformingReloaded.Comets.CometYield
+    {
+        public override double Kilotons(double moles) => base.Kilotons(1e7) * Math.Log10(1.0 + Math.Min(moles, TerraformingReloaded.Comets.CometRules.WaveMolesCap)) / 7.0;
+    }
+
+    private sealed class BigYield : TerraformingReloaded.Comets.CometYield
+    {
+        public override double Kilotons(double moles) => 1.2 * base.Kilotons(moles);
+    }
+
+    private sealed class FireballInsideZone : TerraformingReloaded.Comets.CometYield
+    {
+        public override double DrawnFireballMetres(double kilotons, double fireballZoneMetres) => FireballLawMetres(kilotons);
+    }
+
+    private sealed class CubeRootFireball : TerraformingReloaded.Comets.CometYield
+    {
+        public override double FireballLawMetres(double kilotons) => base.FireballLawMetres(1000.0) * Math.Pow(kilotons / 1000.0, 1.0 / 3.0);
+    }
+
+    private sealed class CubeRootCloud : TerraformingReloaded.Comets.CometYield
+    {
+        public override double CloudTopMetres(double kilotons) => CloudTopMetresAt1Mt * Math.Pow(kilotons / 1000.0, 1.0 / 3.0);
+    }
+
+    private sealed class ShortFarClip : TerraformingReloaded.Comets.CometYield
+    {
+        public override double FarClipMetres(double eyeMetres, double dropMetres, TerraformingReloaded.Comets.CometSizes sizes) => 4.0 * eyeMetres;
+    }
+
+    private sealed class LongShow : TerraformingReloaded.Comets.CometYield
+    {
+        public override double ShowSeconds() => RiseSeconds * 3.0;
+    }
+
+    private sealed class LingeringFlash : TerraformingReloaded.Comets.CometLook
+    {
+        public override double FlashFadeSeconds => 1.0;
+    }
+
+    private sealed class WhiteThermal : TerraformingReloaded.Comets.CometLook
+    {
+        public override double ThermalOverlayMax => 0.97;
+    }
+
+    private sealed class WideStemPuffs : TerraformingReloaded.Comets.CometLook
+    {
+        public override double StemPuffMax => 1.6;
+    }
+
+    private sealed class FullScreenSurge : TerraformingReloaded.Comets.CometLook
+    {
+        public override double SurgeScreenShare => 1.0;
+    }
+
+    private sealed class CapFromFireball : TerraformingReloaded.Comets.CometLook
+    {
+        public override System.Collections.Generic.IList<TerraformingReloaded.Comets.CometLayer> Layers(TerraformingReloaded.Comets.CometSizes sizes)
+        {
+            var layers = new System.Collections.Generic.List<TerraformingReloaded.Comets.CometLayer>(base.Layers(sizes));
+            for (int i = 0; i < layers.Count; i++)
+            {
+                var l = layers[i];
+                if (l.Name.StartsWith("cap ", StringComparison.Ordinal) && l.PuffBasis == "cap")
+                {
+                    double r = sizes.FireballMetres;
+                    layers[i] = new TerraformingReloaded.Comets.CometLayer(l.Name, l.Count, CapPuffMin * 1.5 * r, CapPuffMax * 1.5 * r, l.GrowsTo, l.ScreenShare, l.ReachMetres, l.PuffBasis, l.ReachBasis);
+                }
+            }
+            return layers;
+        }
+    }
+
+    private sealed class OpaquePuffs : TerraformingReloaded.Comets.CometLook
+    {
+        public override double PuffAlpha => 0.95;
+    }
+
+    private sealed class EarlyClearing : TerraformingReloaded.Comets.CometLook
+    {
+        public override double CloudFade(double seconds, double showSeconds) => Math.Max(0.0, Math.Min(1.0, (showSeconds - seconds) / 90.0));
+    }
+
+    private sealed class OverFed : TerraformingReloaded.Comets.CometLook
+    {
+        public override double FedRate(int limit, double longestLife, double seconds, double feed) =>
+            limit / (0.8 * longestLife) * (1.0 + 2.0 * Math.Exp(-seconds / 40.0)) * 1.35 * Math.Max(0.0, Math.Min(1.0, feed));
+    }
+
+    private sealed class UnderFed : TerraformingReloaded.Comets.CometLook
+    {
+        public override double FedRate(int limit, double longestLife, double seconds, double feed) => 0.5 * base.FedRate(limit, longestLife, seconds, feed);
+    }
+
+    private sealed class HalfOpened : TerraformingReloaded.Comets.CometLook
+    {
+        public override int OpeningBurst(int limit, double shortestLife, double longestLife) => limit / 2;
+    }
+
+    /// <summary>The shipped look drawn with a wrong puff.</summary>
+    private sealed class PuffOf : TerraformingReloaded.Comets.CometLook
+    {
+        private readonly TerraformingReloaded.Comets.CometBillow _billow;
+
+        public PuffOf(TerraformingReloaded.Comets.CometBillow billow) => _billow = billow;
+
+        public override TerraformingReloaded.Comets.CometBillow Billow => _billow;
+    }
+
+    private sealed class HardPuff : TerraformingReloaded.Comets.CometBillow
+    {
+        public override void Frame(int frame, int size, float[] alpha, float[] shade)
+        {
+            base.Frame(frame, size, alpha, shade);
+            for (int i = 0; i < size * size; i++)
+            {
+                alpha[i] = alpha[i] > 0.3f ? 1f : 0f;
+            }
+        }
+    }
+
+    private sealed class FullPuff : TerraformingReloaded.Comets.CometBillow
+    {
+        public override double Softness => 0.0;
+
+        public override double Erosion => 0.0;
+    }
+
+    private sealed class PuffLitFromBelow : TerraformingReloaded.Comets.CometBillow
+    {
+        public override double LightY => -0.92;
+    }
+
+    private sealed class PuffJumpsAtWrap : TerraformingReloaded.Comets.CometBillow
+    {
+        public override void Frame(int frame, int size, float[] alpha, float[] shade) => base.Frame(frame / 2, size, alpha, shade);
+    }
+
+    /// <summary>
+    /// The Celestial terraforming rules (docs/COMET-ROCKETS.md) by their own check, then wrong rules the
+    /// check must catch, then the game's own figures the doc's worked examples rest on, read from the
+    /// installed game: the molar masses of the engines' premix and of water, and the methane to oxygen
+    /// ratio the game burns.
+    /// </summary>
+    private static int CheckCelestial()
+    {
+        int failures = 0;
+        string table = TerraformingReloaded.Comets.CelestialSettings.CheckTable();
+        failures += Judge(table == null, "celestial settings: " + (table ?? "each at its place, every key once, every default in its own range"));
+        string rules = TerraformingReloaded.Comets.CelestialRules.Check(TerraformingReloaded.Comets.CelestialRules.Shipped);
+        failures += Judge(rules == null, "celestial rules: " + (rules ?? "flight against the game's ticks, a comet's place along a route over time and where it runs dry, the size multiplier against the planet's size, Cut, the sky rule, the reserve, the orbit, the zones, the losses, and every default's derivation"));
+        var wrongRules = new (string What, TerraformingReloaded.Comets.CelestialRules Rules)[]
+        {
+            ("a flight that keeps the mass it started with", new ConstantMassFlight()),
+            ("a flight that leaves the engines' mass out", new MasslessEngines()),
+            ("a hop whose delta-v is its distance, not twice it", new UndoubledHop()),
+            ("a difficulty that multiplies orbit connections too", new DifficultyEverywhere()),
+            ("a comet that arrives however little fuel it has", new NeverStranded()),
+            ("a Cut that grows past the size multiplier times the site", new UncappedCut()),
+            ("a sky rule by the sine of the height, not the angle", new SineSky()),
+            ("a sky rule with east and north swapped", new MirroredSky()),
+            ("a disc the same on every curvature", new FlatDisc()),
+            ("a reserve that steers by all its fuel, however short the fall", new UncappedReach()),
+            ("a landing that overshoots the target by the rest of the reach", new OvershootLanding()),
+            ("a landing allowed out of the disc", new UnclampedLanding()),
+            ("an orbit period upside down", new InvertedOrbit()),
+            ("passes judged by the zenith's height alone", new UntiltedPasses()),
+            ("ground zero growing with the moles, not their cube root", new LinearGroundZero()),
+            ("ground zero growing past where the wave stops", new UncappedGroundZero()),
+            ("own fuel burnt one to one", new OneToOneFuel()),
+            ("a mineral comet that takes more than the planet has", new UnclampedMineral()),
+            ("a flight along a route whose mass does not fall as it burns", new ConstantMassProgress()),
+            ("a comet that goes on gaining speed once its fuel is gone", new BurnsPastItsFuel()),
+            ("progress through a hop counted over the whole route", new WholeRouteProgress()),
+            ("a comet that runs dry and is still put at the end of its route", new StrandedAtTheEnd()),
+            ("a size multiplier that ignores the planet's size", new FixedSizeMultiplier()),
+            ("a size multiplier that falls under 1 on a small planet", new UnflooredSizeMultiplier()),
+            ("a Cut cycle that grows past the size multiplier times the site", new UncappedCutCycle()),
+            ("a Cut cycle that ignores the drill head's yield", new YieldlessCut()),
+            ("a comet whose size multiplier's extra gas weighs", new HeavyMultiplier()),
+            ("fuel that moves every methane and oxygen, not only what pairs two to one", new UnpairedFuel()),
+            ("fuel that moves one methane to one oxygen", new EvenFuel()),
+            ("fuel that moves the same however big the rocket's stores are", new VolumelessFuel()),
+            ("a Burn that gives fuel without taking it from the comet", new FreeBurn()),
+            ("fuel needed that leaves out the fuel's own weight", new WeightlessFuelNeeded()),
+            ("a disc that ignores the planet's size", new SizelessDisc()),
+            ("a deorbit burn that spends the whole reserve whatever it steers", new WholeReserveSteer()),
+            ("a deorbit burn's fuel worked as thrust over the full mass, not by the rocket equation", new LinearSteer()),
+            ("an untracked burn steered toward the pad", new UntrackedToPad()),
+            ("a steer charged only for what is left after the disc's edge", new SteerAfterClamp()),
+            ("an ice comet whose every gas arrives whole", new WholeArrival()),
+            ("a mineral comet that takes all its air from the first gas", new FirstGasMineral()),
+            ("a mineral comet that takes the same moles of every gas", new EvenMineral()),
+        };
+        foreach (var wrong in wrongRules)
+        {
+            string caught = TerraformingReloaded.Comets.CelestialRules.Check(wrong.Rules);
+            failures += Judge(caught != null, "celestial rules check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+
+        // The game's figures under the doc's examples, from the installed game.
+        double methane = Mole.MolarMass(Chemistry.GasType.Methane);
+        double oxygen = Mole.MolarMass(Chemistry.GasType.Oxygen);
+        double premix = TerraformingReloaded.Comets.CelestialRules.PremixKgPerMole(methane, oxygen);
+        failures += Judge(Math.Abs(premix - 0.016) < 1e-12,
+            string.Format(CultureInfo.InvariantCulture, "the engines' 2:1 premix weighs {0:0.######} kg/mol in the game (methane {1}, oxygen {2} g/mol), as the worked example takes", premix, methane, oxygen));
+        double ratio = Combustion.ResultMethaneOxygen.FuelRatio.ToDouble();
+        failures += Judge(ratio == TerraformingReloaded.Comets.CelestialRules.MethanePerOxygen,
+            "the game burns " + ratio.ToString(CultureInfo.InvariantCulture) + " methane to one oxygen, as a comet feeding its own engines does");
+        TerraformingReloaded.Comets.Flight example = TerraformingReloaded.Comets.CelestialRules.Shipped.Fly(18000.0, 2, 16092.0, 383.0, premix);
+        failures += Judge(example.Arrives && Math.Abs(example.Seconds - 223.5) < 0.05 && Math.Abs(example.FuelMoles - 16091.7) < 1.0,
+            string.Format(CultureInfo.InvariantCulture, "an 18 t comet with two engines flies Mars Orbit to Frozen Vapors (383 delta-v) in {0:0.0} s on {1:N0} mol of the game's premix", example.Seconds, example.FuelMoles));
+        double water = Mole.MolarMass(Chemistry.GasType.Water);
+        double tonnes = TerraformingReloaded.Comets.CelestialRules.Shipped.MassKg(new[] { 2.3e6 }, new[] { water }) / 1000.0;
+        failures += Judge(Math.Abs(tonnes - 248.4) < 0.05,
+            string.Format(CultureInfo.InvariantCulture, "a comet of 2.3 million moles of water weighs {0:0.#} t at the game's {1} g/mol", tonnes, water));
+        return failures;
+    }
+
+    private sealed class ConstantMassFlight : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Flight Fly(double cometKg, int engines, double fuelMoles, double routeDeltaV, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.Flight real = base.Fly(cometKg, engines, fuelMoles, routeDeltaV, fuelKgPerMole);
+            if (engines <= 0 || !(fuelMoles > 0.0))
+            {
+                return real;
+            }
+            double mass = cometKg + EngineMassKg * engines + fuelMoles * fuelKgPerMole;
+            double accel = engines * EngineThrustNewtons / mass;
+            double flow = engines * EngineMolesPerSecond;
+            double seconds = routeDeltaV / accel;
+            if (seconds * flow <= fuelMoles)
+            {
+                return new TerraformingReloaded.Comets.Flight(seconds, seconds * flow, routeDeltaV, 1.0, true);
+            }
+            double reached = accel * fuelMoles / flow;
+            return new TerraformingReloaded.Comets.Flight(fuelMoles / flow, fuelMoles, reached, reached / routeDeltaV, false);
+        }
+    }
+
+    private sealed class MasslessEngines : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Flight Fly(double cometKg, int engines, double fuelMoles, double routeDeltaV, double fuelKgPerMole) =>
+            base.Fly(cometKg - EngineMassKg * engines, engines, fuelMoles, routeDeltaV, fuelKgPerMole);
+    }
+
+    private sealed class UndoubledHop : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double HopDeltaV(double mapDistance, bool standardConnection, double difficultyMultiplier) =>
+            base.HopDeltaV(mapDistance, standardConnection, difficultyMultiplier) / 2.0;
+    }
+
+    private sealed class DifficultyEverywhere : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double HopDeltaV(double mapDistance, bool standardConnection, double difficultyMultiplier) =>
+            base.HopDeltaV(mapDistance, true, difficultyMultiplier);
+    }
+
+    private sealed class NeverStranded : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Flight Fly(double cometKg, int engines, double fuelMoles, double routeDeltaV, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.Flight real = base.Fly(cometKg, engines, fuelMoles, routeDeltaV, fuelKgPerMole);
+            return real.Arrives || engines <= 0 || !(fuelMoles > 0.0) ? real : new TerraformingReloaded.Comets.Flight(real.Seconds, real.FuelMoles, routeDeltaV, 1.0, true);
+        }
+    }
+
+    private sealed class UncappedCut : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double CometMoles(double siteMoles, double cycles, double sharePerCycle, double sizeMultiplier) =>
+            sizeMultiplier * siteMoles * cycles * sharePerCycle;
+    }
+
+    private sealed class SineSky : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.GroundPoint SkyPoint(double padX, double padZ, double dirX, double dirY, double dirZ, double radius)
+        {
+            double length = Math.Sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+            double flat = Math.Sqrt(dirX * dirX + dirZ * dirZ);
+            double distance = radius * (1.0 - dirY / length) / 2.0;
+            return flat > 1e-12 * length
+                ? new TerraformingReloaded.Comets.GroundPoint(padX + dirX / flat * distance, padZ + dirZ / flat * distance)
+                : new TerraformingReloaded.Comets.GroundPoint(padX, padZ + distance);
+        }
+    }
+
+    private sealed class MirroredSky : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.GroundPoint SkyPoint(double padX, double padZ, double dirX, double dirY, double dirZ, double radius) =>
+            base.SkyPoint(padX, padZ, dirZ, dirY, dirX, radius);
+    }
+
+    private sealed class FlatDisc : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double DiscRadius(double settingMetres, double curvature) => settingMetres;
+    }
+
+    private sealed class UncappedReach : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double ReachMetres(double cometKg, int engines, double fuelMoles, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole) =>
+            base.ReachMetres(cometKg, engines, fuelMoles, metresPerDeltaV, 1e9, fuelKgPerMole);
+    }
+
+    private sealed class OvershootLanding : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.GroundPoint Landing(TerraformingReloaded.Comets.GroundPoint sky, TerraformingReloaded.Comets.GroundPoint target, double reachMetres, double padX, double padZ, double radius)
+        {
+            double dx = target.X - sky.X;
+            double dz = target.Z - sky.Z;
+            double gap = Math.Sqrt(dx * dx + dz * dz);
+            TerraformingReloaded.Comets.GroundPoint far = gap > 0.0
+                ? new TerraformingReloaded.Comets.GroundPoint(sky.X + dx / gap * reachMetres, sky.Z + dz / gap * reachMetres)
+                : sky;
+            return base.Landing(far, far, 0.0, padX, padZ, radius);
+        }
+    }
+
+    private sealed class UnclampedLanding : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.GroundPoint Landing(TerraformingReloaded.Comets.GroundPoint sky, TerraformingReloaded.Comets.GroundPoint target, double reachMetres, double padX, double padZ, double radius) =>
+            base.Landing(sky, target, reachMetres, padX, padZ, 1e12);
+    }
+
+    private sealed class InvertedOrbit : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double OrbitPeriodDays(double orbitSeconds, double playerPeriodDays, double timeScale) =>
+            360.0 / (orbitSeconds * playerPeriodDays * timeScale);
+    }
+
+    private sealed class UntiltedPasses : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Pass ClosestPass(double latitudeDegrees, double inclinationDegrees) =>
+            new TerraformingReloaded.Comets.Pass(Math.Abs(latitudeDegrees) / 180.0, Math.Abs(latitudeDegrees) / 180.0);
+    }
+
+    private sealed class LinearGroundZero : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double GroundZeroMetres(double moles, double metresAt1e6) =>
+            metresAt1e6 * Math.Min(Math.Max(0.0, moles), TerraformingReloaded.Comets.CometRules.WaveMolesCap) / ZoneReferenceMoles;
+    }
+
+    private sealed class UncappedGroundZero : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double GroundZeroMetres(double moles, double metresAt1e6) =>
+            metresAt1e6 * Math.Pow(Math.Max(0.0, moles) / ZoneReferenceMoles, 1.0 / 3.0);
+    }
+
+    private sealed class OneToOneFuel : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.OwnFuel BurnOwnFuel(double methane, double oxygen, double fuelWanted)
+        {
+            double burnt = Math.Min(fuelWanted, 2.0 * Math.Min(methane, oxygen));
+            return new TerraformingReloaded.Comets.OwnFuel(burnt / 2.0, burnt / 2.0);
+        }
+    }
+
+    private sealed class UnclampedMineral : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double MineralRemovedMoles(double cometKg, double airKgPerKg, double planetMoles, double planetGramsPerMole) =>
+            base.MineralRemovedMoles(cometKg, airKgPerKg, double.MaxValue, planetGramsPerMole);
+    }
+
+    private sealed class ConstantMassProgress : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double DeltaVAfter(double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            if (engines <= 0 || !(fuelMoles > 0.0) || !(seconds > 0.0))
+            {
+                return 0.0;
+            }
+            double mass = cometKg + EngineMassKg * engines + fuelMoles * fuelKgPerMole;
+            return engines * EngineThrustNewtons / mass * Math.Min(seconds, fuelMoles / (engines * EngineMolesPerSecond));
+        }
+    }
+
+    private sealed class BurnsPastItsFuel : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double DeltaVAfter(double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            double burnout = engines > 0 ? fuelMoles / (engines * EngineMolesPerSecond) : 0.0;
+            double gained = base.DeltaVAfter(cometKg, engines, fuelMoles, seconds, fuelKgPerMole);
+            return seconds > burnout && engines > 0 ? gained + engines * EngineThrustNewtons / (cometKg + EngineMassKg * engines) * (seconds - burnout) : gained;
+        }
+
+        public override TerraformingReloaded.Comets.RoutePosition PositionAt(double[] hopDeltaVs, double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.RoutePosition real = base.PositionAt(hopDeltaVs, cometKg, engines, fuelMoles, seconds, fuelKgPerMole);
+            if (real.Arrived || !real.Settled)
+            {
+                return real;
+            }
+            double route = hopDeltaVs.Sum();
+            double gained = Math.Min(route, DeltaVAfter(cometKg, engines, fuelMoles, seconds, fuelKgPerMole));
+            return new TerraformingReloaded.Comets.RoutePosition(StopAt(hopDeltaVs, gained), gained, gained >= route, gained >= route, seconds, 0.0);
+        }
+    }
+
+    private sealed class WholeRouteProgress : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.RoutePosition PositionAt(double[] hopDeltaVs, double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.RoutePosition real = base.PositionAt(hopDeltaVs, cometKg, engines, fuelMoles, seconds, fuelKgPerMole);
+            TerraformingReloaded.Comets.Stop stop = new TerraformingReloaded.Comets.Stop(real.Stop.Hop, Math.Min(1.0, real.DeltaV / hopDeltaVs.Sum()));
+            return new TerraformingReloaded.Comets.RoutePosition(stop, real.DeltaV, real.Arrived, real.Settled, real.BurnSeconds, real.FuelLeft);
+        }
+    }
+
+    private sealed class StrandedAtTheEnd : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.RoutePosition PositionAt(double[] hopDeltaVs, double cometKg, int engines, double fuelMoles, double seconds, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.RoutePosition real = base.PositionAt(hopDeltaVs, cometKg, engines, fuelMoles, seconds, fuelKgPerMole);
+            return real.Settled && !real.Arrived
+                ? new TerraformingReloaded.Comets.RoutePosition(new TerraformingReloaded.Comets.Stop(hopDeltaVs.Length - 1, 1.0), hopDeltaVs.Sum(), true, true, real.BurnSeconds, real.FuelLeft)
+                : real;
+        }
+    }
+
+    private sealed class FixedSizeMultiplier : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double SizeMultiplier(double standardMultiplier, double planetSize) => standardMultiplier;
+    }
+
+    private sealed class UnflooredSizeMultiplier : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double SizeMultiplier(double standardMultiplier, double planetSize) => standardMultiplier * planetSize / StandardPlanetSize;
+    }
+
+    private sealed class UncappedCutCycle : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double CutAdds(double siteAmount, double cometAmount, double sharePerCycle, double sizeMultiplier, double headYield) =>
+            sharePerCycle * headYield * sizeMultiplier * siteAmount;
+    }
+
+    private sealed class YieldlessCut : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double CutAdds(double siteAmount, double cometAmount, double sharePerCycle, double sizeMultiplier, double headYield) =>
+            base.CutAdds(siteAmount, cometAmount, sharePerCycle, sizeMultiplier, 1.0);
+    }
+
+    private sealed class HeavyMultiplier : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double FlightKg(double contentsKg, double massScale, double sizeMultiplierInForce) => base.FlightKg(contentsKg, massScale, 1.0);
+    }
+
+    private sealed class UnpairedFuel : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.OwnFuel PremixTransfer(double methane, double oxygen, double storesLitres, double litresPerSecond, double seconds)
+        {
+            double share = storesLitres > 0.0 ? Math.Min(1.0, litresPerSecond * seconds / storesLitres) : 0.0;
+            return new TerraformingReloaded.Comets.OwnFuel(share * methane, share * oxygen);
+        }
+    }
+
+    private sealed class EvenFuel : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.OwnFuel PremixTransfer(double methane, double oxygen, double storesLitres, double litresPerSecond, double seconds)
+        {
+            TerraformingReloaded.Comets.OwnFuel real = base.PremixTransfer(methane, oxygen, storesLitres, litresPerSecond, seconds);
+            double half = (real.Methane + real.Oxygen) / 2.0;
+            return new TerraformingReloaded.Comets.OwnFuel(half, half);
+        }
+    }
+
+    private sealed class VolumelessFuel : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.OwnFuel PremixTransfer(double methane, double oxygen, double storesLitres, double litresPerSecond, double seconds) =>
+            base.PremixTransfer(methane, oxygen, storesLitres > 0.0 ? 1500.0 : 0.0, litresPerSecond, seconds);
+    }
+
+    private sealed class FreeBurn : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double[] AfterBurn(double[] moles, int methane, int oxygen, double wanted, out double fuelGained)
+        {
+            base.AfterBurn(moles, methane, oxygen, wanted, out fuelGained);
+            return (double[])moles.Clone();
+        }
+    }
+
+    private sealed class WeightlessFuelNeeded : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double FuelNeeded(double cometKg, int engines, double routeDeltaV, double fuelKgPerMole)
+        {
+            if (engines <= 0)
+            {
+                return 0.0;
+            }
+            double dry = cometKg + EngineMassKg * engines;
+            return dry * routeDeltaV / (EngineThrustNewtons / (EngineMolesPerSecond * fuelKgPerMole)) / fuelKgPerMole;
+        }
+    }
+
+    private sealed class WholeReserveSteer : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double SteerFuelMoles(double cometKg, int engines, double fuelMoles, double metres, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole) =>
+            metres > 0.0 ? base.SteerFuelMoles(cometKg, engines, fuelMoles, 1e12, metresPerDeltaV, windowSeconds, fuelKgPerMole) : 0.0;
+    }
+
+    private sealed class LinearSteer : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double SteerFuelMoles(double cometKg, int engines, double fuelMoles, double metres, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole)
+        {
+            if (engines <= 0 || !(fuelMoles > 0.0) || !(metres > 0.0) || !(metresPerDeltaV > 0.0))
+            {
+                return 0.0;
+            }
+            double start = cometKg + EngineMassKg * engines + fuelMoles * fuelKgPerMole;
+            double exhaust = EngineThrustNewtons / (EngineMolesPerSecond * fuelKgPerMole);
+            double most = Math.Min(fuelMoles * fuelKgPerMole, engines * EngineMolesPerSecond * fuelKgPerMole * windowSeconds);
+            return Math.Min(most, start * metres / metresPerDeltaV / exhaust) / fuelKgPerMole;
+        }
+    }
+
+    private sealed class UntrackedToPad : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Descent Descend(TerraformingReloaded.Comets.GroundPoint sky, TerraformingReloaded.Comets.GroundPoint? target, double padX, double padZ, double radius,
+            double cometKg, int engines, double fuelMoles, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole) =>
+            base.Descend(sky, target ?? new TerraformingReloaded.Comets.GroundPoint(padX, padZ), padX, padZ, radius, cometKg, engines, fuelMoles, metresPerDeltaV, windowSeconds, fuelKgPerMole);
+    }
+
+    private sealed class SteerAfterClamp : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override TerraformingReloaded.Comets.Descent Descend(TerraformingReloaded.Comets.GroundPoint sky, TerraformingReloaded.Comets.GroundPoint? target, double padX, double padZ, double radius,
+            double cometKg, int engines, double fuelMoles, double metresPerDeltaV, double windowSeconds, double fuelKgPerMole)
+        {
+            TerraformingReloaded.Comets.Descent d = base.Descend(sky, target, padX, padZ, radius, cometKg, engines, fuelMoles, metresPerDeltaV, windowSeconds, fuelKgPerMole);
+            double dx = d.Land.X - sky.X;
+            double dz = d.Land.Z - sky.Z;
+            double moved = Math.Sqrt(dx * dx + dz * dz);
+            double spent = SteerFuelMoles(cometKg, engines, fuelMoles, moved, metresPerDeltaV, windowSeconds, fuelKgPerMole);
+            return new TerraformingReloaded.Comets.Descent(d.Land, d.Reach, moved, spent, fuelMoles - spent);
+        }
+    }
+
+    private sealed class WholeArrival : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double[] ArrivingGas(double[] moles, double share) => (double[])moles.Clone();
+    }
+
+    private sealed class FirstGasMineral : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double[] MineralRemoval(double[] airMoles, double[] gramsPerMole, double cometKg, double airKgPerKg)
+        {
+            double[] removed = base.MineralRemoval(airMoles, gramsPerMole, cometKg, airKgPerKg);
+            double total = 0.0;
+            foreach (double one in removed)
+            {
+                total += one;
+            }
+            double[] first = new double[removed.Length];
+            if (first.Length > 0)
+            {
+                first[0] = Math.Min(total, airMoles[0]);
+            }
+            return first;
+        }
+    }
+
+    private sealed class EvenMineral : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double[] MineralRemoval(double[] airMoles, double[] gramsPerMole, double cometKg, double airKgPerKg)
+        {
+            double[] removed = base.MineralRemoval(airMoles, gramsPerMole, cometKg, airKgPerKg);
+            double total = 0.0;
+            foreach (double one in removed)
+            {
+                total += one;
+            }
+            double[] even = new double[removed.Length];
+            for (int i = 0; i < even.Length; i++)
+            {
+                even[i] = Math.Min(airMoles[i], total / even.Length);
+            }
+            return even;
+        }
+    }
+
+    private sealed class SizelessDisc : TerraformingReloaded.Comets.CelestialRules
+    {
+        public override double DiscRadiusAt(double settingMetres, double curvature, double standardMultiplier, double planetSize, TerraformingReloaded.Comets.CelestialTuning zones) => DiscRadius(settingMetres, curvature);
+    }
+
+    /// <summary>
+    /// The comet in the sky (docs/COMET-ROCKETS.md, stage 5): the sky rules by their own check, then wrong
+    /// rules the check must catch; then the three parts go in, or bind where compiling the patched method
+    /// needs Unity. The sky body patches nothing, so it applies here as it does at load.
+    /// </summary>
+    private static int CheckCometSky()
+    {
+        int failures = 0;
+        string rules = TerraformingReloaded.Comets.CometSkyRules.Check(TerraformingReloaded.Comets.CometSkyRules.Shipped);
+        failures += Judge(rules == null, "comet sky rules: " + (rules ?? "Unity's rotations, the day's angle, the scene rotation and the planet's axis in it, a body seen from the planet, a round orbit's place and its pole the tilt from the axis, bearings, the telescope's angles, and the time to a comet's highest"));
+        var wrongRules = new (string What, TerraformingReloaded.Comets.CometSkyRules Rules)[]
+        {
+            ("a scene rotation turned in the wrong order", new SkyTurnedFirst()),
+            ("a latitude that tips the sky the wrong way", new SkyLatitudeFlipped()),
+            ("a scene rotation that leaves the longitude out", new SkyWithoutLongitude()),
+            ("a body seen from itself, not from the planet", new SkySeenBackwards()),
+            ("a day that turns once a degree of orbit, not once a day", new SkyDayOfOrbit()),
+            ("a planet turning backwards counted forwards", new SkyRetrogradeIgnored()),
+            ("an orbit's node taken in degrees", new SkyNodeInDegrees()),
+            ("an orbit tilted from the sky's frame, not the planet's equator", new SkyTiltFromFrame()),
+            ("a bearing measured from east", new SkyAzimuthFromEast()),
+            ("a height measured along north", new SkyHeightFromNorth()),
+            ("a telescope tipped up by the height, not down from straight up", new SkyVerticalAsHeight()),
+            ("a next pass that is the comet rising, not its highest", new SkyNextRise()),
+            ("an anomaly that runs at the comet's period over the planet's", new SkyAnomalyInverted()),
+        };
+        foreach (var wrong in wrongRules)
+        {
+            string caught = TerraformingReloaded.Comets.CometSkyRules.Check(wrong.Rules);
+            failures += Judge(caught != null, "comet sky rules check fails " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        var parts = new (string Name, Action<HarmonyLib.Harmony> Apply)[]
+        {
+            ("comet sky body", _ => TerraformingReloaded.Comets.CometSkyBodies.Apply()),
+            ("comet sky safe point", h => TerraformingReloaded.Comets.CometSkyBodies.ApplySafePoint(h, CecilCallNames)),
+            ("comet aim readouts", TerraformingReloaded.Comets.CometAim.ApplyReadouts),
+            ("comet map motherboard icons", TerraformingReloaded.Comets.CometSkyIcons.Apply),
+        };
+        foreach (var part in parts)
+        {
+            try
+            {
+                part.Apply(new HarmonyLib.Harmony("patchcheck." + part.Name.Replace(' ', '.')));
+                Console.WriteLine("applied: " + part.Name);
+            }
+            catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+            {
+                Console.WriteLine("bound:   " + part.Name + " (targets found, patch bodies fit; compiling one needs Unity)");
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("FAILED:  " + part.Name + ": " + e.Message);
+                failures++;
+            }
+        }
+        return failures;
+    }
+
+    /// <summary>
+    /// The moment a comet leaves the sky: the game tick's own body, read from the assembly with Mono.Cecil, sets
+    /// the sea's level on the main thread before its one switch to other threads and runs the logic tick only
+    /// after it; and the order check refuses a tick that does them any other way.
+    /// </summary>
+    private static int CheckSafePoint()
+    {
+        int failures = 0;
+        MethodInfo tick = HarmonyLib.AccessTools.DeclaredMethod(typeof(Assets.Scripts.GameManager), "GameTick");
+        Type machine = tick?.GetCustomAttribute<System.Runtime.CompilerServices.AsyncStateMachineAttribute>()?.StateMachineType;
+        MethodInfo body = machine == null ? null : HarmonyLib.AccessTools.DeclaredMethod(machine, "MoveNext");
+        if (body == null)
+        {
+            Console.WriteLine("FAILED:  comet sky safe point: the game tick's body is gone");
+            return 1;
+        }
+        List<string> calls = CecilCallNames(body);
+        string order = TerraformingReloaded.Comets.CometSkyBodies.SafePointOrder(calls);
+        failures += Judge(order == null, "comet sky safe point: " + (order ?? "the game tick sets the sea's level on the main thread once, then leaves it once for its off-thread work, the logic tick among it, then comes back once"));
+        // The game reads the same order through the runtime's own view of the method; it must agree here.
+        try
+        {
+            TerraformingReloaded.Comets.CometSkyBodies.ApplySafePoint(new HarmonyLib.Harmony("patchcheck.safepoint.runtime"));
+            Console.WriteLine("checked: comet sky safe point, read through the runtime as the game reads it, takes the game tick's order too");
+        }
+        catch (Exception e) when (e.ToString().Contains("ECall methods must be packaged"))
+        {
+            Console.WriteLine("bound:   comet sky safe point through the runtime (the order was read; compiling the patch needs Unity)");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAILED:  comet sky safe point through the runtime: " + e.Message);
+            failures++;
+        }
+        int liquid = calls.IndexOf("GlobalAtmosphereLiquid.UpdateLiquid");
+        int away = calls.IndexOf("UniTask.SwitchToThreadPool");
+        int logic = calls.IndexOf("LogicStack.LogicStackTick");
+        var wrongs = new (string What, List<string> Calls)[]
+        {
+            ("the sea's level set after the tick has left the main thread", Moved(calls, liquid, away + 1)),
+            ("the logic tick run before the tick leaves the main thread", Moved(calls, logic, away)),
+            ("the tick leaving the main thread twice", Inserted(calls, liquid, "UniTask.SwitchToThreadPool")),
+            ("no logic tick at all", calls.Where(c => c != "LogicStack.LogicStackTick").ToList()),
+        };
+        foreach (var wrong in wrongs)
+        {
+            string caught = TerraformingReloaded.Comets.CometSkyBodies.SafePointOrder(wrong.Calls);
+            failures += Judge(caught != null, "comet sky safe point order check refuses " + wrong.What + (caught != null ? ": " + caught : ""));
+        }
+        return failures;
+    }
+
+    /// <summary>
+    /// Deorbit: its warning by its own check, and the part itself refused while a part it rests on is off. Here
+    /// the rocket actions only bind (their save guard needs Unity), so the refusal is what can be seen.
+    /// </summary>
+    private static int CheckDeorbit()
+    {
+        int failures = 0;
+        string warning = TerraformingReloaded.Comets.CometLand.CheckWarning();
+        failures += Judge(warning == null, "comet deorbit warning: " + (warning ?? "the seconds to impact, a player's distance and compass direction from it, or where it lands with no player, and what it brings or takes"));
+        bool refused = false;
+        try
+        {
+            TerraformingReloaded.Comets.CometLand.Apply();
+        }
+        catch (InvalidOperationException e)
+        {
+            refused = e.Message.Contains("rocket actions False");
+        }
+        failures += Judge(refused && !TerraformingReloaded.Comets.CometLand.Installed, "comet deorbit is refused while the rocket actions are off, as they are outside Unity");
+        return failures;
+    }
+
+    private static List<string> Moved(List<string> calls, int from, int to)
+    {
+        List<string> moved = new List<string>(calls);
+        string one = moved[from];
+        moved.RemoveAt(from);
+        moved.Insert(Math.Min(to, moved.Count), one);
+        return moved;
+    }
+
+    private static List<string> Inserted(List<string> calls, int at, string call)
+    {
+        List<string> more = new List<string>(calls);
+        more.Insert(at, call);
+        return more;
+    }
+
+    /// <summary>Every call a method makes, in its code's order, as declaring type and name, read through Mono.Cecil.</summary>
+    private static List<string> CecilCallNames(MethodBase method)
+    {
+        string path = method.Module.FullyQualifiedName;
+        if (!Modules.TryGetValue(path, out object read))
+        {
+            read = Mono.Cecil.ModuleDefinition.ReadModule(path);
+            Modules[path] = read;
+        }
+        Mono.Cecil.MethodDefinition definition = ((Mono.Cecil.ModuleDefinition)read).LookupToken(method.MetadataToken) as Mono.Cecil.MethodDefinition;
+        if (definition == null || !definition.HasBody)
+        {
+            throw new InvalidOperationException("Mono.Cecil did not find the body of " + method.DeclaringType + "." + method.Name);
+        }
+        return definition.Body.Instructions
+            .Where(i => (i.OpCode == Mono.Cecil.Cil.OpCodes.Call || i.OpCode == Mono.Cecil.Cil.OpCodes.Callvirt) && i.Operand is Mono.Cecil.MethodReference)
+            .Select(i => ((Mono.Cecil.MethodReference)i.Operand).DeclaringType.Name + "." + ((Mono.Cecil.MethodReference)i.Operand).Name)
+            .ToList();
+    }
+
+    private sealed class SkyTurnedFirst : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyRotation SceneRotation(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime) =>
+            TerraformingReloaded.Comets.SkyRotation.AngleAxis(DayAngle(frame, simulationTime) + frame.LongitudeDegrees, frame.Axis)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(-90.0, TerraformingReloaded.Comets.SkyVector.Right)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(frame.LatitudeDegrees, TerraformingReloaded.Comets.SkyVector.Right);
+    }
+
+    private sealed class SkyLatitudeFlipped : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyRotation SceneRotation(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime) =>
+            TerraformingReloaded.Comets.SkyRotation.AngleAxis(-90.0, TerraformingReloaded.Comets.SkyVector.Right)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(-frame.LatitudeDegrees, TerraformingReloaded.Comets.SkyVector.Right)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(DayAngle(frame, simulationTime) + frame.LongitudeDegrees, frame.Axis);
+    }
+
+    private sealed class SkyWithoutLongitude : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyRotation SceneRotation(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime) =>
+            TerraformingReloaded.Comets.SkyRotation.AngleAxis(-90.0, TerraformingReloaded.Comets.SkyVector.Right)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(frame.LatitudeDegrees, TerraformingReloaded.Comets.SkyVector.Right)
+            * TerraformingReloaded.Comets.SkyRotation.AngleAxis(DayAngle(frame, simulationTime), frame.Axis);
+    }
+
+    private sealed class SkySeenBackwards : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyVector SkyDirection(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime, TerraformingReloaded.Comets.SkyVector planetLessBody) =>
+            base.SkyDirection(frame, simulationTime, -planetLessBody);
+    }
+
+    private sealed class SkyDayOfOrbit : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override double DayAngle(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime) => (float)((frame.EpochDegrees + simulationTime) % 360.0);
+    }
+
+    private sealed class SkyRetrogradeIgnored : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override double DayAngle(TerraformingReloaded.Comets.SkyFrame frame, double simulationTime) =>
+            base.DayAngle(new TerraformingReloaded.Comets.SkyFrame(frame.Axis, frame.LatitudeDegrees, frame.LongitudeDegrees, frame.EpochDegrees, frame.SolDegreesPerDay, false, frame.PeriodDays, frame.TimeScale), simulationTime);
+    }
+
+    private sealed class SkyNodeInDegrees : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyVector OrbitOffset(TerraformingReloaded.Comets.SkyOrbit orbit, double anomalyDegrees) =>
+            base.OrbitOffset(new TerraformingReloaded.Comets.SkyOrbit(orbit.PeriodDays, orbit.InclinationDegrees, orbit.AscendingNodeRadians * Math.PI / 180.0,
+                orbit.PeriapsisRadians, orbit.SemiMajorAxisAu, orbit.EpochDegrees), anomalyDegrees);
+    }
+
+    private sealed class SkyTiltFromFrame : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.SkyOrbit OrbitFor(TerraformingReloaded.Comets.SkyFrame frame, double orbitSeconds, double tiltDegrees, double phaseDegrees, double semiMajorAxisAu)
+        {
+            TerraformingReloaded.Comets.SkyOrbit right = base.OrbitFor(frame, orbitSeconds, tiltDegrees, phaseDegrees, semiMajorAxisAu);
+            return new TerraformingReloaded.Comets.SkyOrbit(right.PeriodDays, (float)tiltDegrees, 0.0, 0.0, semiMajorAxisAu, right.EpochDegrees);
+        }
+    }
+
+    private sealed class SkyAzimuthFromEast : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.Bearing BearingOf(TerraformingReloaded.Comets.SkyVector direction)
+        {
+            TerraformingReloaded.Comets.Bearing right = base.BearingOf(direction);
+            double azimuth = Math.Atan2(direction.Z, direction.X) * 180.0 / Math.PI;
+            return new TerraformingReloaded.Comets.Bearing(azimuth < 0.0 ? azimuth + 360.0 : azimuth, right.Height);
+        }
+    }
+
+    private sealed class SkyHeightFromNorth : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.Bearing BearingOf(TerraformingReloaded.Comets.SkyVector direction)
+        {
+            TerraformingReloaded.Comets.Bearing right = base.BearingOf(direction);
+            double length = direction.Length;
+            return new TerraformingReloaded.Comets.Bearing(right.Azimuth, length > 0.0 ? Math.Asin(direction.Z / length) * 180.0 / Math.PI : 0.0);
+        }
+    }
+
+    private sealed class SkyVerticalAsHeight : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override TerraformingReloaded.Comets.TelescopeAim AimFor(TerraformingReloaded.Comets.Bearing bearing) =>
+            new TerraformingReloaded.Comets.TelescopeAim(bearing.Azimuth, Math.Max(0.0, Math.Min(90.0, bearing.Height)), bearing.Height >= 0.0);
+    }
+
+    private sealed class SkyNextRise : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override double NextHighestSeconds(TerraformingReloaded.Comets.SkyFrame frame, TerraformingReloaded.Comets.SkyOrbit orbit, double simulationTime, double withinSeconds)
+        {
+            double step = 0.01;
+            double before = BearingOf(CometDirection(frame, orbit, simulationTime)).Height;
+            for (double seconds = step; seconds <= withinSeconds; seconds += step)
+            {
+                double now = BearingOf(CometDirection(frame, orbit, simulationTime + seconds * frame.TimeScale)).Height;
+                if (before <= 0.0 && now > 0.0)
+                {
+                    return seconds;
+                }
+                before = now;
+            }
+            return double.NaN;
+        }
+    }
+
+    private sealed class SkyAnomalyInverted : TerraformingReloaded.Comets.CometSkyRules
+    {
+        public override double Anomaly(TerraformingReloaded.Comets.SkyOrbit orbit, double planetPeriodDays, double simulationTime) =>
+            orbit.EpochDegrees + orbit.PeriodDays / planetPeriodDays * simulationTime;
     }
 
     private static int Judge(bool passed, string what)

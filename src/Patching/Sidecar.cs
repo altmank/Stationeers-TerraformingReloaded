@@ -62,6 +62,12 @@ namespace TerraformingReloaded.Patching
         public double? MildAtmosphereMaxToxinsKpa;
         public bool? MildAtmosphereStopsSolarStorms;
 
+        /// <summary>Null means no floor, recorded or not: a world saved before the setting existed has none.</summary>
+        public double? StormFloorKelvin;
+
+        /// <summary>Null means no ceiling, recorded or not: a world saved before the setting existed has none.</summary>
+        public double? StormCeilingKelvin;
+
         public bool? TraceGasGatheringEnabled;
         public double? TraceGasGathering;
         public double? TraceGasLine;
@@ -94,11 +100,39 @@ namespace TerraformingReloaded.Patching
         public bool? PlanetKeepsTraceGas;
 
         /// <summary>
+        /// Not recorded is the config's, like every setting that only changes behaviour, and the
+        /// config's default is off: comets are experimental. Off keeps a world's comets as they are.
+        /// </summary>
+        public bool? CometsEnabled;
+
+        /// <summary>
         /// Not a setting: the part of the planet's added heat that its own fire booked, in joules,
         /// which the added heat limit does not apply to. Written with every save that changed it.
         /// Not recorded is none, so the limit applies to all of the added heat a save carries.
         /// </summary>
         public double? PlanetFireHeatJoules;
+
+        /// <summary>
+        /// The Celestial terraforming settings, one entry per key (Comets.CelestialSettings). Not recorded,
+        /// or a key not in it, is the config's, like every setting that only changes behaviour.
+        /// </summary>
+        [XmlArray("Celestial")]
+        [XmlArrayItem("Setting")]
+        public List<CelestialEntry> Celestial;
+    }
+
+    /// <summary>
+    /// One Celestial terraforming setting as a world's file records it. The value is text and is parsed
+    /// on the way in, so a hand edit that is not a number is refused like one out of range rather than
+    /// failing the whole file, and a missing value is not a recorded 0.
+    /// </summary>
+    public class CelestialEntry
+    {
+        [XmlAttribute("Key")]
+        public string Key;
+
+        [XmlAttribute("Value")]
+        public string Value;
     }
 
     /// <summary>
@@ -472,9 +506,10 @@ namespace TerraformingReloaded.Patching
         /// means by a field the version that wrote it did not know: the ceiling falls to none, the
         /// rest fall back to the config.
         ///
-        /// Null in the two fields the config flags with 0 is a recorded state, not an absence: no
-        /// ceiling, and heat that never fades. A 0 in either of them in the file is the config's
-        /// sentinel leaking through a hand edit, and is out of range exactly like a negative is.
+        /// Null in the four fields the config flags with 0 is a recorded state, not an absence: no
+        /// ceiling, heat that never fades, and no storm floor or ceiling. A 0 in any of them in the
+        /// file is the config's sentinel leaking through a hand edit, and is out of range exactly
+        /// like a negative is.
         /// </summary>
         private static void Take(SidecarFile file, string path)
         {
@@ -536,6 +571,12 @@ namespace TerraformingReloaded.Patching
                 Recorded(file.MildAtmosphereMaxToxinsKpa, Limits.MildAtmosphereMaxToxinsKpa, "MildAtmosphereMaxToxinsKpa", bad)
                 ?? Settings.MildAtmosphereMaxToxinsKpa;
             Effective.MildAtmosphereStopsSolarStorms = file.MildAtmosphereStopsSolarStorms ?? Settings.MildAtmosphereStopsSolarStorms;
+            // Null is a recorded "no bound", like the half-life's "never fades"; a refused value
+            // keeps the config's, which TakeFromConfig has already put there.
+            StormBounds configBounds = Effective.StormBounds;
+            Effective.StormBounds = new StormBounds(
+                RecordedBound(file.StormFloorKelvin, Limits.StormFloorKelvin, "StormFloorKelvin", configBounds.FloorKelvin, bad),
+                RecordedBound(file.StormCeilingKelvin, Limits.StormCeilingKelvin, "StormCeilingKelvin", configBounds.CeilingKelvin, bad));
             Effective.TraceGasGatheringEnabled = file.TraceGasGatheringEnabled ?? Settings.TraceGasGatheringEnabled;
             Effective.TraceGasGathering =
                 Recorded(file.TraceGasGathering, Limits.TraceGasGathering, "TraceGasGathering", bad)
@@ -547,6 +588,7 @@ namespace TerraformingReloaded.Patching
             Effective.PlanetAirBurns = file.PlanetAirBurns ?? Settings.PlanetAirBurns;
             Effective.PlanetHoldsBackWhileIgnitable = file.PlanetHoldsBackWhileIgnitable ?? Settings.PlanetHoldsBackWhileIgnitable;
             Effective.PlanetKeepsTraceGas = file.PlanetKeepsTraceGas ?? Settings.PlanetKeepsTraceGas;
+            Effective.CometsEnabled = file.CometsEnabled ?? Settings.CometsEnabled;
 
             // Deletes gas, so not recorded is off and never the config's (the ceiling's rule).
             Effective.SpaceDeletionFromWorldFile(file.SpaceDeletesGas);
@@ -559,6 +601,7 @@ namespace TerraformingReloaded.Patching
             double fireHeat = Recorded(file.PlanetFireHeatJoules, Limits.PlanetFireHeatJoules, "PlanetFireHeatJoules", bad) ?? 0.0;
             PlanetCombustion.SetHeat(fireHeat);
             _recordedFireHeat = fireHeat;
+            Effective.Celestial = RecordedCelestial(file.Celestial, bad);
 
             if (bad.Count == 0)
             {
@@ -595,6 +638,65 @@ namespace TerraformingReloaded.Patching
         }
 
         /// <summary>
+        /// The Celestial terraforming settings as the file recorded them, each checked against its own
+        /// range from the one declaration in Comets.CelestialSettings; the config's for any the file does
+        /// not record or that cannot be taken. A key the file holds that this build does not know is
+        /// ignored, as an unknown element is. The first entry for a key is the one taken.
+        /// </summary>
+        private static Comets.CelestialTuning RecordedCelestial(List<CelestialEntry> entries, List<string> bad)
+        {
+            Comets.CelestialTuning tuning = Settings.Celestial;
+            if (entries == null)
+            {
+                return tuning;
+            }
+            foreach (Comets.CelestialSetting setting in Comets.CelestialSettings.All)
+            {
+                CelestialEntry entry = entries.Find(e => e != null && string.Equals(e.Key, setting.Key, StringComparison.Ordinal));
+                if (entry == null)
+                {
+                    continue;
+                }
+                string field = "Celestial " + setting.Key;
+                if (!double.TryParse(entry.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+                {
+                    bad.Add(field + " '" + entry.Value + "' (not a number; allowed: " + setting.Range + ")");
+                    continue;
+                }
+                double? kept = Recorded(value, setting.Range, field, bad);
+                if (kept.HasValue)
+                {
+                    tuning = tuning.With(setting, kept.Value);
+                }
+            }
+            return tuning;
+        }
+
+        /// <summary>The Celestial terraforming values in force, as the file records them: every key, written whole.</summary>
+        private static List<CelestialEntry> CelestialEntries(Comets.CelestialTuning tuning)
+        {
+            List<CelestialEntry> entries = new List<CelestialEntry>();
+            foreach (Comets.CelestialSetting setting in Comets.CelestialSettings.All)
+            {
+                entries.Add(new CelestialEntry { Key = setting.Key, Value = tuning[setting].ToString("R", CultureInfo.InvariantCulture) });
+            }
+            return entries;
+        }
+
+        /// <summary>
+        /// One storm bound as the file recorded it: none when the file records none, the value when it
+        /// is one the setting can take, and <paramref name="config"/> plus a name on the list when not.
+        /// </summary>
+        private static double? RecordedBound(double? value, Range range, string field, double? config, List<string> bad)
+        {
+            if (!value.HasValue)
+            {
+                return null;
+            }
+            return Recorded(value, range.AboveMin, field, bad) ?? config;
+        }
+
+        /// <summary>
         /// Copies the config into the values in force, except the pressure ceiling, which this
         /// cannot touch: a loaded world's ceiling comes out of its own file or nowhere, and a new
         /// world's out of <see cref="Effective.CeilingForNewWorld"/>. None of the rest can delete
@@ -624,6 +726,9 @@ namespace TerraformingReloaded.Patching
             Effective.MildAtmosphereMaxPressureKpa = Settings.MildAtmosphereMaxPressureKpa;
             Effective.MildAtmosphereMaxToxinsKpa = Settings.MildAtmosphereMaxToxinsKpa;
             Effective.MildAtmosphereStopsSolarStorms = Settings.MildAtmosphereStopsSolarStorms;
+            Effective.StormBounds = new StormBounds(
+                Settings.StormFloorKelvin > 0.0 ? (double?)Settings.StormFloorKelvin : null,
+                Settings.StormCeilingKelvin > 0.0 ? (double?)Settings.StormCeilingKelvin : null);
             Effective.TraceGasGatheringEnabled = Settings.TraceGasGatheringEnabled;
             Effective.TraceGasGathering = Settings.TraceGasGathering;
             Effective.TraceGasLine = Settings.TraceGasLine;
@@ -631,6 +736,9 @@ namespace TerraformingReloaded.Patching
             Effective.PlanetAirBurns = Settings.PlanetAirBurns;
             Effective.PlanetHoldsBackWhileIgnitable = Settings.PlanetHoldsBackWhileIgnitable;
             Effective.PlanetKeepsTraceGas = Settings.PlanetKeepsTraceGas;
+            // A client's own config never shows it comets: on a client only the host's switch counts.
+            Effective.CometsEnabled = Settings.CometsEnabled && !NetworkManager.IsClient;
+            Effective.Celestial = Settings.Celestial;
         }
 
         /// <summary>
@@ -675,7 +783,7 @@ namespace TerraformingReloaded.Patching
         /// </summary>
         public static void TakenFromHost()
         {
-            _source = "this is a network client, so no file is read or written; the three response settings and the sky are the host's, sent with its planet, and the rest are not used here";
+            _source = "this is a network client, so no file is read or written; the three response settings, the sky, the storm bounds and the Celestial terraforming settings are the host's, sent with its planet, and the rest are not used here";
         }
 
         // ---- SaveHelper.CreateSaveDirectory (postfix, an Extra so it fails soft) ------------------
@@ -811,6 +919,8 @@ namespace TerraformingReloaded.Patching
                     MildAtmosphereMaxPressureKpa = Effective.MildAtmosphereMaxPressureKpa,
                     MildAtmosphereMaxToxinsKpa = Effective.MildAtmosphereMaxToxinsKpa,
                     MildAtmosphereStopsSolarStorms = Effective.MildAtmosphereStopsSolarStorms,
+                    StormFloorKelvin = Effective.StormBounds.FloorKelvin,
+                    StormCeilingKelvin = Effective.StormBounds.CeilingKelvin,
                     TraceGasGatheringEnabled = Effective.TraceGasGatheringEnabled,
                     TraceGasGathering = Effective.TraceGasGathering,
                     TraceGasLine = Effective.TraceGasLine,
@@ -820,7 +930,9 @@ namespace TerraformingReloaded.Patching
                     PlanetAirBurns = Effective.PlanetAirBurns,
                     PlanetHoldsBackWhileIgnitable = Effective.PlanetHoldsBackWhileIgnitable,
                     PlanetKeepsTraceGas = Effective.PlanetKeepsTraceGas,
+                    CometsEnabled = Effective.CometsEnabled,
                     PlanetFireHeatJoules = fireHeat,
+                    Celestial = CelestialEntries(Effective.Celestial),
                 };
                 string path = Path.Combine(folder, FileName);
                 Salvage(path);

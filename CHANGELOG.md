@@ -4,6 +4,319 @@
 
 - Host tools start PowerShell 7 (the live-check and leak-test scripts need `pwsh`).
 
+## 0.22.5 (prototype)
+
+- **Comets are now experimental and off by default.** Every world, new or saved, has no comets until you
+  turn them on for it with `terraform set CometsEnabled true`, at your own risk (or `CometsEnabled` in the
+  `Celestial terraforming` section of the config, for new worlds). Builds 0.16 to 0.22 had them always on; none
+  of those was published, but a world played on one shows its comets again only once you turn them on. Off,
+  nothing about comets is offered or shown, and the console comet and every comet command say they are off;
+  a world's comets are kept as they are: one in flight or coming down stops where it is, a rocket running a
+  comet action goes idle, and all of it carries on from where it stopped when comets are turned on again.
+- **Debug commands for setting up a comet situation by hand**, for the host, to test each stage of a comet in a
+  creative game without the long way round. `terraform comet discover [ice|mineral]` finds a new site of that
+  kind, as a finished Discover scan would. `terraform comet rocket` lists the rockets, with what each carries for
+  a comet; `terraform comet rocket <n> <site>|entry` ends the trip of a rocket already in space there at once, as
+  if it had just flown there, and `fill` tops up its fuel tanks with 2:1 methane and oxygen.
+  `terraform comet arrive <id>` brings a comet in flight to orbit now, with the fuel the trip would have left
+  it; a comet that would run out of fuel is not brought in, and `terraform comet arrive <id> strand` leaves it
+  where it would run out. Nothing changes for a game that does not use them.
+
+## 0.22.4 (prototype)
+
+- **Two copies of the mod in one game now say so.** With the Workshop copy and a local copy both enabled, the game
+  loads both; the second used to report that the planet's methods "did not all convert" and leave the planet as
+  shipped, which read like a broken install. It now logs `Terraforming Reloaded is loaded twice (<first> and <second>);
+  only the first is active` and stays out of the way, and the first copy runs as normal. Keep one of the two.
+
+## 0.22.3 (prototype)
+
+- **A comet's cloud no longer drops out of sight partway through its rise.** The column of smoke used
+  to be renewed in waves: its puffs all rose and faded together, and for a while nothing was left low enough to
+  see before the next wave had climbed. It is now fed evenly, so it stands as one column the whole time. In the
+  first minute the column is a little thinner than before.
+- **The comet's own lines are in `BepInEx\LogOutput.log`** with the rest of the mod's, so a log sent with a report
+  shows what a comet did. Before, they went only to the game's own log.
+
+## 0.22.2 (prototype)
+
+- **A falling rock that lands on a structure now always damages it.** It takes the rock's whole 200, however the
+  structure is shaped; before, a rock that came down on something open, such as a frame's bare beams, could pass
+  through it and do nothing. Anything else within a metre still takes less the further it is, and each thing a
+  rock reaches is damaged once, where before something made of many parts could take the rock several times over.
+
+## 0.22.1 (prototype)
+
+- **On a dedicated server, `terraform comet` comes down in front of a player.** It is aimed from the player who
+  ran it, when a player sends it from their own game with `serverrun` (both games need the same
+  `ServerAuthSecret` in `setting.xml`), and otherwise from the first player online: where they stand and the way
+  they face. Before, a dedicated server could aim it from a camera of its own that nobody sees, so `turn=` and
+  `range=` meant nothing to the players. The safe distance from every player and every structure is unchanged.
+
+## 0.22.0 (prototype)
+
+- **Close to an impact, a comet does more than its pressure wave.** Worked out once, at the impact, for every
+  structure and every player, and done as the wave reaches each one:
+  - **Ground zero**: every structure there is destroyed, whatever it is built of, inside a base or out, and anyone
+    standing there dies. Out to 186 m from where it lands for a comet of a million moles, 400 m for ten million.
+  - **The fireball** burns what is in it: every structure facing the outside, and anyone outdoors, takes the burn
+    damage of standing in lava for as long as the fireball takes to grow. About 110 for a million moles and 300 for
+    ten million, where a Composite Window has 220 and a solar panel 445; a suit takes it in place of the person
+    wearing it. The wave then breaks what it would break anyway. The heat reaches exactly as far as the fireball is
+    drawn: 625 m for a million moles, 1.6 km for ten million.
+  - **Falling rocks**, further out, to where the wave still breaks ordinary windows: a rock may come down on a
+    structure, or on a player out in the open, as a small explosion. They come down most often just past the
+    fireball and less and less further out, and a little after the wave. At most `MaxDamagingRocks` (40) a comet;
+    rocks over open ground are only seen.
+- **New setting `FireballHeatFactor`** (1): how far the fireball's heat reaches, as a multiple of the fireball as
+  drawn. It replaces `FireballRadiusFactor`, which measured the fireball against ground zero. A world that had
+  changed `FireballRadiusFactor` now takes `FireballHeatFactor` from the config; set it again with
+  `terraform set FireballHeatFactor <value>`.
+- **`terraform comet` never lands a comet so close that you stand in its fireball.** It keeps a quarter of the
+  fireball's size beyond it, and beyond ground zero, from everything you have built and every player: 4.9 km for a
+  hundred million moles and 12.4 km for a billion (2.75 and 3 km before). Up to ten million moles nothing changes.
+- **Comets brought down by rocket on a Long or full-size planet** have a wider landing area, reaching 8.9 km and 15.4
+  km from the launch pad (5.45 and 5.75 km before), so the biggest comet such a planet allows can
+  still be brought down outside its own fireball while you watch it. Standard and Short planets are unchanged.
+- **Comets are drawn at the size of the blast their wave implies.** A million moles is drawn as a 219 kiloton
+  blast, a fireball reaching 625 m out and a cloud rising to 15 km; ten million as 2.2 megatons, 1.6 km and 27
+  km. The cloud goes on rising and spreading for about five and a half minutes, and a second
+  `terraform comet` waits until it is done.
+- **Comet impacts read as the size they are from close by**: a glowing fireball with a boiling, darker-edged
+  surface that cools from white through orange to red; a rising column of lit cloud as wide as the plume; a
+  mushroom cap with a sunlit top and an underside lit warm by the fireball; a low dust surge rolling out along the
+  ground. The impact flash no longer whites out the view for more than a few tenths of a second, so the ground
+  stays readable. Fewer, larger particles.
+- **The sound is as loud as the wave is strong where you are**: a big comet close by at full volume, a small or
+  distant one quieter, by how loud sound seems to the ear.
+- **The darker sky follows the comet's size**: a small comet barely dims it (5 % for ten thousand moles), a
+  million moles by about a third, ten million and more by about half.
+
+Nothing in an existing save needs changing. A config or world that set `FireballRadiusFactor` loses that value
+(above).
+
+## 0.21.0 (prototype)
+
+- **Bring a comet down.** A new action on the rocket map screen, **Deorbit**, for a rocket at the planet's orbit
+  while a comet waits there in the sky. It fires the comet's burn at once: the comet comes down where the
+  rocket's payload bay says it would land at that moment (its TargetX and TargetZ readouts), steered toward the
+  bay's PositionX and PositionZ as far as the comet's spare fuel allows, and the steering uses up that fuel.
+  Time the burn by the bay's readouts, or by eye: a comet nearly overhead comes down near the launch pad.
+- **No target, no steering.** Write NaN to the bay's PositionX or PositionZ and the burn is untracked: the comet
+  comes down under where it is in the sky, near the launch pad nearest the middle of the map, with no fuel spent
+  on steering. A bay whose target was never set aims at the middle of the map, as a payload drop would.
+- **Everyone is warned.** The moment a comet is brought down, every player's console says when it lands and how
+  far away from them, and which way. It falls for 50 seconds (`EntryWindowSeconds`), leaving the sky and the
+  space map at once, and is seen coming in for the last 15 of them.
+- **The landing.** It is the same impact as `terraform comet`, with its wave, its sound and its darker sky, but
+  nothing keeps it away from a base: a comet lands where it is brought down, your own base included. An ice comet
+  brings 70 % of its gas to the planet (`GasArrivingShare`). A mineral comet blasts the planet's own air away, 0.7
+  kg of air for each kilogram of ore (`MineralRemovalPerKg`), every gas in the same share, so the mix stays as it
+  was. Either way the planet's stored heat stays as it was: the new air arrives at the planet's own temperature.
+- **One comet at a time.** Deorbit waits until the last comet has landed and its show is over.
+- **Saves.** A save while a comet is falling keeps it, and after loading it lands at the time it would have. A
+  save loads without the mod as before, the falling comet simply gone.
+- `terraform comet make <site> <units> Ore engines=<n> fuel=<mol>` makes a mineral comet for testing, and
+  `terraform comet list` shows comets on their way down. `terraform comet stop` ends a comet's show, but a comet
+  brought down by rocket still lands.
+
+Nothing in an existing config or save needs changing. A save from this version cannot be opened by 0.20.0 and
+earlier with its comets: they would be left out.
+
+## 0.20.0 (prototype)
+
+- **A comet in orbit is in the sky.** Once a comet reaches the planet's orbit it circles the planet as a moon
+  does, once every `OrbitSeconds` (372 s, as Phobos goes round Mars), rising, crossing the sky and setting, a
+  little further round each time as the planet turns under it. Every player sees it in the same place. It
+  shows as a small glow with a tail turned away from the sun, and the Celestial Scanner marks and names it.
+- **The Ground Telescope can track it.** It locks onto the comet as onto any moon and reads its orbit. Built
+  facing north, the telescope's Horizontal is the comet's compass bearing and its Vertical the comet's angle
+  down from straight up. During a storm the orbit readings go blank while the lock stays.
+- **Aiming a comet.** A rocket at the planet's orbit aims a comet waiting there with its payload bay's
+  PositionX and PositionZ, the same target a payload drop uses. The bay then reads out where the comet would
+  come down if it were brought down now (TargetX, TargetZ), how far that is from the nearest structure
+  (DistanceKm), the seconds until the comet is next at its highest in the sky (TimeToDestination), and how far
+  its spare fuel can move the landing, in metres (Maximum). The landing area is centred on the launch pad
+  nearest the target. This version has no burn: a comet in orbit stays there.
+- **The Map motherboard** shows two icons for an aimed comet, with its trackables switch on: the target in
+  orange, and where it lands now in icy blue, which slides across the map as the comet passes overhead.
+  Clicking the map names them.
+
+Nothing in an existing config or save needs changing. A payload bay's target is not kept by the game when a
+world is loaded, so a chip that aims a comet should set it again after a load.
+
+## 0.19.0 (prototype)
+
+- **Comets are made and sent by rocket.** Four new actions on the rocket map screen, at a site a rocket stands
+  at, beside the game's own:
+  - **Cut**, with a Rocket Miner and its drill heads at an ice or mineral site: every drill cycle grows the
+    site's comet by a share of the site instead of making ice or ore, at the miner's own pace and with its own
+    head wear, and the site is mined out as it would be by mining. An ice site makes an ice comet, which adds
+    gas to the planet; a mineral site makes a mineral comet, which takes air away. Use the head made for the
+    site: one that mines nothing there cuts nothing. The location panel shows how much of what the site can
+    give the comet holds.
+  - **Rig** is the game's own Deploy, offered at a site where a comet waits: put Pumped Gas engine kits in a
+    Payload Delivery Container in the rocket's payload bay, and when the deploy finishes every kit becomes an
+    engine on the comet. The container stays in the bay for the next load.
+  - **Fuel** moves the methane and oxygen in the rocket's tanks and pipes into the comet, two of methane to one
+    of oxygen, as fast as a Turbo Volume Pump would. Anything else in the tanks stays. It runs until you stop
+    it, so keep back what the rocket needs to fly home and land.
+  - **Burn** turns an ice comet's own methane and oxygen into its fuel, a drill cycle at a time. It saves
+    trips, but every mole burnt is a mole the planet never gets.
+  - **Launch** sends a comet that has engines and fuel to the planet's orbit. The panel shows how much fuel
+    its route takes; a comet sent with less runs dry on the way and is lost.
+- **A comet weighs less than its gas.** It weighs what was cut from its site, times the new
+  `CometMassScale` setting (0.39); the extra gas the comet size setting gives weighs nothing, so a comet cut the
+  same way weighs the same on every planet size. At 0.39 even the heaviest comet a Mars map can make needs no
+  more time spent flying its fuel up to it than cutting it took.
+- **Two more new settings:** `MineralKgPerUnit` (2.592 kg, what a unit of ore in a mineral comet weighs, the
+  same as a unit of water ice) and `FuelLitresPerSecond` (200, how fast Fuel fills a comet).
+- **On a planet larger than Standard, the landing area grows** with the biggest comet that planet allows, so a
+  comet you can track can still be brought down far enough away from your base. Standard and Short planets
+  are unchanged.
+- **Saves stay loadable without the mod.** A rocket running a comet action is saved as idle in the game's own
+  data and put back to work by the mod after the load.
+- `terraform comet make` comets now weigh by the same rule, and `terraform comet list` shows a comet's ore and
+  its Cut cycles.
+
+Nothing in an existing config or save needs changing. The three new settings take their defaults; a world's
+settings file gains them the next time it is written. A save from 0.18.0 loads its comets as ice comets, each
+keeping the weight it was made with.
+
+## 0.18.0 (prototype)
+
+- **Comets on the space map.** A comet is now an object on the rocket map screen, with an icon of its own: an
+  icy blue asteroid, told apart from rockets by its colour and its name when you hover over it. Sent from the
+  site it waits at, it flies the whole way to the planet's orbit along the route a rocket would take, moving
+  as a rocket with its mass, engines and fuel would, and parks there. If its fuel runs out on the way it stops
+  where it is, for good. Its icon moves along the route as a rocket's does.
+- **Saved with the world.** A save made while a comet is flying loads with it exactly where it was, and it
+  carries on to arrive when it would have. The comets are stored inside the save file itself, so loading an
+  older save brings back that save's comets. A save that holds comets still loads in the game without the mod,
+  which ignores them.
+- **Every player sees the same comets**, sent by the host when they change and to anyone who joins.
+- **A site a comet is at, or flying from, cannot be removed from the map.**
+- **Debug commands, for testing until comets are made by rocket:** `terraform comet make` lists the
+  discovered sites, and `terraform comet make <site> <mol> <gas>[:<share>] ... engines=<n> fuel=<mol>` puts a
+  comet at one; `terraform comet send <id>` sends it to the planet's orbit; `terraform comet list` shows every
+  comet, where it is, its fuel, and when it arrives or runs dry. The host runs make and send.
+- **Comet size follows the planet's size.** The `CometSizeMultiplier` setting is now the size on a
+  Standard-size planet; the size in force grows and shrinks with the planet: five times larger on a Long
+  planet, a fifth on a Short one, but never under 1. So one site never brings more than a third of the air a
+  planet needs, whatever its size. `terraform comet list` shows the size in force.
+
+Nothing in an existing config or save needs changing. A world that recorded `CometSizeMultiplier` keeps its
+value, now read as the size at Standard planet size; nothing uses it in play yet.
+
+## 0.17.0 (prototype)
+
+- **New config section, Celestial terraforming.** Thirteen settings for comets made and brought down by
+  rocket: how big Cut makes a comet and how many drill cycles that takes, how long its orbit is and how it is
+  tilted while it waits to come down, how far from the launch pad it can land and how far its spare fuel can
+  steer it, how far ground zero, the fireball and the falling rocks reach, how many rocks can hit, how much of
+  an ice comet's gas reaches the planet and how much air a mineral comet takes away. Each default is worked out
+  from the game's own rules and numbers, and `docs/COMET-ROCKETS.md` shows the arithmetic beside each one. In
+  0.17.0 they change nothing in play: they take effect in the versions that add comets made by rocket.
+- **Each world keeps its own**, like the mod's other world settings: the config decides what a new world starts
+  with, and `terraform set <Key> <value>` changes the world you are playing. A world's settings file gains them
+  the next time it is written; until then that world takes the config's.
+- **In multiplayer the host's values apply**, sent to joining players with the planet. Host and joining
+  players must run the same version, as before.
+
+Nothing in an existing config or save needs changing.
+
+## 0.16.1 (prototype)
+
+- **A comet comes down on the ground you see.** On worlds whose distant ground curves away below the
+  horizon, the game draws far-off ground lower the further it is from you: on Mars about 300 m lower at
+  2 km. The explosion, the column and the cloud were drawn at the ground's true height, so they
+  hung hundreds of metres in the air above the ground you could see. They now sit on it, for every player
+  from wherever they stand, and stay on it as you move. The pressure wave and the sound still travel the
+  true distance.
+- **A comet lands at the height of the ground where it comes down**, not at the height you were standing
+  at when you sent it. One that comes down past the edge of the world's terrain lands at the height of the
+  nearest edge.
+
+## 0.16.0 (prototype)
+
+- **A comet's impact now reaches your base.** The bigger the comet, the stronger the pressure wave that
+  spreads from where it lands, at the speed of sound. Windows, doors, walls and hatches that face the
+  outside break the moment the wave reaches them, if it is stronger than they are built to take, and the
+  air goes out through them as through any broken window. A window with a room on both sides, deep inside a
+  base, is sheltered by the rooms around it and holds. Reinforced windows and walls hold against every comet.
+  What breaks at the nearest a comet may land:
+
+  | Comet | Nearest it lands | Breaks there |
+  |---|---|---|
+  | 100,000 mol | 2,000 m | nothing |
+  | 1,000,000 mol | 2,250 m | nothing |
+  | 10,000,000 mol | 2,500 m | ordinary windows and glass doors |
+  | 100,000,000 mol | 2,750 m | also composite walls, window shutters and hatches |
+  | 1,000,000,000 mol and up | 3,000 m | also airlocks |
+
+  A base further away gets less: at twice the distance, a quarter of the push on its walls. This is a game
+  rule set by the comet's size, not worked out from the planet's air, so a comet hits a base on thin-aired
+  Mars as hard as one on Venus.
+- **A comet always comes down in the distance.** It never lands nearer than 1,750 to 3,000 m (more for a
+  bigger comet) to any structure or player, and never passes low over a base on its way in. Without
+  `range=` it lands as near as that allows, where you are looking. If where you asked is too close, it lands
+  further out or turns aside, and the reply says where.
+- **Standing outside when the wave arrives is a risk.** A small comet gives a shove. A medium one throws you
+  a few metres. A huge one throws you hard and damages your suit and helmet at once, so they leak until you
+  repair them with duct tape. It is not strong enough to knock you out on its own. Everyone feels the ground shake, indoors too.
+- **Everyone sees and hears it.** In multiplayer every player sees and hears the same comet at the same
+  moment, wherever they are, and a player who joins while it is falling or settling sees the rest of it. The
+  host's game decides everything and breaks the structures; each player is thrown on their own game. Host
+  and joining players must all run this version.
+- **The explosion shows what the comet is made of.** Water flashes out a white dome and climbs as a white
+  column. A fuel (volatiles, hydrogen, hydrazine) with oxygen or nitrous oxide, brought by the comet or in
+  the planet's air, bursts into a second, bigger fireball a moment later and glows longer. Carbon dioxide
+  rolls out along the ground as a grey-white fog. Pollutant and hydrochloric acid leave a yellow-green haze
+  that settles and lingers. Nitrogen and helium make the cloud shimmer blue-violet and the flash sharper. A
+  mixed comet shows each, as strongly as its share.
+- **It sounds like one.** An air rush and a roar build as it falls, and a sonic boom as it comes through the
+  sky. The impact is silent: the sound arrives seconds later, as far behind the flash as the impact is away,
+  first as a thump through the ground, then the boom and the long rumble, then the wind of the wave with
+  glass breaking and creaking at the structures it reaches. Debris bursts in the sky afterwards and a storm
+  passes. It all follows your volume settings, and thin air and your helmet muffle it like any other sound,
+  so on an airless world you feel the thump and hear no boom.
+- **The sky goes darker afterwards.** The dust thrown up dims the sky, the daylight and the sun, from 15 %
+  for a small comet to 55 % for the largest, darkest after half a minute and back to normal after about five
+  minutes. Only the look changes: solar panels make what they made before.
+- **It reads better in daylight.** The smoke is thicker and rolls as it rises, the glow stays inside the
+  cloud, and the fire no longer cuts hard edges into the ground.
+- `preview` still shows and sounds the whole comet and darkens the sky, and now also breaks nothing and
+  throws and hurts nobody, as well as adding no gas.
+
+## 0.15.0 (prototype)
+
+- **New: call a comet down on the planet.** `terraform comet <mol> <gas>:<share> ...` sends a comet
+  at the planet, for example `terraform comet 1e6 CarbonDioxide:60 Water:25 NitrousOxide:15`. It
+  appears high in the sky in front of you and falls for about 16 seconds. When it lands its gas goes
+  into the planet's air, `<mol>` in all (for the whole planet), each gas getting its share. The fire,
+  the mushroom cloud and the glow afterwards take the colours of the gases it brings. The sound
+  arrives a few seconds after the flash, the further away the impact the longer the wait. More moles
+  make a bigger impact. `turn=<deg>` brings it down to the right of where you are looking (negative
+  for left), `range=<m>` sets how far away, `K=<kelvin>` how hot its gas arrives (left out, at the
+  planet's own temperature, so it neither heats nor cools the planet), and `preview` shows it
+  without adding anything. `terraform comet stop` calls it off. Host only, and only the host sees
+  it: joining players get the gas but not the show.
+
+## 0.14.0
+
+- **New, off by default: a storm floor and ceiling.** Run `terraform set StormFloorKelvin <K>` and a
+  storm on the world you are playing never takes the planet colder than that, or `terraform set
+  StormCeilingKelvin <K>` and never hotter. Only the storm's own effect is limited: a planet that is
+  already colder than the floor without the storm stays as cold as it is, and nothing changes while
+  no storm runs. Use it when a world's storms would freeze the air out of the sky, for example a floor
+  just above 220 K keeps carbon dioxide from freezing during a cold snap. Freezing, melting and the
+  outdoor air all follow the limited temperature. It applies at once, to a storm already running too,
+  and `terraform` shows both bounds under `storms:` and how much they are holding the planet back.
+  `0` or `none` removes one. The config's `StormFloorKelvin` and `StormCeilingKelvin` (the `Storms`
+  section) set what a new world starts with. A world saved before this version has neither, whatever
+  the config says, until you set them for that world. In multiplayer the host's bounds apply to
+  everyone, and host and joining players must both run this version.
+
 ## 0.13.2
 
 - **Fixed a crash when rain turns to snow, or snow to rain.** When the clouds that make snow filled

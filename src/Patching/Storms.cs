@@ -110,6 +110,7 @@ namespace TerraformingReloaded.Patching
         private static double _keyToxinMoles;
         private static double _keyOrbitPercent;
         private static bool _keyWeatherRunning;
+        private static StormBounds _keyBounds;
 
         private static volatile string _toxinBoundOff;
 
@@ -127,6 +128,7 @@ namespace TerraformingReloaded.Patching
         {
             _haveSweep = false;
             _keyData = null;
+            _keyBounds = null;
             _now = null;
             Interlocked.Exchange(ref _rainsHeldBack, 0);
             _lastRainHeldBack = null;
@@ -352,6 +354,10 @@ namespace TerraformingReloaded.Patching
         /// the clean case: they are the same at every angle, so they come out of the cached figures
         /// and go back in fresh every call.
         ///
+        /// While a storm runs inside storm bounds the offsets do not come out cleanly: a bound holds
+        /// the temperature at a fixed figure, which the heat does not move. The sweep is then taken
+        /// fresh every tick, and also whenever the bounds themselves change.
+        ///
         /// The air is keyed on what the temperature actually consumes -- the greenhouse index and
         /// the gas density -- plus the toxin moles, and not on total moles: swapping 42 mol of
         /// methane for 42 mol of nitrogen leaves the total alone and changes all three.
@@ -380,6 +386,7 @@ namespace TerraformingReloaded.Patching
             double density = IdealGas.GetMilliMolesPerLitre(tank.Volume, gas);
             MoleQuantity toxins = ToxinMoles(tank);
             bool weatherRunning = WeatherManager.IsWeatherEventRunning;
+            StormBounds bounds = Effective.StormBounds;
 
             if (!_haveSweep
                 || !ReferenceEquals(_keyData, data)
@@ -387,6 +394,8 @@ namespace TerraformingReloaded.Patching
                 || density != _keyDensity
                 || toxins.ToDouble() != _keyToxinMoles
                 || weatherRunning != _keyWeatherRunning
+                || !ReferenceEquals(bounds, _keyBounds)
+                || (weatherRunning && !bounds.IsOff)
                 || Math.Abs(percent - _keyOrbitPercent) >= OrbitStep)
             {
                 if (!TakeSweep(tank, data, (float)percent, heat))
@@ -399,6 +408,7 @@ namespace TerraformingReloaded.Patching
                 _keyDensity = density;
                 _keyToxinMoles = toxins.ToDouble();
                 _keyWeatherRunning = weatherRunning;
+                _keyBounds = bounds;
                 _keyOrbitPercent = percent;
                 _haveSweep = true;
             }
@@ -540,10 +550,12 @@ namespace TerraformingReloaded.Patching
                     ? "the host decides this; a client is not asked"
                     : (Gate.Enabled() ? "not worked out yet" : Gate.Describe());
                 text.AppendLine("  storms: " + why);
+                text.AppendLine("    bounds:    " + Bounds(c));
                 return;
             }
 
             text.AppendLine("  storms: " + Verdict(snapshot, c));
+            text.AppendLine("    bounds:    " + Bounds(c));
             text.AppendLine("    stripped:  " + Stripped(snapshot, c));
             foreach (string line in Mild(snapshot, c))
             {
@@ -558,6 +570,36 @@ namespace TerraformingReloaded.Patching
             {
                 text.AppendLine("    rain:      " + rain);
             }
+        }
+
+        /// <summary>
+        /// The floor and ceiling on what a running storm does to the planet temperature, and what
+        /// they are doing at the last planet tick.
+        /// </summary>
+        private static string Bounds(CultureInfo c)
+        {
+            StormBounds bounds = Effective.StormBounds;
+            string set = string.Format(c, "floor {0}, ceiling {1}; a storm never takes the planet past them",
+                bounds.FloorKelvin.HasValue ? string.Format(c, "{0:0.##} K", bounds.FloorKelvin.Value) : "none",
+                bounds.CeilingKelvin.HasValue ? string.Format(c, "{0:0.##} K", bounds.CeilingKelvin.Value) : "none");
+            if (bounds.IsOff)
+            {
+                return "none; a storm changes the temperature by its full offset (StormFloorKelvin, StormCeilingKelvin)";
+            }
+            if (!(WeatherManager.IsWeatherEventRunning && WeatherManager.CurrentWeatherEvent != null))
+            {
+                return set + "; no storm is running";
+            }
+            double shift = Climate.LastStormBoundShift;
+            if (shift > 0.0)
+            {
+                return set + string.Format(c, "; the floor is holding the planet {0:0.#} K above where the storm would take it", shift);
+            }
+            if (shift < 0.0)
+            {
+                return set + string.Format(c, "; the ceiling is holding the planet {0:0.#} K below where the storm would take it", -shift);
+            }
+            return set + "; the storm is within them now";
         }
 
         private static string Verdict(Snapshot snapshot, CultureInfo c)
