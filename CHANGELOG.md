@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Host tools start PowerShell 7 (the live-check and leak-test scripts need `pwsh`).
+
 ## 0.13.2
 
 - **Fixed a crash when rain turns to snow, or snow to rain.** When the clouds that make snow filled

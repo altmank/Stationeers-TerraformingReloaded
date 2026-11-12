@@ -58,7 +58,7 @@ def game_running():
 
 
 def ps(script, *args):
-    return subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', os.path.join(TS_ROOT, script)] + list(args),
+    return subprocess.run(['pwsh', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', os.path.join(TS_ROOT, script)] + list(args),
                           capture_output=True, text=True)
 
 
@@ -87,7 +87,7 @@ class Rig:
         shutil.copytree(os.path.join(REPO, 'tools', 'LiveCheck', 'About'), os.path.join(lc, 'About'))
         shutil.copy(os.path.join(REPO, 'tools', 'LiveCheck', 'bin', 'Release', 'TRLiveCheck.dll'), lc)
         command = "& '%s' -Mods @('%s','%s'); exit $LASTEXITCODE" % (os.path.join(TS_ROOT, 'setup.ps1'), tr, lc)
-        r = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], capture_output=True, text=True)
+        r = subprocess.run(['pwsh', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], capture_output=True, text=True)
         if r.returncode != 0:
             raise Stop('setup failed: ' + r.stdout[-400:] + r.stderr[-400:])
 
