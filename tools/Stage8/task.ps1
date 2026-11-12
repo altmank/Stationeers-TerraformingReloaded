@@ -1,3 +1,4 @@
+#Requires -Version 7.5
 <#
 .SYNOPSIS
   Starts tools/Stage8/run.ps1 in a logged-on user's desktop session through a one-off scheduled task, waits for
@@ -49,7 +50,7 @@ Set-Content -Path $go -Encoding UTF8 -Value @(
     "& '$($run -replace "'", "''")' -Root '$($Root -replace "'", "''")' -Out '$($out -replace "'", "''")' $RunArgs",
     'exit $LASTEXITCODE'
 )
-$action = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$go`""
+$action = "pwsh.exe -NoProfile -ExecutionPolicy Bypass -File `"$go`""
 & schtasks /Create /TN $TaskName /TR $action /SC ONCE /ST 00:00 /IT /RU $User /F | Write-Host
 if ($LASTEXITCODE -ne 0) { throw "schtasks /Create failed ($LASTEXITCODE)." }
 & schtasks /Run /TN $TaskName | Write-Host

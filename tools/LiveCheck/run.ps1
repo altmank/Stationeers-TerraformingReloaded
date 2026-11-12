@@ -1195,7 +1195,7 @@ try {
         Remove-Item (Join-Path $mods 'TerraformingReloaded') -Recurse -Force
         if ($TestServer) {
             $only = "'" + (Join-Path $mods 'TRLiveCheck') + "'"
-            & powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
+            & pwsh -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
             if ($LASTEXITCODE -ne 0) { throw 'The test server setup failed.' }
         }
         $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETACTIONS = 'vanilla'; TR_LIVECHECK_COMETACTIONS_ROCKET = $rocketId } `
@@ -1360,7 +1360,7 @@ try {
         Remove-Item (Join-Path $mods 'TerraformingReloaded') -Recurse -Force
         if ($TestServer) {
             $only = "'" + (Join-Path $mods 'TRLiveCheck') + "'"
-            & powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
+            & pwsh -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
             if ($LASTEXITCODE -ne 0) { throw 'The test server setup failed.' }
         }
         $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETSKY = 'vanilla'; TR_LIVECHECK_COMETSKY_TELESCOPE = $telescopeId } `
@@ -1460,7 +1460,7 @@ try {
         Remove-Item (Join-Path $mods 'TerraformingReloaded') -Recurse -Force
         if ($TestServer) {
             $only = "'" + (Join-Path $mods 'TRLiveCheck') + "'"
-            & powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
+            & pwsh -NoProfile -ExecutionPolicy Bypass -Command "& '$(Join-Path $TestServerRoot 'setup.ps1')' -Mods @($only); exit `$LASTEXITCODE" | Write-Host
             if ($LASTEXITCODE -ne 0) { throw 'The test server setup failed.' }
         }
         $log = Invoke-Game @('-file', 'start', $station, $World) @{ TR_LIVECHECK_INJECT = '0'; TR_LIVECHECK_COMETLAND = 'vanilla'; TR_LIVECHECK_COMETLAND_TELESCOPE = $telescopeId; TR_LIVECHECK_COMETLAND_ROCKET = $rocketId } `
